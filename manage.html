@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Manage The Codex</title>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap" rel="stylesheet">
+    <link href="manage-styles.css" rel="stylesheet">
+</head>
+<body>
+    <div class="container">
+        <header class="grid">
+            <h1 class="col-8">Manage The Codex</h1>
+            <div class="col-4">
+                <a href="index.html" class="home-link">Back to Home</a>
+            </div>
+        </header>
+
+        <main>
+            <div class="tabs">
+                <button class="tab-button active" data-tab="add-site">Add Site</button>
+                <button class="tab-button" data-tab="manage-categories">Manage Categories</button>
+                <button class="tab-button" data-tab="manage-links">Manage Links</button>
+                <button class="tab-button" data-tab="quick-actions">Quick Actions</button>
+            </div>
+
+            <div class="tab-content active" id="add-site">
+                <h2>Add New Site</h2>
+                <form id="linkForm" class="form-grid">
+                    <input type="text" id="siteName" placeholder="Site Name" required class="col-12 col-md-4">
+                    <input type="url" id="siteUrl" placeholder="Site URL" required class="col-12 col-md-4">
+                    <select id="siteCategory" class="col-12 col-md-2">
+                        <option value="">Select Category</option>
+                    </select>
+                    <button type="submit" class="btn-primary col-12 col-md-2">Add Site</button>
+                </form>
+            </div>
+
+            <div class="tab-content" id="manage-categories">
+                <h2>Manage Categories</h2>
+                <div class="form-grid">
+                    <form id="createCategoryForm" class="col-12 col-md-4">
+                        <input type="text" id="newCategoryName" placeholder="New Category Name" required>
+                        <button type="submit" class="btn-secondary">Create Category</button>
+                    </form>
+                    <form id="editCategoryForm" class="col-12 col-md-4">
+                        <select id="editCategorySelect">
+                            <option value="">Select Category to Edit</option>
+                        </select>
+                        <input type="text" id="editCategoryName" placeholder="New Category Name" required>
+                        <button type="submit" class="btn-secondary">Rename Category</button>
+                    </form>
+                    <form id="deleteCategoryForm" class="col-12 col-md-4">
+                        <select id="deleteCategorySelect">
+                            <option value="">Select Category to Delete</option>
+                        </select>
+                        <button type="submit" class="btn-danger">Delete Category</button>
+                    </form>
+                </div>
+            </div>
+
+            <div class="tab-content" id="manage-links">
+                <h2>Manage Links</h2>
+                <div class="filter-actions grid">
+                    <select id="filterCategory" class="col-6 col-md-3">
+                        <option value="all">All Categories</option>
+                    </select>
+                    <div class="select-all-container col-6 col-md-3">
+                        <input type="checkbox" id="selectAllCheckbox">
+                        <label for="selectAllCheckbox">Select All</label>
+                    </div>
+                </div>
+                <div class="bulk-actions grid">
+                    <button id="bulkDeleteBtn" class="btn-danger col-12 col-md-3">Delete Selected</button>
+                    <select id="moveCategory" class="col-12 col-md-6">
+                        <option value="">Move Selected To</option>
+                    </select>
+                    <button id="bulkMoveBtn" class="btn-secondary col-12 col-md-3">Move Selected</button>
+                </div>
+                <div id="linksContainer" class="links-container"></div>
+                <div id="paginationControls" class="pagination grid">
+                    <button id="prevPage" class="btn-secondary col-4">Previous</button>
+                    <span id="pageInfo" class="col-4">Page 1 of 1</span>
+                    <button id="nextPage" class="btn-secondary col-4">Next</button>
+                </div>
+            </div>
+
+            <div class="tab-content" id="quick-actions">
+                <h2>Quick Actions</h2>
+                <div class="button-group grid">
+                    <button id="exportBtn" class="btn-primary col-12 col-md-4">Export Sites</button>
+                    <button id="importBtn" class="btn-primary col-12 col-md-4">Import Sites</button>
+                    <input type="file" id="importFile" accept=".json" style="display: none;">
+                    <button id="importBookmarksBtn" class="btn-primary col-12 col-md-4">Import Bookmarks</button>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <div id="editModal" class="modal hidden">
+        <div class="modal-content">
+            <span class="close-button">&times;</span>
+            <h2>Edit Site</h2>
+            <form id="editForm" class="form-grid">
+                <input type="text" id="editSiteName" required class="col-12">
+                <input type="url" id="editSiteUrl" required class="col-12">
+                <select id="editSiteCategory" class="col-12"></select>
+                <button type="submit" class="btn-primary col-12">Save Changes</button>
+            </form>
+        </div>
+    </div>
+
+    <script src="manageScript.js" type="module"></script>
+</body>
+</html>

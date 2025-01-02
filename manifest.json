@@ -1,0 +1,33 @@
+{
+  "manifest_version": 3,
+  "name": "The Codex",
+  "version": "5.6",
+  "description": "A new tab replacement called The Codex that allows you to create a list of quick access sites.",
+  "permissions": [
+    "storage",
+    "bookmarks",
+    "activeTab",
+    "tabs"
+  ],
+  "chrome_url_overrides": {
+    "newtab": "index.html"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": {
+      "128": "icons/icon128.png"
+    }
+  },
+  "icons": {
+    "128": "icons/icon128.png"
+  },
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'"
+  },
+  "web_accessible_resources": [
+    {
+      "resources": ["icons/*"],
+      "matches": ["<all_urls>"]
+    }
+  ]
+}

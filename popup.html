@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Add to Codex</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.1.1/css/all.min.css">
+    <link rel="stylesheet" href="popup-styles.css">
+</head>
+<body>
+    <h2><i class="fas fa-book-open"></i> Add to The Codex</h2>
+    <form id="addSiteForm">
+        <div class="form-group">
+            <label for="siteName"><i class="fas fa-signature"></i> Site Name</label>
+            <input type="text" id="siteName" required>
+        </div>
+        <div class="form-group">
+            <label for="siteUrl"><i class="fas fa-link"></i> Site URL</label>
+            <input type="text" id="siteUrl" readonly>
+        </div>
+        <div class="form-group">
+            <label for="siteCategory"><i class="fas fa-folder"></i> Category</label>
+            <select id="siteCategory" required>
+                <option value="">Select Category</option>
+            </select>
+        </div>
+        <button type="submit" id="addSite"><i class="fas fa-plus"></i> Add Site</button>
+    </form>
+    <p id="message"></p>
+    <script src="popup.js"></script>
+</body>
+</html>
