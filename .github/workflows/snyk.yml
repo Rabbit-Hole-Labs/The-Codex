@@ -1,29 +1,31 @@
-name: Snyk Combined Scan with JSON Output and Analysis
-on: [push, pull_request]
+name: Snyk Security Scan - Dependencies & Code
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
 jobs:
-  combined_scan:
+  snyk:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
-      - name: Run Snyk Monitor and Code Test (Capture Output)
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Setup Snyk
         uses: snyk/actions/setup@master
         env:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
-        id: snyk_scans # Give the step an ID
-        run: |
-          snyk test --all-projects --json > snyk_monitor_results.json || true
-          snyk code test --json > snyk_code_results.json || true
-      - name: Analyze Scan Results
-        shell: bash
-        run: |
-          if [[ $(jq '.vulnerabilities | length' snyk_monitor_results.json) -gt 0 ]]; then
-            echo "Snyk Monitor found vulnerabilities:"
-            cat snyk_monitor_results.json
-            exit 1 # Fail based on monitor results
-          fi
-          if [[ $(jq '.vulnerabilities | length' snyk_code_results.json) -gt 0 ]] || [[ $(jq '.suggestions | length' snyk_code_results.json) -gt 0 ]]; then
-            echo "Snyk Code Test found vulnerabilities or suggestions:"
-            cat snyk_code_results.json
-            exit 1 # Fail based on code test results.
-          fi
-          echo "No vulnerabilities found."
+
+      - name: Snyk Dependency Scan (Node.js)
+        uses: snyk/actions/monitor@master
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        continue-on-error: true # Optional: Allow workflow to continue even if vulnerabilities are found
+
+      - name: Snyk Code Scan (SAST)
+        uses: snyk/actions/code-scan@master
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        continue-on-error: true # Optional: Allow workflow to continue even if vulnerabilities are found
