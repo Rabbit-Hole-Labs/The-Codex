@@ -19,13 +19,17 @@ jobs:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
 
       - name: Snyk Dependency Scan (Node.js)
-        uses: snyk/actions/monitor@master
+        uses: snyk/actions/node-test@master
         env:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        with:
+          command: monitor
         continue-on-error: true # Optional: Allow workflow to continue even if vulnerabilities are found
 
       - name: Snyk Code Scan (SAST)
         uses: snyk/actions/code-scan@master
         env:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        with:
+          command: monitor
         continue-on-error: true # Optional: Allow workflow to continue even if vulnerabilities are found
