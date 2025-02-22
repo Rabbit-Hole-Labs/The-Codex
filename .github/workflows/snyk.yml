@@ -1,0 +1,35 @@
+name: Snyk Security Scans
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+jobs:
+  # Other vulnerability scans (Open Source, Container, IaC)
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Run Snyk to check for vulnerabilities (Open Source, etc.)
+        uses: snyk/actions/setup@master
+        continue-on-error: true  # Or false, depending on your policy
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        with:
+          command: monitor  # Or 'test' to fail on vulnerabilities
+          args: --all-projects  # Or specify a file: --file=package-lock.json
+
+  # SAST scan (Snyk Code)
+  sast:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Run Snyk Code to check for vulnerabilities
+        uses: snyk/actions/setup@master
+        continue-on-error: true  # Or false, to fail the build on SAST findings
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        with:
+          command: code test
