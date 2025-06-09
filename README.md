@@ -22,7 +22,3 @@ Enjoy a sleek interface with a choice of themes – including a stylish dark mod
 Why Choose The Codex?
 
 The Codex isn’t just a new tab replacement—it’s a productivity tool built to streamline your digital life. By bringing your essential links front and center, it minimizes distractions and maximizes your efficiency every time you open your browser.
-
-Join the Movement:
-
-Empower your browsing experience with The Codex – an open‑source solution maintained by Rabbit-Hole-Labs. Whether you’re a power user or just looking for a cleaner start every day, The Codex offers the perfect balance of simplicity and functionality.
