@@ -149,8 +149,15 @@ h2 {
   display: flex;
   align-items: center;
   justify-content: center;
+  flex-direction: column;
   height: 100px;
   text-align: center;
+}
+
+.link-icon {
+  width: 32px;
+  height: 32px;
+  margin-bottom: 0.5rem;
 }
 
 .link-tile:hover {

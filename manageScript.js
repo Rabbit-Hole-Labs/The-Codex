@@ -61,10 +61,12 @@ async function handleLinkFormSubmit(e) {
         const elements = UIManager.getElements();
         const name = elements.siteName.value.trim();
         const url = elements.siteUrl.value.trim();
+        const icon = elements.siteIcon.value.trim();
         const category = elements.siteCategory.value.trim() || 'Default';
-        
+
         if (name && url) {
-            await LinkManager.addLink(state, name, url, category);
+            try { new URL(url); } catch { UIManager.showMessage('Invalid URL.', 'error'); return; }
+            await LinkManager.addLink(state, name, url, category, icon);
             e.target.reset();
             await CategoryManager.populateCategories(state);
             UIManager.filterLinks(state);
