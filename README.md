@@ -19,6 +19,19 @@ Add, edit, and organize your sites on the fly with a dedicated management page a
 Modern & Responsive Design:
 Enjoy a sleek interface with a choice of themes – including a stylish dark mode – that adapts perfectly to your workflow.
 
+## Installation
+
+1. Run `npm install` to install dev dependencies.
+2. Load the folder as an unpacked extension in Chrome.
+3. Open a new tab to use The Codex.
+
+## New Features
+
+- Custom icons for each link tile.
+- Links and settings sync across devices via Chrome Sync.
+- Quick keyboard shortcut `/` focuses the search box with autocomplete suggestions.
+
+
 Why Choose The Codex?
 
 The Codex isn’t just a new tab replacement—it’s a productivity tool built to streamline your digital life. By bringing your essential links front and center, it minimizes distractions and maximizes your efficiency every time you open your browser.

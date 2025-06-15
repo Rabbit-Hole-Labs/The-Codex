@@ -1,7 +1,7 @@
 import * as StorageManager from './storageManager.js';
 
-export async function addLink(state, name, url, category) {
-    const newLink = { name, url, category };
+export async function addLink(state, name, url, category, icon) {
+    const newLink = { name, url, category, icon };
     state.links.push(newLink);
     state.filteredLinks.push(newLink);
     await StorageManager.saveLinks(state.links);
@@ -35,9 +35,9 @@ export async function bulkMoveLinks(state, indices, newCategory) {
     await StorageManager.saveLinks(state.links);
 }
 
-export async function editLink(state, index, name, url, category) {
+export async function editLink(state, index, name, url, category, icon) {
     const actualIndex = state.links.findIndex(link => link === state.filteredLinks[index]);
-    const updatedLink = { name, url, category };
+    const updatedLink = { name, url, category, icon };
     state.links[actualIndex] = updatedLink;
     state.filteredLinks[index] = updatedLink;
     await StorageManager.saveLinks(state.links);
