@@ -22,7 +22,7 @@ export function throttle(func, limit) {
 }
 
 export function sanitizeHTML(str) {
-    return str.replace(/[^\w. ]/gi, function (c) {
-        return '&#' + c.charCodeAt(0) + ';';
-    });
+    const template = document.createElement('template');
+    template.innerHTML = str;
+    return template.content.textContent || '';
 }

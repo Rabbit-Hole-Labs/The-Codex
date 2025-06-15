@@ -1,4 +1,5 @@
 import * as LinkManager from './linkManager.js';
+import { sanitizeHTML } from './utils.js';
 
 export function getElements() {
     return {
@@ -25,10 +26,12 @@ export function getElements() {
         editForm: document.getElementById('editForm'),
         editSiteName: document.getElementById('editSiteName'),
         editSiteUrl: document.getElementById('editSiteUrl'),
+        editSiteIcon: document.getElementById('editSiteIcon'),
         editSiteCategory: document.getElementById('editSiteCategory'),
         importBookmarksBtn: document.getElementById('importBookmarksBtn'),
         siteName: document.getElementById('siteName'),
         siteUrl: document.getElementById('siteUrl'),
+        siteIcon: document.getElementById('siteIcon'),
         siteCategory: document.getElementById('siteCategory'),
         newCategoryName: document.getElementById('newCategoryName'),
         editCategoryName: document.getElementById('editCategoryName')
@@ -60,6 +63,7 @@ function createLinkElement(link, index, state) {
             <input type="checkbox" class="link-checkbox" value="${index}">
         </div>
         <div class="link-details">
+            <img src="${sanitizeHTML(link.icon || 'https://www.google.com/s2/favicons?domain='+link.url)}" class="link-icon" alt="">
             <span class="link-title">${sanitizeHTML(link.name)}</span>
             <span class="link-category">(${sanitizeHTML(link.category || 'Default')})</span>
         </div>
@@ -166,11 +170,6 @@ export function showMessage(message, type = 'info') {
     }, 3000);
 }
 
-function sanitizeHTML(str) {
-    return str.replace(/[^\w. ]/gi, function (c) {
-        return '&#' + c.charCodeAt(0) + ';';
-    });
-}
 
 export function setupModalListeners(state) {
     const elements = getElements();
@@ -189,6 +188,7 @@ function openEditModal(state, index) {
     const link = state.filteredLinks[state.editIndex];
     elements.editSiteName.value = link.name;
     elements.editSiteUrl.value = link.url;
+    elements.editSiteIcon.value = link.icon || '';
     elements.editSiteCategory.value = link.category || 'Default';
     elements.editModal.style.display = 'block';
 }
@@ -203,8 +203,10 @@ async function handleEditFormSubmit(e, state) {
     const elements = getElements();
     const name = elements.editSiteName.value;
     const url = elements.editSiteUrl.value;
+    const icon = elements.editSiteIcon.value;
     const category = elements.editSiteCategory.value;
-    await LinkManager.editLink(state, state.editIndex, name, url, category);
+    try { new URL(url); } catch { showMessage('Invalid URL.', 'error'); return; }
+    await LinkManager.editLink(state, state.editIndex, name, url, category, icon);
     closeEditModal();
     renderLinks(state);
 }

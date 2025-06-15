@@ -1,7 +1,10 @@
 export async function loadLinks() {
     try {
-        const data = await chrome.storage.local.get(['links', 'theme', 'view']);
-        console.log('Loaded data from local storage:', data);
+        let data = await chrome.storage.sync.get(['links', 'theme', 'view']);
+        if (!data || Object.keys(data).length === 0) {
+            data = await chrome.storage.local.get(['links', 'theme', 'view']);
+        }
+        console.log('Loaded data from storage:', data);
         return {
             links: JSON.parse(data.links || '[]'),
             theme: data.theme || 'dark',
@@ -17,7 +20,8 @@ export async function saveLinks(links) {
     try {
         const linksString = JSON.stringify(links);
         await chrome.storage.local.set({ links: linksString });
-        console.log('Links saved to local storage:', linksString);
+        await chrome.storage.sync.set({ links: linksString });
+        console.log('Links saved to storage:', linksString);
         return links;
     } catch (error) {
         console.error('Error saving links:', error);
@@ -28,7 +32,8 @@ export async function saveLinks(links) {
 export async function saveSettings(settings) {
     try {
         await chrome.storage.local.set(settings);
-        console.log('Settings saved to local storage:', settings);
+        await chrome.storage.sync.set(settings);
+        console.log('Settings saved to storage:', settings);
         return settings;
     } catch (error) {
         console.error('Error saving settings:', error);
@@ -38,7 +43,10 @@ export async function saveSettings(settings) {
 
 export async function loadState(state) {
     try {
-        const data = await chrome.storage.local.get(['links', 'categories']);
+        let data = await chrome.storage.sync.get(['links', 'categories']);
+        if (!data || Object.keys(data).length === 0) {
+            data = await chrome.storage.local.get(['links', 'categories']);
+        }
         console.log('Raw data from storage:', data); // Debug log
         
         // Parse links with error handling
@@ -97,6 +105,7 @@ export async function saveCategories(categories) {
         console.log('Saving categories as string:', categoriesString); // Debug log
         
         await chrome.storage.local.set({ categories: categoriesString });
+        await chrome.storage.sync.set({ categories: categoriesString });
         
         // Verify save
         const verification = await chrome.storage.local.get(['categories']);
@@ -111,7 +120,10 @@ export async function saveCategories(categories) {
 
 export async function loadCategories() {
     try {
-        const data = await chrome.storage.local.get(['categories']);
+        let data = await chrome.storage.sync.get(['categories']);
+        if (!data || Object.keys(data).length === 0) {
+            data = await chrome.storage.local.get(['categories']);
+        }
         console.log('Loading categories, raw data:', data); // Debug log
         
         let categories;

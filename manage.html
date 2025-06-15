@@ -27,12 +27,13 @@
             <div class="tab-content active" id="add-site">
                 <h2>Add New Site</h2>
                 <form id="linkForm" class="form-grid">
-                    <input type="text" id="siteName" placeholder="Site Name" required class="col-12 col-md-4">
-                    <input type="url" id="siteUrl" placeholder="Site URL" required class="col-12 col-md-4">
+                    <input type="text" id="siteName" placeholder="Site Name" required class="col-12 col-md-3">
+                    <input type="url" id="siteUrl" placeholder="Site URL" required class="col-12 col-md-3">
+                    <input type="url" id="siteIcon" placeholder="Icon URL" class="col-12 col-md-3">
                     <select id="siteCategory" class="col-12 col-md-2">
                         <option value="">Select Category</option>
                     </select>
-                    <button type="submit" class="btn-primary col-12 col-md-2">Add Site</button>
+                    <button type="submit" class="btn-primary col-12 col-md-1">Add Site</button>
                 </form>
             </div>
 
@@ -104,6 +105,7 @@
             <form id="editForm" class="form-grid">
                 <input type="text" id="editSiteName" required class="col-12">
                 <input type="url" id="editSiteUrl" required class="col-12">
+                <input type="url" id="editSiteIcon" placeholder="Icon URL" class="col-12">
                 <select id="editSiteCategory" class="col-12"></select>
                 <button type="submit" class="btn-primary col-12">Save Changes</button>
             </form>

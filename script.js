@@ -1,5 +1,5 @@
 import { loadLinks, saveLinks, saveSettings } from './storageManager.js';
-import { debounce } from './utils.js';
+import { debounce, sanitizeHTML } from './utils.js';
 
 // State
 let state = {
@@ -10,7 +10,7 @@ let state = {
 };
 
 // DOM Elements
-let themeToggle, viewToggle, searchInput, linksContainer;
+let themeToggle, viewToggle, searchInput, searchSuggestions, linksContainer;
 
 // Functions
 async function initializeState() {
@@ -20,6 +20,7 @@ async function initializeState() {
         applyTheme();
         applyView();
         renderLinks();
+        updateSearchSuggestions();
     } catch (error) {
         console.error('Error initializing state:', error);
     }
@@ -44,11 +45,12 @@ function renderLinks() {
         const section = document.createElement('section');
         section.className = 'category-section fade-in';
         section.innerHTML = `
-            <h2>${category}</h2>
+            <h2>${sanitizeHTML(category)}</h2>
             <div class="links-grid ${state.view === 'list' ? 'list-view' : ''}">
                 ${links.map(link => `
-                    <a href="${link.url}" class="link-tile" target="_blank">
-                        <h3>${link.name}</h3>
+                    <a href="${sanitizeHTML(link.url)}" class="link-tile" target="_blank">
+                        <img src="${sanitizeHTML(link.icon || 'https://www.google.com/s2/favicons?domain='+link.url)}" alt="" class="link-icon">
+                        <h3>${sanitizeHTML(link.name)}</h3>
                     </a>
                 `).join('')}
             </div>
@@ -92,18 +94,30 @@ function groupBy(array, key) {
     }, {});
 }
 
+function updateSearchSuggestions() {
+    if (!searchSuggestions) return;
+    searchSuggestions.innerHTML = '';
+    state.links.forEach(link => {
+        const option = document.createElement('option');
+        option.value = link.name;
+        searchSuggestions.appendChild(option);
+    });
+}
+
 // Initialize DOM elements
 function initializeDOMElements() {
     themeToggle = document.getElementById('themeToggle');
     viewToggle = document.getElementById('viewToggle');
     searchInput = document.getElementById('searchInput');
+    searchSuggestions = document.getElementById('searchSuggestions');
     linksContainer = document.getElementById('linksContainer');
 
-    console.log('DOM Elements:', { themeToggle, viewToggle, searchInput, linksContainer });
+    console.log('DOM Elements:', { themeToggle, viewToggle, searchInput, searchSuggestions, linksContainer });
 
     if (!themeToggle) console.warn('Theme toggle button not found');
     if (!viewToggle) console.warn('View toggle button not found');
     if (!searchInput) console.warn('Search input not found');
+    if (!searchSuggestions) console.warn('Search suggestions datalist not found');
     if (!linksContainer) console.warn('Links container not found');
 }
 
@@ -122,6 +136,12 @@ function setupEventListeners() {
             }
         }, 300));
     }
+    document.addEventListener('keydown', (e) => {
+        if (e.key === '/' && document.activeElement !== searchInput) {
+            e.preventDefault();
+            searchInput.focus();
+        }
+    });
 }
 
 // Initialize the application
