@@ -1,12 +1,50 @@
 {
-  "name": "codex-extension",
+  "name": "the-codex-tests",
   "version": "1.0.0",
+  "description": "Comprehensive test suite for The Codex Chrome extension",
   "type": "module",
-  "devDependencies": {
-    "jest": "^29.6.2",
-    "jest-environment-jsdom": "^30.0.0-beta.3"
-  },
   "scripts": {
-    "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js"
+    "test": "node --experimental-vm-modules node_modules/.bin/jest",
+    "test:unit": "node --experimental-vm-modules node_modules/.bin/jest tests/unit",
+    "test:integration": "node --experimental-vm-modules node_modules/.bin/jest tests/integration",
+    "test:e2e": "node --experimental-vm-modules node_modules/.bin/jest tests/e2e",
+    "test:coverage": "node --experimental-vm-modules node_modules/.bin/jest --coverage",
+    "test:watch": "node --experimental-vm-modules node_modules/.bin/jest --watch",
+    "test:critical-bugs": "node --experimental-vm-modules node_modules/.bin/jest --testNamePattern='Critical Bug'",
+    "test:regression": "node --experimental-vm-modules node_modules/.bin/jest --testNamePattern='Regression'",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix"
+  },
+  "devDependencies": {
+    "@eslint/css": "^0.14.1",
+    "@eslint/js": "^9.39.2",
+    "@eslint/json": "^0.14.0",
+    "@eslint/markdown": "^7.5.1",
+    "eslint": "^9.39.2",
+    "eslint-plugin-react": "^7.37.5",
+    "globals": "^16.5.0",
+    "jest": "^29.7.0",
+    "jest-environment-jsdom": "^29.7.0",
+    "sinon": "^17.0.1"
+  },
+  "jest": {
+    "testEnvironment": "jsdom",
+    "setupFilesAfterEnv": [
+      "<rootDir>/tests/setup.js"
+    ],
+    "testMatch": [
+      "<rootDir>/tests/**/*.test.js",
+      "<rootDir>/javascript/**/*.test.js"
+    ],
+    "collectCoverageFrom": [
+      "javascript/**/*.js",
+      "!javascript/**/*.test.js",
+      "!javascript/entry-points/**",
+      "!javascript/features/consoleCommands.js"
+    ],
+    "testTimeout": 10000,
+    "moduleNameMapper": {
+      "^(\\.{1,2}/.*)\\.js$": "$1"
+    }
   }
 }

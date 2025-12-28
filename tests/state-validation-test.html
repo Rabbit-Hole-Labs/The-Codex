@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>State Validation Test</title>
+</head>
+<body>
+    <h1>State Validation Test</h1>
+    <div id="results"></div>
+    
+    <script type="module">
+        import { validateAgainstSchema } from '../javascript/core-systems/stateManager.js';
+        
+        const resultsDiv = document.getElementById('results');
+        let allTestsPassed = true;
+        
+        function logTest(testName, result, expected) {
+            const passed = JSON.stringify(result) === JSON.stringify(expected);
+            allTestsPassed = allTestsPassed && passed;
+            
+            const testDiv = document.createElement('div');
+            testDiv.innerHTML = `
+                <h3>${testName}</h3>
+                <p>Result: ${JSON.stringify(result)}</p>
+                <p>Expected: ${JSON.stringify(expected)}</p>
+                <p style="color: ${passed ? 'green' : 'red'}">${passed ? 'PASS' : 'FAIL'}</p>
+                <hr>
+            `;
+            resultsDiv.appendChild(testDiv);
+        }
+        
+        // Test schema for size property
+        const sizeSchema = { type: ['string', 'null'], enum: ['compact', 'small', 'medium', 'large', 'square', 'wide', 'tall', 'giant', 'default'] };
+        
+        // Test 1: Null value for size
+        const nullResult = validateAgainstSchema(null, sizeSchema, 'size');
+        logTest('Test 1: Null value for size', nullResult, { valid: true, errors: [] });
+        
+        // Test 2: Valid size value
+        const validResult = validateAgainstSchema('medium', sizeSchema, 'size');
+        logTest('Test 2: Valid size value (medium)', validResult, { valid: true, errors: [] });
+        
+        // Test 3: Invalid size value
+        const invalidResult = validateAgainstSchema('invalid', sizeSchema, 'size');
+        logTest('Test 3: Invalid size value (invalid)', invalidResult, { valid: false, errors: ['size: Value must be one of: compact, small, medium, large, square, wide, tall, giant, default'] });
+        
+        // Test schema for icon property
+        const iconSchema = { type: ['string', 'null'], maxLength: 500 };
+        
+        // Test 4: Null value for icon
+        const iconNullResult = validateAgainstSchema(null, iconSchema, 'icon');
+        logTest('Test 4: Null value for icon', iconNullResult, { valid: true, errors: [] });
+        
+        // Test 5: Valid icon value
+        const iconValidResult = validateAgainstSchema('https://example.com/icon.png', iconSchema, 'icon');
+        logTest('Test 5: Valid icon value', iconValidResult, { valid: true, errors: [] });
+        
+        // Test 6: Icon value exceeding maxLength
+        const iconLongResult = validateAgainstSchema('a'.repeat(501), iconSchema, 'icon');
+        logTest('Test 6: Icon value exceeding maxLength', iconLongResult, { valid: false, errors: ['icon: Maximum length is 500'] });
+        
+        // Summary
+        const summaryDiv = document.createElement('div');
+        summaryDiv.innerHTML = `
+            <h2>Summary</h2>
+            <p style="color: ${allTestsPassed ? 'green' : 'red'}; font-size: 24px;">
+                ${allTestsPassed ? 'ALL TESTS PASSED' : 'SOME TESTS FAILED'}
+            </p>
+        `;
+        resultsDiv.appendChild(summaryDiv);
+    </script>
+</body>
+</html>

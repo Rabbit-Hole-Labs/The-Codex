@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>The Codex - Real Chrome Extension Test Runner</title>
+    <style>
+        body {
+            font-family: 'Courier New', monospace;
+            background: #1a1a1a;
+            color: #00ff00;
+            margin: 0;
+            padding: 20px;
+            min-height: 100vh;
+        }
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+        }
+        h1 {
+            color: #00ff00;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .test-section {
+            background: #2a2a2a;
+            border: 1px solid #00ff00;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 5px;
+        }
+        .test-result {
+            margin: 10px 0;
+            padding: 10px;
+            border-left: 3px solid #00ff00;
+            background: #1a1a1a;
+        }
+        .fail {
+            border-left-color: #ff0000;
+            color: #ff0000;
+        }
+        .success {
+            border-left-color: #00ff00;
+            color: #00ff00;
+        }
+        .warning {
+            border-left-color: #ffff00;
+            color: #ffff00;
+        }
+        .status {
+            font-weight: bold;
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 3px;
+        }
+        .status.running {
+            background: #ffff00;
+            color: #1a1a1a;
+        }
+        .status.passed {
+            background: #00ff00;
+            color: #1a1a1a;
+        }
+        .status.failed {
+            background: #ff0000;
+            color: #ffffff;
+        }
+        button {
+            background: #00ff00;
+            color: #1a1a1a;
+            border: none;
+            padding: 10px 20px;
+            margin: 10px 5px;
+            border-radius: 3px;
+            cursor: pointer;
+            font-weight: bold;
+        }
+        button:hover {
+            background: #00cc00;
+        }
+        button:disabled {
+            background: #666;
+            cursor: not-allowed;
+        }
+        .corruption-controls {
+            background: #2a2a2a;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 20px 0;
+        }
+        pre {
+            background: #000;
+            padding: 15px;
+            overflow-x: auto;
+            border: 1px solid #333;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>The Codex - Real Chrome Extension Test Runner</h1>
+        <h2>Version 1.0.0 - Storage Corruption Fix Verification</h2>
+        
+        <div class="test-section">
+            <h3>Test Environment</h3>
+            <div id="environment-info" class="test-result">
+                <div>Chrome Version: <span id="chrome-version">Detecting...</span></div>
+                <div>Extension Context: <span id="extension-context">Detecting...</span></div>
+                <div>Storage API Available: <span id="storage-api">Detecting...</span></div>
+            </div>
+        </div>
+        
+        <div class="test-section">
+            <h3>Test Suites</h3>
+            <div class="corruption-controls">
+                <button onclick="runAllTests()">Run All Tests</button>
+                <button onclick="runCriticalBugTests()">Run Critical Bug Tests</button>
+                <button onclick="runIntegrationTests()">Run Integration Tests</button>
+            </div>
+        </div>
+        
+        <div class="test-section">
+            <h3>Storage Corruption Tests</h3>
+            <div class="corruption-controls">
+                <button id="inject-corruption" onclick="injectCorruption()">Inject Corrupted Storage Data</button>
+                <button id="test-initialization" onclick="testInitialization()" disabled>Test Extension Initialization</button>
+                <button id="test-storage-manager" onclick="testStorageManager()" disabled>Test Storage Manager</button>
+                <button id="test-state-manager" onclick="testStateManager()" disabled>Test State Manager</button>
+                <button id="clear-storage" onclick="clearStorage()">Clear Storage</button>
+                <button id="view-storage" onclick="viewStorage()">View Current Storage</button>
+            </div>
+        </div>
+        
+        <div class="test-section">
+            <h3>Test Results</h3>
+            <div id="test-results"></div>
+        </div>
+        
+        <div class="test-section">
+            <h3>Final Results</h3>
+            <div id="final-results"></div>
+        </div>
+    </div>
+
+    <script src="test-runner.js"></script>
+</body>
+</html>

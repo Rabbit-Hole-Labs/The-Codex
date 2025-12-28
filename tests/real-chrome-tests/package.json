@@ -1,0 +1,11 @@
+{
+  "name": "the-codex-real-tests",
+  "version": "1.0.0",
+  "description": "Real Chrome extension tests that actually verify functionality",
+  "private": true,
+  "scripts": {
+    "test": "echo 'Tests must be run in Chrome extension environment'",
+    "test:manual": "echo 'Load this folder as an unpacked extension in Chrome to run tests'"
+  },
+  "devDependencies": {}
+}
