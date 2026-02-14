@@ -68,15 +68,16 @@ This document compares three distinct design approaches for The Codex Chrome Ext
 #### Key Features
 - Glassmorphism with backdrop blur
 - 3D card transforms with perspective
-- Animated radial gradient background
+- Static radial gradient background (no animation)
 - Glowing shadows and hover effects
 - Pill-shaped buttons and search
+- **12 color themes** including dark variants
 
 #### Visual Elements
 - Glass tiles with frosted effect
 - Gradient category section headings
-- Pulsing glow animations
-- Background pulse animation (20s)
+- Glow effects (no pulsing animation)
+- Static gradient background
 - Dramatic hover lift effects (+8px Y-axis)
 
 #### Best For
