@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>The Codex - Test Popup</title>
+    <style>
+        body {
+            width: 300px;
+            padding: 20px;
+            font-family: 'Courier New', monospace;
+            background: #1a1a1a;
+            color: #00ff00;
+        }
+        h3 {
+            margin-top: 0;
+            color: #00ff00;
+        }
+        button {
+            background: #00ff00;
+            color: #1a1a1a;
+            border: none;
+            padding: 8px 15px;
+            margin: 5px 0;
+            border-radius: 3px;
+            cursor: pointer;
+            font-weight: bold;
+            width: 100%;
+        }
+        button:hover {
+            background: #00cc00;
+        }
+        button:disabled {
+            background: #666;
+            cursor: not-allowed;
+        }
+    </style>
+</head>
+<body>
+    <h3>The Codex Test Runner</h3>
+    <button onclick="chrome.tabs.create({url: 'test-runner.html'})">Open Test Runner</button>
+    <button onclick="runAllTests()">Run All Tests</button>
+    <button onclick="runCriticalTests()">Run Critical Bug Tests</button>
+    <button onclick="runIntegrationTests()">Run Integration Tests</button>
+    <button onclick="clearStorage()">Clear Storage</button>
+    
+    <script>
+        function runAllTests() {
+            chrome.tabs.create({url: 'test-runner.html'}, (tab) => {
+                // Wait a bit for the page to load, then trigger tests
+                setTimeout(() => {
+                    chrome.tabs.sendMessage(tab.id, {action: 'runAllTests'});
+                }, 2000);
+            });
+        }
+        
+        function runCriticalTests() {
+            chrome.tabs.create({url: 'test-runner.html'}, (tab) => {
+                // Wait a bit for the page to load, then trigger tests
+                setTimeout(() => {
+                    chrome.tabs.sendMessage(tab.id, {action: 'runCriticalTests'});
+                }, 2000);
+            });
+        }
+        
+        function runIntegrationTests() {
+            chrome.tabs.create({url: 'test-runner.html'}, (tab) => {
+                // Wait a bit for the page to load, then trigger tests
+                setTimeout(() => {
+                    chrome.tabs.sendMessage(tab.id, {action: 'runIntegrationTests'});
+                }, 2000);
+            });
+        }
+        
+        function clearStorage() {
+            chrome.storage.sync.clear(() => {
+                chrome.storage.local.clear(() => {
+                    alert('Storage cleared');
+                });
+            });
+        }
+    </script>
+</body>
+</html>

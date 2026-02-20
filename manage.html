@@ -5,13 +5,192 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Manage The Codex</title>
     <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap" rel="stylesheet">
-    <link href="manage-styles.css" rel="stylesheet">
+    <link href="stylesheets/manage-styles.css" rel="stylesheet">
+    <style>
+        /* CRITICAL: Override all button colors with maximum specificity */
+        html body .container main .tab-content button,
+        html body .container main .tab-content form button,
+        html body .container main .category-card button,
+        html body .container main .links-management-panel button,
+        html body .container main button,
+        html body .container main form button {
+            background: var(--surface-elevated) !important;
+            border: 1px solid var(--border-color) !important;
+            color: var(--on-surface) !important;
+            box-shadow: none !important;
+        }
+        
+        html body .container main .tab-content .btn-primary,
+        html body .container main .category-card .btn-primary,
+        html body .container main .links-management-panel .btn-primary,
+        html body .container main .btn-primary {
+            background: var(--primary-color) !important;
+            border: 1px solid var(--primary-color) !important;
+            color: white !important;
+        }
+        
+        html body .container main .tab-content .btn-secondary,
+        html body .container main .category-card .btn-secondary,
+        html body .container main .links-management-panel .btn-secondary,
+        html body .container main .btn-secondary {
+            background: var(--surface-elevated) !important;
+            border: 1px solid var(--border-color) !important;
+            color: var(--on-surface) !important;
+        }
+        
+        html body .container main .tab-content .btn-danger,
+        html body .container main .category-card .btn-danger,
+        html body .container main .links-management-panel .btn-danger,
+        html body .container main .btn-danger {
+            background: var(--error-color, #ef4444) !important;
+            border: 1px solid var(--error-color, #ef4444) !important;
+            color: white !important;
+        }
+        
+        /* Target specific form buttons by ID and type */
+        html body #deleteCategoryForm button[type="submit"],
+        html body button[type="submit"].btn-danger {
+            background: var(--error-color) !important;
+            border: 1px solid var(--error-color) !important;
+            color: white !important;
+            box-shadow: none !important;
+        }
+        
+        html body #editCategoryForm button[type="submit"],
+        html body button[type="submit"].btn-secondary {
+            background: var(--surface-elevated) !important;
+            border: 1px solid var(--border-color) !important;
+            color: var(--on-surface) !important;
+            box-shadow: none !important;
+        }
+        
+        html body #createCategoryForm button[type="submit"],
+        html body button[type="submit"].btn-primary {
+            background: var(--primary-color) !important;
+            border: 1px solid var(--primary-color) !important;
+            color: white !important;
+            box-shadow: none !important;
+        }
+        
+        /* Fix Manage Links tab buttons */
+        html body #bulkMoveBtn,
+        html body #bulkSizeBtn,
+        html body #prevPage,
+        html body #nextPage,
+        html body .links-management-panel .btn-secondary,
+        html body .pagination .btn-secondary,
+        html body .pagination button {
+            background: var(--surface-elevated) !important;
+            border: 1px solid var(--border-color) !important;
+            color: var(--on-surface) !important;
+            box-shadow: none !important;
+        }
+        
+        html body #bulkDeleteBtn,
+        html body .links-management-panel .btn-danger {
+            background: var(--error-color) !important;
+            border: 1px solid var(--error-color) !important;
+            color: white !important;
+            box-shadow: none !important;
+        }
+        
+        /* Fix any dynamically generated buttons in links container */
+        html body #linksContainer button,
+        html body .links-container button,
+        html body .link-item button,
+        html body .link-actions button {
+            background: var(--surface-elevated) !important;
+            border: 1px solid var(--border-color) !important;
+            color: var(--on-surface) !important;
+            box-shadow: none !important;
+            padding: var(--space-2) !important;
+        }
+        
+        html body .link-actions .visit-button {
+            background: var(--primary-color) !important;
+            border: 1px solid var(--primary-color) !important;
+            color: white !important;
+        }
+        
+        html body .link-actions .edit-button {
+            background: var(--surface-elevated) !important;
+            border: 1px solid var(--border-color) !important;
+            color: var(--on-surface) !important;
+        }
+        
+        html body .link-actions .delete-button {
+            background: var(--error-color) !important;
+            border: 1px solid var(--error-color) !important;
+            color: white !important;
+        }
+        
+        html body .link-actions .visit-button:hover {
+            background: var(--primary-hover) !important;
+        }
+        
+        html body .link-actions .edit-button:hover {
+            background: var(--surface-hover) !important;
+            color: var(--primary-color) !important;
+        }
+        
+        html body .link-actions .delete-button:hover {
+            background: var(--error-hover) !important;
+        }
+        
+        /* Fix all other tabs buttons */
+        html body .sync-actions-card button,
+        html body .sync-diagnostics-card button,
+        html body .sync-data-verification-card button,
+        html body .sync-log-card button,
+        html body .quick-actions-panel button {
+            background: var(--surface-elevated) !important;
+            border: 1px solid var(--border-color) !important;
+            color: var(--on-surface) !important;
+            box-shadow: none !important;
+        }
+        
+        /* Override for primary buttons in other tabs */
+        html body .sync-actions-card .btn-primary,
+        html body .quick-actions-panel .btn-primary {
+            background: var(--primary-color) !important;
+            border: 1px solid var(--primary-color) !important;
+            color: white !important;
+        }
+        
+        /* Override for danger buttons in other tabs */
+        html body .sync-actions-card .btn-danger {
+            background: var(--error-color) !important;
+            border: 1px solid var(--error-color) !important;
+            color: white !important;
+        }
+        
+        /* Fix view toggle button in Appearance settings */
+        html body .view-toggle,
+        html body .view-toggle .view-option {
+            background: var(--surface-elevated) !important;
+            border: 1px solid var(--border-color) !important;
+            color: var(--on-surface-variant) !important;
+        }
+        
+        html body .view-toggle .view-option.active {
+            background: var(--primary-color) !important;
+            border: 1px solid var(--primary-color) !important;
+            color: white !important;
+        }
+        
+        html body .view-toggle .view-option:hover:not(.active) {
+            background: var(--surface-hover) !important;
+            border: 1px solid var(--border-hover) !important;
+            color: var(--on-surface) !important;
+        }
+    </style>
 </head>
 <body>
     <div class="container">
         <header class="grid">
             <h1 class="col-8">Manage The Codex</h1>
-            <div class="col-4">
+            <div class="col-4" style="display: flex; align-items: center; justify-content: flex-end; gap: 16px;">
+                <div id="sync-status-container"></div>
                 <a href="index.html" class="home-link">Back to Home</a>
             </div>
         </header>
@@ -21,78 +200,493 @@
                 <button class="tab-button active" data-tab="add-site">Add Site</button>
                 <button class="tab-button" data-tab="manage-categories">Manage Categories</button>
                 <button class="tab-button" data-tab="manage-links">Manage Links</button>
+                <button class="tab-button" data-tab="settings">Settings</button>
                 <button class="tab-button" data-tab="quick-actions">Quick Actions</button>
+                <button class="tab-button" data-tab="sync-settings">Sync Settings</button>
             </div>
 
             <div class="tab-content active" id="add-site">
                 <h2>Add New Site</h2>
-                <form id="linkForm" class="form-grid">
-                    <input type="text" id="siteName" placeholder="Site Name" required class="col-12 col-md-3">
-                    <input type="url" id="siteUrl" placeholder="Site URL" required class="col-12 col-md-3">
-                    <input type="url" id="siteIcon" placeholder="Icon URL" class="col-12 col-md-3">
-                    <select id="siteCategory" class="col-12 col-md-2">
-                        <option value="">Select Category</option>
-                    </select>
-                    <button type="submit" class="btn-primary col-12 col-md-1">Add Site</button>
+                <form id="linkForm" class="modern-form">
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="siteName">Service Name</label>
+                            <input type="text" id="siteName" placeholder="e.g., GitHub, Google Drive" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="siteUrl">URL</label>
+                            <input type="url" id="siteUrl" placeholder="https://example.com" required>
+                        </div>
+                    </div>
+                    
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="siteIcon">Icon URL (optional)</label>
+                            <div class="icon-input-group">
+                                <input type="url" id="siteIcon" placeholder="Leave empty for auto-detection">
+                                <button type="button" class="icon-helper-btn" data-target="siteIcon">Icon</button>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label for="siteCategory">Category</label>
+                            <select id="siteCategory">
+                                <option value="">Default</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="siteSize">Tile Size</label>
+                            <select id="siteSize">
+                                <option value="default">Use Default Size</option>
+                                <option value="compact">Compact - Minimal height</option>
+                                <option value="small">Small - Reduced size</option>
+                                <option value="medium">Medium - Standard size</option>
+                                <option value="large">Large - Bigger tiles</option>
+                                <option value="square">Square - Perfect square</option>
+                                <option value="wide">Wide - Horizontal layout</option>
+                                <option value="tall">Tall - Vertical emphasis</option>
+                                <option value="giant">Giant - 2x2 showcase</option>
+                            </select>
+                        </div>
+                    </div>
+                    
+                    <div class="form-actions">
+                        <button type="submit" class="btn-primary">Add Service</button>
+                    </div>
                 </form>
             </div>
 
             <div class="tab-content" id="manage-categories">
                 <h2>Manage Categories</h2>
-                <div class="form-grid">
-                    <form id="createCategoryForm" class="col-12 col-md-4">
-                        <input type="text" id="newCategoryName" placeholder="New Category Name" required>
-                        <button type="submit" class="btn-secondary">Create Category</button>
-                    </form>
-                    <form id="editCategoryForm" class="col-12 col-md-4">
-                        <select id="editCategorySelect">
-                            <option value="">Select Category to Edit</option>
-                        </select>
-                        <input type="text" id="editCategoryName" placeholder="New Category Name" required>
-                        <button type="submit" class="btn-secondary">Rename Category</button>
-                    </form>
-                    <form id="deleteCategoryForm" class="col-12 col-md-4">
-                        <select id="deleteCategorySelect">
-                            <option value="">Select Category to Delete</option>
-                        </select>
-                        <button type="submit" class="btn-danger">Delete Category</button>
-                    </form>
+                <div class="category-management">
+                    <div class="category-card">
+                        <h3>Create Category</h3>
+                        <form id="createCategoryForm" class="modern-form-compact">
+                            <div class="form-group">
+                                <label for="newCategoryName">Category Name</label>
+                                <input type="text" id="newCategoryName" placeholder="e.g., Work, Personal, Entertainment" required>
+                            </div>
+                            <button type="submit" class="btn-primary">Create Category</button>
+                        </form>
+                    </div>
+                    
+                    <div class="category-card">
+                        <h3>Rename Category</h3>
+                        <form id="editCategoryForm" class="modern-form-compact">
+                            <div class="form-group">
+                                <label for="editCategorySelect">Select Category</label>
+                                <select id="editCategorySelect">
+                                    <option value="">Choose a category to rename</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label for="editCategoryName">New Name</label>
+                                <input type="text" id="editCategoryName" placeholder="Enter new category name" required>
+                            </div>
+                            <button type="submit" class="btn-secondary">Rename Category</button>
+                        </form>
+                    </div>
+                    
+                    <div class="category-card">
+                        <h3>Delete Category</h3>
+                        <form id="deleteCategoryForm" class="modern-form-compact">
+                            <div class="form-group">
+                                <label for="deleteCategorySelect">Select Category</label>
+                                <select id="deleteCategorySelect">
+                                    <option value="">Choose a category to delete</option>
+                                </select>
+                            </div>
+                            <p class="warning-text">Links in this category will be moved to Default</p>
+                            <button type="submit" class="btn-danger">Delete Category</button>
+                        </form>
+                    </div>
                 </div>
             </div>
 
             <div class="tab-content" id="manage-links">
                 <h2>Manage Links</h2>
-                <div class="filter-actions grid">
-                    <select id="filterCategory" class="col-6 col-md-3">
-                        <option value="all">All Categories</option>
-                    </select>
-                    <div class="select-all-container col-6 col-md-3">
-                        <input type="checkbox" id="selectAllCheckbox">
-                        <label for="selectAllCheckbox">Select All</label>
+                <div class="links-management-panel">
+                    <div class="filter-section">
+                        <div class="filter-row">
+                            <div class="form-group">
+                                <label for="filterCategory">Filter by Category</label>
+                                <select id="filterCategory">
+                                    <option value="all">All Categories</option>
+                                </select>
+                            </div>
+                            <div class="view-toggle-container">
+                                <label>View</label>
+                                <button id="linksViewToggle" class="view-toggle" aria-label="Toggle grid/list view for links">
+                                    <div class="view-option active" data-view="list">
+                                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                            <line x1="8" y1="6" x2="21" y2="6"></line>
+                                            <line x1="8" y1="12" x2="21" y2="12"></line>
+                                            <line x1="8" y1="18" x2="21" y2="18"></line>
+                                            <line x1="3" y1="6" x2="3.01" y2="6"></line>
+                                            <line x1="3" y1="12" x2="3.01" y2="12"></line>
+                                            <line x1="3" y1="18" x2="3.01" y2="18"></line>
+                                        </svg>
+                                        <span>List</span>
+                                    </div>
+                                    <div class="view-option" data-view="grid">
+                                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                            <rect x="3" y="3" width="7" height="7"></rect>
+                                            <rect x="14" y="3" width="7" height="7"></rect>
+                                            <rect x="14" y="14" width="7" height="7"></rect>
+                                            <rect x="3" y="14" width="7" height="7"></rect>
+                                        </svg>
+                                        <span>Grid</span>
+                                    </div>
+                                </button>
+                            </div>
+                            <div class="select-all-group">
+                                <input type="checkbox" id="selectAllCheckbox">
+                                <label for="selectAllCheckbox">Select All</label>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="bulk-actions-section">
+                        <h3>Bulk Actions</h3>
+                        <div class="bulk-actions-grid">
+                            <div class="bulk-action-group">
+                                <label>Move Selected</label>
+                                <div class="action-row">
+                                    <select id="moveCategory">
+                                        <option value="">Choose category</option>
+                                    </select>
+                                    <button id="bulkMoveBtn" class="btn-secondary">Move</button>
+                                </div>
+                            </div>
+                            
+                            <div class="bulk-action-group">
+                                <label>Change Size</label>
+                                <div class="action-row">
+                                    <select id="bulkSizeChange">
+                                        <option value="">Choose size</option>
+                                        <option value="default">Default</option>
+                                        <option value="small">Small</option>
+                                        <option value="medium">Medium</option>
+                                        <option value="large">Large</option>
+                                        <option value="wide">Wide</option>
+                                    </select>
+                                    <button id="bulkSizeBtn" class="btn-secondary">Apply</button>
+                                </div>
+                            </div>
+                            
+                            <div class="bulk-action-group">
+                                <label>Delete Selected</label>
+                                <button id="bulkDeleteBtn" class="btn-danger">Delete Selected</button>
+                            </div>
+                        </div>
                     </div>
                 </div>
-                <div class="bulk-actions grid">
-                    <button id="bulkDeleteBtn" class="btn-danger col-12 col-md-3">Delete Selected</button>
-                    <select id="moveCategory" class="col-12 col-md-6">
-                        <option value="">Move Selected To</option>
-                    </select>
-                    <button id="bulkMoveBtn" class="btn-secondary col-12 col-md-3">Move Selected</button>
-                </div>
+                
                 <div id="linksContainer" class="links-container"></div>
-                <div id="paginationControls" class="pagination grid">
-                    <button id="prevPage" class="btn-secondary col-4">Previous</button>
-                    <span id="pageInfo" class="col-4">Page 1 of 1</span>
-                    <button id="nextPage" class="btn-secondary col-4">Next</button>
+                
+                <div id="paginationControls" class="pagination">
+                    <button id="prevPage" class="btn-secondary">Previous</button>
+                    <span id="pageInfo" class="page-info">Page 1 of 1</span>
+                    <button id="nextPage" class="btn-secondary">Next</button>
+                </div>
+            </div>
+
+            <div class="tab-content" id="settings">
+                <h2>Appearance & Display Settings</h2>
+                
+                <div class="settings-grid">
+                    <div class="settings-card">
+                        <h3>Theme Settings</h3>
+                        <div class="setting-group">
+                            <label for="modeToggle">Dark/Light Mode</label>
+                            <div class="toggle-switch">
+                                <button id="modeToggle" class="mode-toggle" aria-label="Toggle dark/light mode">
+                                    <div class="toggle-slider">
+                                        <svg class="mode-icon moon-icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                            <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
+                                        </svg>
+                                        <svg class="mode-icon sun-icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                            <circle cx="12" cy="12" r="5"></circle>
+                                            <line x1="12" y1="1" x2="12" y2="3"></line>
+                                            <line x1="12" y1="21" x2="12" y2="23"></line>
+                                            <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+                                            <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+                                            <line x1="1" y1="12" x2="3" y2="12"></line>
+                                            <line x1="21" y1="12" x2="23" y2="12"></line>
+                                            <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+                                            <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+                                        </svg>
+                                    </div>
+                                </button>
+                                <span id="modeLabel">Dark Mode</span>
+                            </div>
+                        </div>
+                        
+                        <div class="setting-group">
+                            <label>Color Themes</label>
+                            <p class="setting-description">Choose your preferred color theme</p>
+                        </div>
+
+                        <div class="theme-preview-grid">
+                            <div class="theme-preview-card active" data-theme="default">
+                                <div class="preview-colors">
+                                    <span class="preview-color-primary"></span>
+                                    <span class="preview-color-secondary"></span>
+                                </div>
+                                <span>Ocean</span>
+                            </div>
+                            <div class="theme-preview-card" data-theme="theme-purple">
+                                <div class="preview-colors">
+                                    <span class="preview-color-primary"></span>
+                                    <span class="preview-color-secondary"></span>
+                                </div>
+                                <span>Cosmic</span>
+                            </div>
+                            <div class="theme-preview-card" data-theme="theme-pink">
+                                <div class="preview-colors">
+                                    <span class="preview-color-primary"></span>
+                                    <span class="preview-color-secondary"></span>
+                                </div>
+                                <span>Sunset</span>
+                            </div>
+                            <div class="theme-preview-card" data-theme="theme-green">
+                                <div class="preview-colors">
+                                    <span class="preview-color-primary"></span>
+                                    <span class="preview-color-secondary"></span>
+                                </div>
+                                <span>Forest</span>
+                            </div>
+                            <div class="theme-preview-card" data-theme="theme-orange">
+                                <div class="preview-colors">
+                                    <span class="preview-color-primary"></span>
+                                    <span class="preview-color-secondary"></span>
+                                </div>
+                                <span>Fire</span>
+                            </div>
+                            <div class="theme-preview-card" data-theme="theme-teal">
+                                <div class="preview-colors">
+                                    <span class="preview-color-primary"></span>
+                                    <span class="preview-color-secondary"></span>
+                                </div>
+                                <span>Aurora</span>
+                            </div>
+                            <div class="theme-preview-card" data-theme="theme-dark-orange">
+                                <div class="preview-colors">
+                                    <span class="preview-color-primary"></span>
+                                    <span class="preview-color-secondary"></span>
+                                </div>
+                                <span>Dark Orange</span>
+                            </div>
+                            <div class="theme-preview-card" data-theme="theme-dark-purple">
+                                <div class="preview-colors">
+                                    <span class="preview-color-primary"></span>
+                                    <span class="preview-color-secondary"></span>
+                                </div>
+                                <span>Dark Purple</span>
+                            </div>
+                            <div class="theme-preview-card" data-theme="theme-dark-emerald">
+                                <div class="preview-colors">
+                                    <span class="preview-color-primary"></span>
+                                    <span class="preview-color-secondary"></span>
+                                </div>
+                                <span>Dark Emerald</span>
+                            </div>
+                            <div class="theme-preview-card" data-theme="theme-dark-crimson">
+                                <div class="preview-colors">
+                                    <span class="preview-color-primary"></span>
+                                    <span class="preview-color-secondary"></span>
+                                </div>
+                                <span>Dark Crimson</span>
+                            </div>
+                            <div class="theme-preview-card" data-theme="theme-dark-sapphire">
+                                <div class="preview-colors">
+                                    <span class="preview-color-primary"></span>
+                                    <span class="preview-color-secondary"></span>
+                                </div>
+                                <span>Dark Sapphire</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="settings-card">
+                        <h3>Display Settings</h3>
+                        <div class="setting-group">
+                            <label for="viewToggle">Layout View</label>
+                            <p class="setting-description">Choose how your links are displayed on the main page</p>
+                            <div class="view-toggle-container">
+                                <button id="viewToggle" class="view-toggle" aria-label="Toggle grid/list view">
+                                    <div class="view-option" data-view="grid">
+                                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                            <rect x="3" y="3" width="7" height="7"></rect>
+                                            <rect x="14" y="3" width="7" height="7"></rect>
+                                            <rect x="14" y="14" width="7" height="7"></rect>
+                                            <rect x="3" y="14" width="7" height="7"></rect>
+                                        </svg>
+                                        <span>Grid</span>
+                                    </div>
+                                    <div class="view-option" data-view="list">
+                                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                            <line x1="8" y1="6" x2="21" y2="6"></line>
+                                            <line x1="8" y1="12" x2="21" y2="12"></line>
+                                            <line x1="8" y1="18" x2="21" y2="18"></line>
+                                            <line x1="3" y1="6" x2="3.01" y2="6"></line>
+                                            <line x1="3" y1="12" x2="3.01" y2="12"></line>
+                                            <line x1="3" y1="18" x2="3.01" y2="18"></line>
+                                        </svg>
+                                        <span>List</span>
+                                    </div>
+                                </button>
+                            </div>
+                        </div>
+                        
+                        <div class="setting-group">
+                            <label for="defaultTileSize">Default Tile Size</label>
+                            <p class="setting-description">Set the default size for all tiles (individual tiles can still override this)</p>
+                            <div class="tile-size-selector">
+                                <select id="defaultTileSize" class="setting-select">
+                                    <option value="compact">Compact - Minimal height</option>
+                                    <option value="small">Small - Reduced size</option>
+                                    <option value="medium" selected>Medium - Standard size</option>
+                                    <option value="large">Large - Bigger tiles</option>
+                                    <option value="square">Square - Perfect square</option>
+                                    <option value="wide">Wide - Horizontal layout</option>
+                                    <option value="tall">Tall - Vertical emphasis</option>
+                                    <option value="giant">Giant - 2x2 showcase</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
 
             <div class="tab-content" id="quick-actions">
                 <h2>Quick Actions</h2>
-                <div class="button-group grid">
-                    <button id="exportBtn" class="btn-primary col-12 col-md-4">Export Sites</button>
-                    <button id="importBtn" class="btn-primary col-12 col-md-4">Import Sites</button>
-                    <input type="file" id="importFile" accept=".json" style="display: none;">
-                    <button id="importBookmarksBtn" class="btn-primary col-12 col-md-4">Import Bookmarks</button>
+                <div class="quick-actions-panel">
+                    <div class="action-card">
+                        <h3>Export Data</h3>
+                        <p class="action-description">Download all your links and categories as a JSON file for backup or sharing</p>
+                        <button id="exportBtn" class="btn-primary">Export Sites</button>
+                    </div>
+                    
+                    <div class="action-card">
+                        <h3>Import Data</h3>
+                        <p class="action-description">Upload a previously exported JSON file to restore your links</p>
+                        <button id="importBtn" class="btn-primary">Import Sites</button>
+                        <input type="file" id="importFile" accept=".json" style="display: none;">
+                    </div>
+                    
+                    <div class="action-card">
+                        <h3>Import Bookmarks</h3>
+                        <p class="action-description">Import links directly from your browser bookmarks</p>
+                        <button id="importBookmarksBtn" class="btn-primary">Import Bookmarks</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="tab-content" id="sync-settings">
+                <h2>Sync Settings & Diagnostics</h2>
+                
+                <div class="sync-info-grid">
+                    <div class="sync-status-card">
+                        <h3>Sync Status</h3>
+                        <div class="sync-info">
+                            <div class="sync-info-row">
+                                <span class="label">Current Status:</span>
+                                <span id="sync-current-status" class="value">Loading...</span>
+                            </div>
+                            <div class="sync-info-row">
+                                <span class="label">Last Sync:</span>
+                                <span id="sync-last-time" class="value">Never</span>
+                            </div>
+                            <div class="sync-info-row">
+                                <span class="label">Local Version:</span>
+                                <span id="sync-local-version" class="value">-</span>
+                            </div>
+                            <div class="sync-info-row">
+                                <span class="label">Cloud Version:</span>
+                                <span id="sync-remote-version" class="value">-</span>
+                            </div>
+                        </div>
+                        <button id="refresh-sync-status" class="btn-secondary">Refresh Status</button>
+                    </div>
+
+                    <div class="sync-storage-card">
+                        <h3>Storage Usage</h3>
+                        <div class="storage-info">
+                            <div class="storage-bar-container">
+                                <div class="storage-bar">
+                                    <div id="storage-fill" class="storage-fill" style="width: 0%"></div>
+                                </div>
+                                <div class="storage-text">
+                                    <span id="storage-used">0 KB</span> / <span id="storage-total">0 KB</span>
+                                </div>
+                            </div>
+                            <div class="sync-info-row">
+                                <span class="label">Quota Usage:</span>
+                                <span id="quota-percentage" class="value">0%</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="sync-actions-card">
+                        <h3>Sync Actions</h3>
+                        <div class="sync-actions-grid">
+                            <button id="manual-sync-btn" class="btn-primary">Sync Now</button>
+                            <button id="force-push-btn" class="btn-secondary">Force Push</button>
+                            <button id="force-pull-btn" class="btn-secondary">Force Pull</button>
+                            <button id="clear-sync-btn" class="btn-danger">Clear Sync Data</button>
+                        </div>
+                        <div class="sync-strategy">
+                            <label for="sync-strategy-select">Conflict Resolution:</label>
+                            <select id="sync-strategy-select">
+                                <option value="merge">Smart Merge (Recommended)</option>
+                                <option value="local">Local Data Wins</option>
+                                <option value="remote">Cloud Data Wins</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="sync-diagnostics-card">
+                        <h3>Sync Diagnostics</h3>
+                        <div class="diagnostics-info">
+                            <div class="sync-info-row">
+                                <span class="label">Device ID:</span>
+                                <span id="device-id" class="value monospace">Loading...</span>
+                            </div>
+                            <div class="sync-info-row">
+                                <span class="label">Sync Enabled:</span>
+                                <span id="sync-enabled" class="value">Yes</span>
+                            </div>
+                            <div class="sync-info-row">
+                                <span class="label">Network Status:</span>
+                                <span id="network-status" class="value">Online</span>
+                            </div>
+                        </div>
+                        <div class="diagnostic-actions">
+                            <button id="test-sync-btn" class="btn-secondary">Test Sync Connection</button>
+                            <button id="export-diagnostics-btn" class="btn-secondary">Export Diagnostics</button>
+                        </div>
+                    </div>
+
+                    <div class="sync-data-verification-card">
+                        <h3>Data Verification</h3>
+                        <div class="verification-actions">
+                            <button id="view-cloud-data-btn" class="btn-primary">View Cloud Data</button>
+                            <button id="view-local-data-btn" class="btn-secondary">View Local Data</button>
+                            <button id="compare-data-btn" class="btn-secondary">Compare Local vs Cloud</button>
+                            <button id="validate-integrity-btn" class="btn-secondary">Validate Data Integrity</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="sync-log-card">
+                    <h3>Sync Activity Log</h3>
+                    <div id="sync-log" class="sync-log">
+                        <div class="log-entry">
+                            <span class="log-time">Ready</span>
+                            <span class="log-message">Sync manager initialized</span>
+                        </div>
+                    </div>
+                    <button id="clear-log-btn" class="btn-secondary">Clear Log</button>
                 </div>
             </div>
         </main>
@@ -105,13 +699,68 @@
             <form id="editForm" class="form-grid">
                 <input type="text" id="editSiteName" required class="col-12">
                 <input type="url" id="editSiteUrl" required class="col-12">
-                <input type="url" id="editSiteIcon" placeholder="Icon URL" class="col-12">
+                <div class="icon-input-group col-12">
+                    <input type="url" id="editSiteIcon" placeholder="Icon URL (optional)">
+                    <button type="button" class="icon-helper-btn" data-target="editSiteIcon">Icon</button>
+                </div>
                 <select id="editSiteCategory" class="col-12"></select>
+                <select id="editSiteSize" class="col-12">
+                    <option value="default">Use Default Size</option>
+                    <option value="compact">Compact</option>
+                    <option value="small">Small</option>
+                    <option value="medium">Medium</option>
+                    <option value="large">Large</option>
+                    <option value="square">Square</option>
+                    <option value="wide">Wide</option>
+                    <option value="tall">Tall</option>
+                    <option value="giant">Giant</option>
+                </select>
                 <button type="submit" class="btn-primary col-12">Save Changes</button>
             </form>
         </div>
     </div>
 
-    <script src="manageScript.js" type="module"></script>
+    <!-- Icon Helper Modal -->
+    <div id="iconHelperModal" class="modal hidden">
+        <div class="modal-content">
+            <span class="close-button" id="iconHelperClose">&times;</span>
+            <h2>Icon Helper</h2>
+            <div class="icon-helper-info">
+                <p id="iconHelperContext" class="helper-context"></p>
+            </div>
+            <div class="icon-helper-content">
+                <div class="icon-options">
+                    <h3>Quick Options</h3>
+                    <div class="icon-source-grid">
+                        <button class="icon-source-btn" data-source="selfh">
+                            <span class="source-name">Auto-Detect</span>
+                            <span class="source-desc">Find icon by service name</span>
+                        </button>
+                        <button class="icon-source-btn" data-source="clear">
+                            <span class="source-name">Remove Icon</span>
+                            <span class="source-desc">Use text only</span>
+                        </button>
+                    </div>
+                    
+                    <h3>Custom Icon URL</h3>
+                    <div class="custom-icon-section">
+                        <input type="url" id="customIconUrl" placeholder="https://example.com/icon.png">
+                        <button id="useCustomIconBtn" class="btn-primary">Use Custom URL</button>
+                    </div>
+                    
+                    <div class="icon-examples">
+                        <h3>Suggested URLs:</h3>
+                        <div class="url-examples">
+                            <code>https://cdn.jsdelivr.net/gh/selfhst/icons/svg/[name].svg</code>
+                            <code>https://cdn.jsdelivr.net/npm/simple-icons@v9/icons/[name].svg</code>
+                            <code>https://raw.githubusercontent.com/walkxcode/dashboard-icons/main/png/[name].png</code>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="javascript/entry-points/manageScript.js" type="module"></script>
 </body>
 </html>

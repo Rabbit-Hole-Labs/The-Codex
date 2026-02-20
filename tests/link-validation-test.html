@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Link Validation Test</title>
+</head>
+<body>
+    <h1>Link Validation Test</h1>
+    <p>Open the browser console to see test results.</p>
+    
+    <script type="module">
+        // Import the validation functions
+        import { validateLink } from './javascript/features/securityUtils.js';
+        
+        // Test cases for link validation
+        const testLinks = [
+            // Valid link with all properties
+            {
+                name: 'Test Link',
+                url: 'https://example.com',
+                category: 'Test',
+                icon: 'https://example.com/icon.png',
+                size: 'medium'
+            },
+            
+            // Link with missing optional properties (should be valid)
+            {
+                name: 'Test Link 2',
+                url: 'https://example2.com',
+                category: 'Test'
+                // icon and size are missing, which should be valid
+            },
+            
+            // Link with null optional properties (should be valid)
+            {
+                name: 'Test Link 3',
+                url: 'https://example3.com',
+                category: 'Test',
+                icon: null,
+                size: null
+            }
+        ];
+        
+        console.log('Testing link validation with updated logic...\n');
+        
+        testLinks.forEach((link, index) => {
+            console.log(`Test link ${index + 1}:`, link);
+            const result = validateLink(link);
+            console.log(`Validation result:`, result);
+            console.log('---');
+        });
+        
+        console.log('\nTest completed.');
+    </script>
+</body>
+</html>
