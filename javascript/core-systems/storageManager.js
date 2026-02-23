@@ -6,22 +6,24 @@ const { ERROR_TYPES, ERROR_SEVERITY } = errorHandler;
 export async function loadLinks() {
     try {
         console.log('STORAGE_MANAGER: Starting to load links from storage');
-        let data = await chrome.storage.sync.get(['links', 'theme', 'view', 'colorTheme', 'defaultTileSize']);
+        let data = await chrome.storage.sync.get(['links', 'theme', 'view', 'colorTheme', 'defaultTileSize', 'categories']);
         console.log('STORAGE_MANAGER: Raw data loaded from sync storage', {
             hasLinks: !!data.links,
             linksType: data.links ? typeof data.links : 'undefined',
-            linksLength: Array.isArray(data.links) ? data.links.length : (typeof data.links === 'string' ? data.links.length : 'N/A')
+            linksLength: Array.isArray(data.links) ? data.links.length : (typeof data.links === 'string' ? data.links.length : 'N/A'),
+            hasCategories: !!data.categories
         });
-        
+
         if (!data || Object.keys(data).length === 0) {
             console.log('STORAGE_MANAGER: No data in sync storage, trying local storage');
-            data = await chrome.storage.local.get(['links', 'theme', 'view', 'colorTheme', 'defaultTileSize']);
+            data = await chrome.storage.local.get(['links', 'theme', 'view', 'colorTheme', 'defaultTileSize', 'categories']);
             console.log('STORAGE_MANAGER: Data loaded from local storage', {
                 hasLinks: !!data.links,
-                linksType: data.links ? typeof data.links : 'undefined'
+                linksType: data.links ? typeof data.links : 'undefined',
+                hasCategories: !!data.categories
             });
         }
-        
+
         // Validate data.links before parsing to handle corruption
         let links = [];
         try {
@@ -87,25 +89,55 @@ export async function loadLinks() {
             });
             links = [];
         }
-        
+
+        // Parse categories with similar corruption handling
+        let categories = ['Default'];
+        try {
+            if (data.categories) {
+                if (typeof data.categories === 'object' && !Array.isArray(data.categories)) {
+                    console.warn('STORAGE_MANAGER: Categories corruption - is object instead of array');
+                    categories = ['Default'];
+                } else if (typeof data.categories === 'string') {
+                    try {
+                        const parsedCategories = JSON.parse(data.categories);
+                        categories = Array.isArray(parsedCategories) ? parsedCategories : ['Default'];
+                    } catch {
+                        console.warn('STORAGE_MANAGER: Failed to parse categories JSON');
+                        categories = ['Default'];
+                    }
+                } else if (Array.isArray(data.categories)) {
+                    categories = data.categories;
+                }
+            }
+            // Ensure Default category exists
+            if (!categories.includes('Default')) {
+                categories.unshift('Default');
+            }
+        } catch (catError) {
+            console.error('STORAGE_MANAGER: Categories validation error', catError);
+            categories = ['Default'];
+        }
+
         console.log('STORAGE_MANAGER: Final links data ready for return', {
             linksCount: links.length,
+            categoriesCount: categories.length,
             hasInvalidLinks: links.some(link => !link || typeof link !== 'object')
         });
-        
+
         return {
             links: links,
             theme: data.theme || 'dark',
             view: data.view || 'grid',
             colorTheme: data.colorTheme || 'default',
-            defaultTileSize: data.defaultTileSize || 'medium'
+            defaultTileSize: data.defaultTileSize || 'medium',
+            categories: categories
         };
     } catch (error) {
         console.error('STORAGE_MANAGER: Storage load error: failed to load data from storage', {
             errorMessage: error.message,
             errorStack: error.stack
         });
-        return { links: [], theme: 'dark', view: 'grid', colorTheme: 'default', defaultTileSize: 'medium' };
+        return { links: [], theme: 'dark', view: 'grid', colorTheme: 'default', defaultTileSize: 'medium', categories: ['Default'] };
     }
 }
 
@@ -218,7 +250,12 @@ export async function saveSettings(settings) {
         if (settings.theme && ['dark', 'light'].includes(settings.theme)) {
             dataToSave.theme = settings.theme;
         }
-        if (settings.colorTheme && ['default', 'ocean', 'cosmic', 'sunset', 'forest', 'fire', 'aurora'].includes(settings.colorTheme)) {
+        if (settings.colorTheme && [
+            'default', 'ocean', 'cosmic', 'sunset', 'forest', 'fire', 'aurora',
+            'theme-purple', 'theme-pink', 'theme-green', 'theme-orange', 'theme-teal',
+            'theme-dark-orange', 'theme-dark-purple', 'theme-dark-emerald', 
+            'theme-dark-crimson', 'theme-dark-sapphire'
+        ].includes(settings.colorTheme)) {
             dataToSave.colorTheme = settings.colorTheme;
         }
         if (settings.view && ['grid', 'list'].includes(settings.view)) {

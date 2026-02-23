@@ -1,5 +1,6 @@
 import * as LinkManager from './linkManager.js';
 import { sanitizeHTML } from '../features/utils.js';
+import { debug, debugError } from './debug.js';
 
 export function getElements() {
     return {
@@ -49,7 +50,7 @@ export function renderLinks(state) {
     const end = start + state.linksPerPage;
     const linksToRender = state.filteredLinks.slice(start, end);
 
-    console.log('Rendering links:', linksToRender);
+    debug('Rendering links:', linksToRender);
 
     linksToRender.forEach((link, index) => {
         const div = createLinkElement(link, index, state);
@@ -103,7 +104,7 @@ export function filterLinks(state) {
     const selectedCategory = elements.filterCategory.value;
     state.filteredLinks = selectedCategory === 'all' ? state.links : state.links.filter(link => link.category === selectedCategory);
     state.currentPage = 1;
-    console.log('Filtered links:', state.filteredLinks);
+    debug('Filtered links:', state.filteredLinks);
     renderLinks(state);
 }
 
@@ -205,7 +206,7 @@ export function setupModalListeners(state) {
     elements.editModal.addEventListener('click', (event) => {
         // Prevent closing if modal was just opened
         if (modalJustOpened) {
-            console.log('Modal just opened, ignoring click');
+            debug('Modal just opened, ignoring click');
             modalJustOpened = false;
             return;
         }
@@ -215,7 +216,7 @@ export function setupModalListeners(state) {
         // Check if the click was inside the modal content
         const isInsideContent = modalContent && modalContent.contains(event.target);
 
-        console.log('Modal clicked:', {
+        debug('Modal clicked:', {
             target: event.target.className || event.target.tagName,
             targetElement: event.target,
             modalElement: elements.editModal,
@@ -226,7 +227,7 @@ export function setupModalListeners(state) {
 
         // Only close if clicking outside the modal content (i.e., on the backdrop)
         if (!isInsideContent) {
-            console.log('Closing modal - clicked outside content');
+            debug('Closing modal - clicked outside content');
             closeEditModal();
         }
     });
@@ -235,7 +236,7 @@ export function setupModalListeners(state) {
     const modalContent = elements.editModal.querySelector('.modal-content');
     if (modalContent) {
         modalContent.addEventListener('click', (e) => {
-            console.log('Clicked inside modal content - preventing close');
+            debug('Clicked inside modal content - preventing close');
             e.stopPropagation();
         });
     }
@@ -257,7 +258,7 @@ function openEditModal(state, index) {
     state.editIndex = index;
     const link = state.filteredLinks[state.editIndex];
 
-    console.log('Opening edit modal for link:', link);
+    debug('Opening edit modal for link:', link);
 
     elements.editSiteName.value = link.name;
     elements.editSiteUrl.value = link.url;
@@ -269,7 +270,7 @@ function openEditModal(state, index) {
 
     // Set flag to prevent immediate closing due to event bubbling
     modalJustOpened = true;
-    console.log('Modal opened, setting flag to prevent immediate close');
+    debug('Modal opened, setting flag to prevent immediate close');
 
     // Remove hidden class and add show class
     elements.editModal.classList.remove('hidden');
@@ -278,7 +279,7 @@ function openEditModal(state, index) {
     // Reset the flag after a longer delay to ensure all events have settled
     setTimeout(() => {
         modalJustOpened = false;
-        console.log('Modal flag reset, click-to-close now enabled');
+        debug('Modal flag reset, click-to-close now enabled');
     }, 500);
 
     // Focus the first input
@@ -289,7 +290,7 @@ function openEditModal(state, index) {
 
 function closeEditModal() {
     const elements = getElements();
-    console.log('Closing edit modal');
+    debug('Closing edit modal');
 
     // Add hidden class and hide
     elements.editModal.classList.add('hidden');

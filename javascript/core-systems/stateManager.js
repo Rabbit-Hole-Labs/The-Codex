@@ -27,7 +27,12 @@ const stateSchemas = {
     },
     colorTheme: {
         type: 'string',
-        enum: ['default', 'ocean', 'cosmic', 'sunset', 'forest', 'fire', 'aurora']
+        enum: [
+            'default', 'ocean', 'cosmic', 'sunset', 'forest', 'fire', 'aurora',
+            'theme-purple', 'theme-pink', 'theme-green', 'theme-orange', 'theme-teal',
+            'theme-dark-orange', 'theme-dark-purple', 'theme-dark-emerald',
+            'theme-dark-crimson', 'theme-dark-sapphire'
+        ]
     },
     view: {
         type: 'string',
@@ -40,6 +45,14 @@ const stateSchemas = {
     defaultTileSize: {
         type: 'string',
         enum: ['compact', 'small', 'medium', 'large', 'square', 'wide', 'tall', 'giant']
+    },
+    categories: {
+        type: 'array',
+        items: {
+            type: 'string',
+            minLength: 1,
+            maxLength: 50
+        }
     }
 };
 
@@ -113,86 +126,49 @@ function validateStateChanges(newState) {
 function validateAgainstSchema(value, schema, path = '') {
     const errors = [];
 
-    console.log(`STATE MANAGER VALIDATE: Validating ${path}`, {
-        value: value,
-        valueType: typeof value,
-        schemaType: schema.type,
-        isArray: Array.isArray(value),
-        isNull: value === null
-    });
-
     // Type validation - handle arrays specially since typeof [] returns 'object'
     if (schema.type) {
         let actualType = typeof value;
 
         // Special handling for arrays
         if (schema.type === 'array' && Array.isArray(value)) {
-            actualType = 'array'; // Override for arrays
+            actualType = 'array';
         }
 
         // Handle nullable types (array of types)
         let validTypes = Array.isArray(schema.type) ? schema.type : [schema.type];
-        
-        console.log(`STATE MANAGER VALIDATE: Type validation for ${path}`, {
-            validTypes: validTypes,
-            actualType: actualType,
-            valueIsNull: value === null,
-            nullAllowed: validTypes.includes('null')
-        });
 
-        // Special handling for null values - ensure proper nullable type handling
+        // Special handling for null values
         if (value === null && validTypes.includes('null')) {
             actualType = 'null';
-            console.log(`STATE MANAGER VALIDATE: Null value detected and allowed for ${path}`);
         }
 
         // Enhanced validation for nullable types
         if (value === null) {
-            // If value is null, only valid if null is explicitly allowed
             if (!validTypes.includes('null')) {
                 errors.push(`${path}: Expected one of [${validTypes.join(', ')}], got null`);
-                console.error(`STATE MANAGER VALIDATE: Null value rejected for ${path} - null not in valid types`);
                 return { valid: false, errors };
             }
-            // If null is allowed, validation passes
-            console.log(`STATE MANAGER VALIDATE: Null value accepted for ${path}`);
             return { valid: true, errors: [] };
         }
 
         if (!validTypes.includes(actualType)) {
             errors.push(`${path}: Expected one of [${validTypes.join(', ')}], got ${actualType}`);
-            console.error(`STATE MANAGER VALIDATE: Type mismatch for ${path}`, {
-                expected: validTypes,
-                actual: actualType
-            });
             return { valid: false, errors };
         }
-        
-        console.log(`STATE MANAGER VALIDATE: Type validation passed for ${path}`);
     }
 
     // String validations
     if (schema.type === 'string' || (Array.isArray(schema.type) && schema.type.includes('string'))) {
-        console.log(`STATE MANAGER VALIDATE: String validation for ${path}`, {
-            value: value,
-            valueType: typeof value,
-            schemaType: schema.type
-        });
-        
         // Handle null values properly for nullable string types
         if (value === null) {
-            console.log(`STATE MANAGER VALIDATE: Null value in string validation for ${path}`);
-            // If null is allowed, validation passes
             if (Array.isArray(schema.type) && schema.type.includes('null')) {
-                console.log(`STATE MANAGER VALIDATE: Null value accepted in string validation for ${path}`);
                 return { valid: true, errors: [] };
             }
-            // If null is not allowed, validation fails
             errors.push(`${path}: Expected string, got null`);
-            console.error(`STATE MANAGER VALIDATE: Null value rejected in string validation for ${path}`);
             return { valid: false, errors };
         }
-        
+
         // Only validate string properties if value is actually a string
         if (typeof value === 'string') {
             if (schema.minLength && value.length < schema.minLength) {
@@ -201,19 +177,6 @@ function validateAgainstSchema(value, schema, path = '') {
             }
             if (schema.maxLength && value.length > schema.maxLength) {
                 errors.push(`${path}: Maximum length is ${schema.maxLength}`);
-                return { valid: false, errors };
-            }
-            // Handle null values properly for nullable types with enum
-            if (value === null) {
-                console.log(`STATE MANAGER VALIDATE: Null value in enum validation for ${path}`);
-                // If null is allowed, validation passes
-                if (Array.isArray(schema.type) && schema.type.includes('null')) {
-                    console.log(`STATE MANAGER VALIDATE: Null value accepted in enum validation for ${path}`);
-                    return { valid: true, errors: [] };
-                }
-                // If null is not allowed, validation fails
-                errors.push(`${path}: Expected string, got null`);
-                console.error(`STATE MANAGER VALIDATE: Null value rejected in enum validation for ${path}`);
                 return { valid: false, errors };
             }
             if (schema.enum && !schema.enum.includes(value)) {
@@ -229,7 +192,6 @@ function validateAgainstSchema(value, schema, path = '') {
                 }
             }
         } else {
-            // Value is not a string when string is expected
             errors.push(`${path}: Expected string, got ${typeof value}`);
             return { valid: false, errors };
         }
@@ -251,12 +213,6 @@ function validateAgainstSchema(value, schema, path = '') {
             });
         }
     }
-
-    console.log(`STATE MANAGER VALIDATE: Validation completed for ${path}`, {
-        valid: errors.length === 0,
-        errorCount: errors.length,
-        errors: errors
-    });
 
     return {
         valid: errors.length === 0,

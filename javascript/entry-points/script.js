@@ -7,6 +7,7 @@ import { handleError, safeAsync, safeSync, registerErrorHandler, CodexError } fr
 import { loadIconWithCache, preloadIcons, batchLoadIcons, getCacheStats } from '../features/iconCache.js';
 import { syncStatusIndicator } from '../features/syncStatusIndicator.js';
 import CodexConsole from '../features/consoleCommands.js';
+import { debug, debugWarn, debugError, setDebugEnabled, isDebugEnabled } from '../core-systems/debug.js';
 
 // State
 let state = {
@@ -329,18 +330,22 @@ async function initializeState() {
         } else {
             stateUpdates.links = []; // Force empty array
         }
-        
+
         if (loadedState.theme) stateUpdates.theme = loadedState.theme;
         if (loadedState.colorTheme) stateUpdates.colorTheme = loadedState.colorTheme;
         if (loadedState.view) stateUpdates.view = loadedState.view;
         if (loadedState.defaultTileSize) stateUpdates.defaultTileSize = loadedState.defaultTileSize;
-        
+        if (loadedState.categories && Array.isArray(loadedState.categories)) {
+            stateUpdates.categories = loadedState.categories;
+        }
+
         // Set defaults if not provided
         if (!loadedState.theme) stateUpdates.theme = 'dark';
         if (!loadedState.colorTheme) stateUpdates.colorTheme = 'default';
         if (!loadedState.view) stateUpdates.view = 'grid';
         if (!loadedState.defaultTileSize) stateUpdates.defaultTileSize = 'medium';
-        
+        if (!stateUpdates.categories) stateUpdates.categories = ['Default'];
+
         // Create clean state object with guaranteed array for links
         const cleanUpdates = {
             theme: stateUpdates.theme || 'dark',
@@ -348,6 +353,7 @@ async function initializeState() {
             view: stateUpdates.view || 'grid',
             defaultTileSize: stateUpdates.defaultTileSize || 'medium',
             links: stateUpdates.links || [], // Use validated links
+            categories: stateUpdates.categories || ['Default'],
             searchTerm: stateUpdates.searchTerm || '',
             isDragging: stateUpdates.isDragging || false,
             draggedElement: stateUpdates.draggedElement || null,
@@ -414,7 +420,19 @@ async function renderLinksTraditional() {
 
     linksContainer.innerHTML = '';
 
-    Object.entries(groupedLinks).forEach(([category, links]) => {
+    // Sort categories by stored order, with any new categories at the end
+    const sortedCategories = Object.keys(groupedLinks).sort((a, b) => {
+        const indexA = currentState.categories.indexOf(a);
+        const indexB = currentState.categories.indexOf(b);
+        // Categories not in the order array go to the end
+        if (indexA === -1 && indexB === -1) return 0;
+        if (indexA === -1) return 1;
+        if (indexB === -1) return -1;
+        return indexA - indexB;
+    });
+
+    sortedCategories.forEach(category => {
+        const links = groupedLinks[category];
         const section = document.createElement('section');
         section.className = 'category-section fade-in';
         section.innerHTML = `
@@ -604,13 +622,22 @@ function handleDrop(e) {
             link === currentState.draggedLink
         );
 
-        if (draggedLinkIndex !== -1) {
+        // Also try finding by name and url as fallback (in case reference was lost)
+        const fallbackIndex = draggedLinkIndex === -1 ?
+            currentState.links.findIndex(link =>
+                link.name === currentState.draggedLink?.name &&
+                link.url === currentState.draggedLink?.url
+            ) : draggedLinkIndex;
+
+        const finalIndex = fallbackIndex !== -1 ? fallbackIndex : draggedLinkIndex;
+
+        if (finalIndex !== -1) {
             // Create new links array with the link moved
             const newLinks = [...currentState.links];
-            newLinks.splice(draggedLinkIndex, 1);
+            const [removedLink] = newLinks.splice(finalIndex, 1);
 
             // Update the category if moving between categories
-            const updatedLink = { ...currentState.draggedLink, category: dropCategory };
+            const updatedLink = { ...removedLink, category: dropCategory };
 
             // Find the target position in the global links array
             const targetIndex = findGlobalIndexForCategoryPosition(dropCategory, dropIndex);
@@ -675,8 +702,11 @@ function handleGridDragOver(e) {
 function handleGridDragEnter(e) {
     // Only activate grid drop zone if we're not hovering over a tile
     const currentState = getState();
+    const draggedEl = currentState.draggedElement;
+    const isDraggingOverGrid = draggedEl && draggedEl instanceof Element && draggedEl.closest('.links-grid');
+
     if (currentState.isDragging &&
-        this !== currentState.draggedElement?.closest('.links-grid') &&
+        this !== isDraggingOverGrid &&
         !e.target.classList.contains('link-tile') &&
         !e.target.closest('.link-tile')) {
         this.classList.add('grid-drag-over');
@@ -699,18 +729,27 @@ function handleGridDrop(e) {
     if (currentState.isDragging && currentState.draggedLink) {
         const dropCategory = this.dataset.category;
 
-        // Remove the dragged link from its original position
+        // Find link by reference first, then by name/url as fallback
         const draggedLinkIndex = currentState.links.findIndex(link =>
             link === currentState.draggedLink
         );
 
-        if (draggedLinkIndex !== -1) {
+        // Fallback: find by name and url (reference equality fails due to deep cloning in getState)
+        const fallbackIndex = draggedLinkIndex === -1 ?
+            currentState.links.findIndex(link =>
+                link.name === currentState.draggedLink?.name &&
+                link.url === currentState.draggedLink?.url
+            ) : draggedLinkIndex;
+
+        const finalIndex = fallbackIndex !== -1 ? fallbackIndex : draggedLinkIndex;
+
+        if (finalIndex !== -1) {
             // Create new links array with the link moved
             const newLinks = [...currentState.links];
-            newLinks.splice(draggedLinkIndex, 1);
+            const [removedLink] = newLinks.splice(finalIndex, 1);
 
-            // Update the category if moving between categories
-            const updatedLink = { ...currentState.draggedLink, category: dropCategory };
+            // Update the category
+            const updatedLink = { ...removedLink, category: dropCategory };
 
             // Find where to insert in the target category (at the end)
             let insertIndex = newLinks.length;
@@ -992,6 +1031,7 @@ const init = safeAsync(async function init() {
     try {
         initializeDOMElements();
         await initializeState();
+        applyTheme();  // Apply theme from saved state
         setupEventListeners();
         
         // Render links after state is initialized
@@ -1003,7 +1043,7 @@ const init = safeAsync(async function init() {
             console.log('State changed:', changeInfo);
 
             // Only re-render if relevant properties changed
-            const relevantChanges = ['links', 'theme', 'colorTheme', 'view', 'searchTerm', 'defaultTileSize'];
+            const relevantChanges = ['links', 'theme', 'colorTheme', 'view', 'searchTerm', 'defaultTileSize', 'categories'];
             const hasRelevantChange = Object.keys(changeInfo.changes).some(key =>
                 relevantChanges.includes(key)
             );

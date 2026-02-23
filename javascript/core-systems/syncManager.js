@@ -1,6 +1,8 @@
 // Advanced Sync Manager for The Codex
 // Handles conflict resolution, versioning, and improved sync strategies
 
+import { debug, debugWarn, debugError } from './debug.js';
+
 export class SyncManager {
     constructor() {
         this.syncInProgress = false;
@@ -21,7 +23,7 @@ export class SyncManager {
             this.lastSyncTime = status.lastSyncTime || null;
             this.notifyListeners('initialized', status.syncStatus || 'unknown');
         } catch (error) {
-            console.error('Failed to initialize sync status:', error);
+            debugError('Failed to initialize sync status:', error);
         }
     }
 
@@ -39,7 +41,7 @@ export class SyncManager {
             try {
                 callback(event, data);
             } catch (error) {
-                console.error('Sync listener error:', error);
+                debugError('Sync listener error:', error);
             }
         });
     }
@@ -55,7 +57,7 @@ export class SyncManager {
                 remote: sync.syncMetadata || { version: 0, lastModified: 0 }
             };
         } catch (error) {
-            console.error('Failed to get sync metadata:', error);
+            debugError('Failed to get sync metadata:', error);
             return {
                 local: { version: 0, lastModified: 0 },
                 remote: { version: 0, lastModified: 0 }
@@ -79,10 +81,10 @@ export class SyncManager {
                 await chrome.storage.sync.set({ syncMetadata: metadata });
             }
 
-            console.log('Sync metadata updated successfully');
+            debug('Sync metadata updated successfully');
             return { success: true, metadata };
         } catch (error) {
-            console.error('Failed to update sync metadata:', error);
+            debugError('Failed to update sync metadata:', error);
 
             // Handle specific Chrome storage errors
             if (error.message?.includes('QUOTA_BYTES')) {
@@ -119,7 +121,7 @@ export class SyncManager {
             await chrome.storage.local.set({ deviceId: newId });
             return newId;
         } catch (error) {
-            console.error('Failed to get device ID:', error);
+            debugError('Failed to get device ID:', error);
             return 'unknown_device';
         }
     }
@@ -127,7 +129,7 @@ export class SyncManager {
     // Main sync function with conflict resolution and comprehensive error handling
     async syncData(forceStrategy = null) {
         if (this.syncInProgress) {
-            console.log('Sync already in progress, queueing request');
+            debug('Sync already in progress, queueing request');
             return new Promise((resolve) => {
                 this.syncQueue.push(resolve);
             });
@@ -137,7 +139,7 @@ export class SyncManager {
         this.notifyListeners('syncStart', { time: Date.now() });
 
         try {
-            console.log('Starting sync operation...');
+            debug('Starting sync operation...');
 
             // Validate Chrome storage availability
             if (!chrome.storage || !chrome.storage.local || !chrome.storage.sync) {
@@ -149,9 +151,9 @@ export class SyncManager {
 
             try {
                 localData = await chrome.storage.local.get(['links', 'categories']);
-                console.log('Local data retrieved:', localData);
+                debug('Local data retrieved:', localData);
             } catch (localError) {
-                console.error('Failed to retrieve local data:', localError);
+                debugError('Failed to retrieve local data:', localError);
                 this.notifyListeners('syncError', {
                     type: 'local_storage_error',
                     message: 'Failed to read local storage data.',
@@ -162,9 +164,9 @@ export class SyncManager {
 
             try {
                 syncData = await chrome.storage.sync.get(['links', 'categories']);
-                console.log('Sync data retrieved:', syncData);
+                debug('Sync data retrieved:', syncData);
             } catch (syncError) {
-                console.error('Failed to retrieve sync data:', syncError);
+                debugError('Failed to retrieve sync data:', syncError);
 
                 // Handle specific sync storage errors
                 if (syncError.message?.includes('QUOTA_BYTES')) {
@@ -198,7 +200,7 @@ export class SyncManager {
                 }
 
                 // For sync errors, we can still work with local data
-                console.warn('Sync storage unavailable, working with local data only');
+                debugWarn('Sync storage unavailable, working with local data only');
                 syncData = { links: '[]', categories: '[]' }; // Empty sync data
             }
 
@@ -211,11 +213,11 @@ export class SyncManager {
             let resolvedData;
             if (metadata.local.version === metadata.remote.version) {
                 // No conflict, data is in sync
-                console.log('No conflict detected, using local data');
+                debug('No conflict detected, using local data');
                 resolvedData = localData;
             } else {
                 // Conflict detected, resolve based on strategy
-                console.log('Conflict detected, resolving with strategy:', strategy);
+                debug('Conflict detected, resolving with strategy:', strategy);
                 resolvedData = await this.resolveConflict(localData, syncData, metadata, strategy);
             }
 
@@ -223,7 +225,7 @@ export class SyncManager {
             const validationResult = this.validateSyncData(resolvedData);
             if (!validationResult.valid) {
                 const validationError = new Error(`Data validation failed: ${validationResult.errors.join(', ')}`);
-                console.error('Sync data validation failed:', {
+                debugError('Sync data validation failed:', {
                     errors: validationResult.errors,
                     data: resolvedData
                 });
@@ -242,7 +244,7 @@ export class SyncManager {
             // Update sync metadata
             const metadataResult = await this.updateSyncMetadata('both');
             if (!metadataResult.success) {
-                console.warn('Failed to update sync metadata:', metadataResult.error);
+                debugWarn('Failed to update sync metadata:', metadataResult.error);
             }
 
             // Update last sync time
@@ -258,7 +260,7 @@ export class SyncManager {
                 metadata: metadata
             });
 
-            console.log(`Sync completed successfully. Synced ${syncedItemsCount} items.`);
+            debug(`Sync completed successfully. Synced ${syncedItemsCount} items.`);
 
             // Process queued sync requests
             while (this.syncQueue.length > 0) {
@@ -269,7 +271,7 @@ export class SyncManager {
             return { success: true, time: this.lastSyncTime, itemsSynced: syncedItemsCount };
 
         } catch (error) {
-            console.error('Sync failed:', error);
+            debugError('Sync failed:', error);
 
             // Provide detailed error information to listeners
             this.notifyListeners('syncError', {
@@ -289,13 +291,13 @@ export class SyncManager {
             return { success: false, error: error.message, timestamp: Date.now() };
         } finally {
             this.syncInProgress = false;
-            console.log('Sync operation completed');
+            debug('Sync operation completed');
         }
     }
 
     // Resolve conflicts between local and remote data
     async resolveConflict(localData, syncData, metadata, strategy) {
-        console.log(`Resolving conflict with strategy: ${strategy}`);
+        debug(`Resolving conflict with strategy: ${strategy}`);
 
         switch (strategy) {
             case 'local':
@@ -364,7 +366,7 @@ export class SyncManager {
     // Save resolved data to both storages with enhanced error handling
     async saveResolvedData(data) {
         try {
-            console.log('Saving resolved data...', {
+            debug('Saving resolved data...', {
                 hasLinks: !!data.links,
                 hasCategories: !!data.categories,
                 linksType: typeof data.links,
@@ -374,7 +376,7 @@ export class SyncManager {
             // Validate data before saving with detailed validation
             if (!data.links && !data.categories) {
                 const validationError = new Error('Invalid resolved data structure: both links and categories are missing');
-                console.error('Sync save validation failed: missing required data');
+                debugError('Sync save validation failed: missing required data');
                 this.notifyListeners('syncError', {
                     type: 'data_validation',
                     message: 'Sync data validation failed',
@@ -390,9 +392,9 @@ export class SyncManager {
                     links: data.links,
                     categories: data.categories
                 });
-                console.log('Data saved to local storage successfully');
+                debug('Data saved to local storage successfully');
             } catch (localError) {
-                console.error('Failed to save to local storage:', {
+                debugError('Failed to save to local storage:', {
                     errorMessage: localError.message,
                     errorStack: localError.stack
                 });
@@ -411,9 +413,9 @@ export class SyncManager {
                     links: data.links,
                     categories: data.categories
                 });
-                console.log('Data saved to sync storage successfully');
+                debug('Data saved to sync storage successfully');
             } catch (syncError) {
-                console.warn('Failed to save to sync storage:', {
+                debugWarn('Failed to save to sync storage:', {
                     errorMessage: syncError.message,
                     errorStack: syncError.stack
                 });
@@ -450,10 +452,10 @@ export class SyncManager {
                 }
                 
                 // Don't throw here - local storage save succeeded, which is the primary storage
-                console.log('Continuing with local storage as primary storage');
+                debug('Continuing with local storage as primary storage');
             }
         } catch (error) {
-            console.error('Failed to save resolved data:', {
+            debugError('Failed to save resolved data:', {
                 errorMessage: error.message,
                 errorStack: error.stack,
                 data: data
@@ -482,7 +484,7 @@ export class SyncManager {
         if (data.links !== undefined) {
             if (data.links === null) {
                 // Null is acceptable for links
-                console.log('Links property is null, which is acceptable');
+                debug('Links property is null, which is acceptable');
             } else if (typeof data.links !== 'string') {
                 errors.push(`Links must be a JSON string, got ${typeof data.links}`);
             } else {
@@ -529,7 +531,7 @@ export class SyncManager {
         if (data.categories !== undefined) {
             if (data.categories === null) {
                 // Null is acceptable for categories
-                console.log('Categories property is null, which is acceptable');
+                debug('Categories property is null, which is acceptable');
             } else if (typeof data.categories !== 'string') {
                 errors.push(`Categories must be a JSON string, got ${typeof data.categories}`);
             } else {
@@ -562,7 +564,7 @@ export class SyncManager {
         const dataKeys = Object.keys(data);
         for (const key of dataKeys) {
             if (!validProperties.includes(key)) {
-                console.warn(`Unexpected property in sync data: ${key}`);
+                debugWarn(`Unexpected property in sync data: ${key}`);
             }
         }
 
@@ -589,7 +591,7 @@ export class SyncManager {
             await chrome.storage.sync.set(data);
         } catch (error) {
             if (error.message.includes('QUOTA_BYTES')) {
-                console.error('Sync storage quota exceeded');
+                debugError('Sync storage quota exceeded');
                 this.notifyListeners('quotaExceeded', {
                     bytesNeeded: new Blob([JSON.stringify(data)]).size,
                     quotaLimit: chrome.storage.sync.QUOTA_BYTES
@@ -646,7 +648,7 @@ export class SyncManager {
             this.notifyListeners('syncCleared', { time: Date.now() });
             return { success: true };
         } catch (error) {
-            console.error('Failed to clear sync data:', error);
+            debugError('Failed to clear sync data:', error);
             return { success: false, error: error.message };
         }
     }
