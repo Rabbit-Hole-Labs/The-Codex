@@ -5,16 +5,14 @@
 
 // CSP-aware icon loading configuration
 const CSP_CONFIG = {
-    allowedDomains: [
-        'clearbit.com',
-        'www.google.com',
-        'google.com',
-        'cdn.jsdelivr.net'
-    ],
-    blockedSchemes: ['http:'], // Block insecure HTTP for external resources
+    // Removed domain allowlist - extension needs to load favicons from any domain
+    // Manifest permissions control which domains are accessible
+    blockedSchemes: [], // Don't block HTTP - many sites only have HTTP favicons
     allowLocalIPs: true, // Allow local IP addresses for home lab environments
     allowDataUrls: true,
-    fallbackOnCSPBlock: true
+    fallbackOnCSPBlock: true,
+    // Only block known dangerous protocols
+    dangerousProtocols: ['javascript:', 'vbscript:', 'file:']
 };
 
 // Icon cache storage
@@ -609,9 +607,9 @@ function isCSPCompliant(url) {
     try {
         const urlObj = new URL(url);
 
-        // Check for blocked schemes
-        if (CSP_CONFIG.blockedSchemes.includes(urlObj.protocol)) {
-            console.warn(`CSP Block: ${urlObj.protocol} scheme not allowed`);
+        // Check for dangerous protocols (XSS prevention)
+        if (CSP_CONFIG.dangerousProtocols.includes(urlObj.protocol)) {
+            console.warn(`CSP Block: Dangerous protocol ${urlObj.protocol} not allowed`);
             return false;
         }
 
@@ -620,24 +618,18 @@ function isCSPCompliant(url) {
             return CSP_CONFIG.allowDataUrls;
         }
 
-        // Check for local IP addresses
-        if (isLocalIP(urlObj.hostname)) {
-            if (!CSP_CONFIG.allowLocalIPs) {
+        // Allow all HTTP/HTTPS URLs for favicon loading
+        // The manifest permissions control actual network access
+        if (urlObj.protocol === 'http:' || urlObj.protocol === 'https:') {
+            // Check for local IP addresses if needed
+            if (isLocalIP(urlObj.hostname) && !CSP_CONFIG.allowLocalIPs) {
                 console.warn(`CSP Block: Local IP ${urlObj.hostname} not allowed`);
                 return false;
             }
+            return true;
         }
 
-        // Check for allowed domains
-        const isAllowed = CSP_CONFIG.allowedDomains.some(domain =>
-            urlObj.hostname === domain || urlObj.hostname.endsWith('.' + domain)
-        );
-
-        if (!isAllowed && urlObj.protocol.startsWith('http')) {
-            console.warn(`CSP Block: Domain ${urlObj.hostname} not in allowlist`);
-            return false;
-        }
-
+        // Allow other protocols (like chrome-extension://)
         return true;
 
     } catch (error) {

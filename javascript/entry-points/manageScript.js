@@ -76,6 +76,7 @@ async function init() {
         setupTabs();
         setupIconHelperListeners();
         setupLinksViewToggle();
+        setupCategoryReorder();
 
         // Initialize sync status indicator
         syncStatusIndicator.init('sync-status-container');
@@ -129,6 +130,7 @@ async function handleCreateCategory(e) {
         if (created) {
             e.target.reset();
             await CategoryManager.populateCategories(state);
+            renderCategoryReorderList();
             UIManager.showMessage(`Category "${newCategoryName}" created successfully.`);
         }
     } catch (error) {
@@ -152,6 +154,7 @@ async function handleEditCategory(e) {
         const success = await CategoryManager.renameCategory(state, oldCategory, newCategory);
         if (success) {
             e.target.reset();
+            renderCategoryReorderList();
             UIManager.showMessage(`Category "${oldCategory}" renamed to "${newCategory}".`);
         }
     } catch (error) {
@@ -172,6 +175,7 @@ async function handleDeleteCategory(e) {
         const success = await CategoryManager.deleteCategory(state, categoryToDelete);
         if (success) {
             e.target.reset();
+            renderCategoryReorderList();
             UIManager.showMessage(`Category "${categoryToDelete}" deleted successfully.`);
         }
     } catch (error) {
@@ -705,6 +709,242 @@ function setLinksView(view) {
     } catch (error) {
         console.error('Error saving links view preference:', error);
     }
+}
+
+// Category Reorder Functions
+let pendingCategoryOrder = null;
+let draggedCategoryItem = null;
+
+function renderCategoryReorderList() {
+    const container = document.getElementById('categoryReorderList');
+    if (!container) return;
+
+    // Count links per category
+    const categoryCounts = {};
+    state.links.forEach(link => {
+        const cat = link.category || 'Default';
+        categoryCounts[cat] = (categoryCounts[cat] || 0) + 1;
+    });
+
+    container.innerHTML = state.categories.map((category, index) => `
+        <div class="category-reorder-item"
+             data-category="${category}"
+             draggable="true"
+             data-index="${index}">
+            <div class="drag-handle">
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="9" cy="5" r="1"></circle>
+                    <circle cx="9" cy="12" r="1"></circle>
+                    <circle cx="9" cy="19" r="1"></circle>
+                    <circle cx="15" cy="5" r="1"></circle>
+                    <circle cx="15" cy="12" r="1"></circle>
+                    <circle cx="15" cy="19" r="1"></circle>
+                </svg>
+            </div>
+            <span class="category-name">${category}</span>
+            <span class="category-count">${categoryCounts[category] || 0} links</span>
+            <div class="reorder-actions">
+                <button type="button" class="reorder-btn move-up" data-category="${category}" ${index === 0 ? 'disabled' : ''}>
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <polyline points="18 15 12 9 6 15"></polyline>
+                    </svg>
+                </button>
+                <button type="button" class="reorder-btn move-down" data-category="${category}" ${index === state.categories.length - 1 ? 'disabled' : ''}>
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <polyline points="6 9 12 15 18 9"></polyline>
+                    </svg>
+                </button>
+            </div>
+        </div>
+    `).join('');
+
+    // Clear pending order when re-rendering from storage
+    pendingCategoryOrder = null;
+
+    // Setup drag and drop
+    setupCategoryDragDrop();
+
+    // Setup arrow buttons
+    setupCategoryReorderButtons();
+}
+
+function setupCategoryDragDrop() {
+    const items = document.querySelectorAll('.category-reorder-item');
+
+    items.forEach(item => {
+        item.addEventListener('dragstart', handleCategoryDragStart);
+        item.addEventListener('dragend', handleCategoryDragEnd);
+        item.addEventListener('dragover', handleCategoryDragOver);
+        item.addEventListener('drop', handleCategoryDrop);
+        item.addEventListener('dragenter', handleCategoryDragEnter);
+        item.addEventListener('dragleave', handleCategoryDragLeave);
+    });
+}
+
+function handleCategoryDragStart(e) {
+    draggedCategoryItem = this;
+    this.classList.add('dragging');
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', this.dataset.category);
+}
+
+function handleCategoryDragEnd() {
+    this.classList.remove('dragging');
+    document.querySelectorAll('.category-reorder-item').forEach(item => {
+        item.classList.remove('drag-over');
+    });
+    draggedCategoryItem = null;
+}
+
+function handleCategoryDragOver(e) {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+}
+
+function handleCategoryDragEnter(e) {
+    e.preventDefault();
+    if (this !== draggedCategoryItem) {
+        this.classList.add('drag-over');
+    }
+}
+
+function handleCategoryDragLeave() {
+    this.classList.remove('drag-over');
+}
+
+function handleCategoryDrop(e) {
+    e.preventDefault();
+    this.classList.remove('drag-over');
+
+    if (this === draggedCategoryItem) return;
+
+    const fromCategory = e.dataTransfer.getData('text/plain');
+    const toCategory = this.dataset.category;
+
+    // Get current order
+    const currentOrder = pendingCategoryOrder || [...state.categories];
+    const fromIndex = currentOrder.indexOf(fromCategory);
+    const toIndex = currentOrder.indexOf(toCategory);
+
+    if (fromIndex !== -1 && toIndex !== -1) {
+        // Remove from current position
+        currentOrder.splice(fromIndex, 1);
+        // Insert at new position
+        currentOrder.splice(toIndex, 0, fromCategory);
+
+        // Update pending order
+        pendingCategoryOrder = currentOrder;
+
+        // Re-render the list
+        renderCategoryReorderListWithOrder(currentOrder);
+    }
+}
+
+function renderCategoryReorderListWithOrder(order) {
+    const container = document.getElementById('categoryReorderList');
+    if (!container) return;
+
+    // Count links per category
+    const categoryCounts = {};
+    state.links.forEach(link => {
+        const cat = link.category || 'Default';
+        categoryCounts[cat] = (categoryCounts[cat] || 0) + 1;
+    });
+
+    container.innerHTML = order.map((category, index) => `
+        <div class="category-reorder-item"
+             data-category="${category}"
+             draggable="true"
+             data-index="${index}">
+            <div class="drag-handle">
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="9" cy="5" r="1"></circle>
+                    <circle cx="9" cy="12" r="1"></circle>
+                    <circle cx="9" cy="19" r="1"></circle>
+                    <circle cx="15" cy="5" r="1"></circle>
+                    <circle cx="15" cy="12" r="1"></circle>
+                    <circle cx="15" cy="19" r="1"></circle>
+                </svg>
+            </div>
+            <span class="category-name">${category}</span>
+            <span class="category-count">${categoryCounts[category] || 0} links</span>
+            <div class="reorder-actions">
+                <button type="button" class="reorder-btn move-up" data-category="${category}" ${index === 0 ? 'disabled' : ''}>
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <polyline points="18 15 12 9 6 15"></polyline>
+                    </svg>
+                </button>
+                <button type="button" class="reorder-btn move-down" data-category="${category}" ${index === order.length - 1 ? 'disabled' : ''}>
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <polyline points="6 9 12 15 18 9"></polyline>
+                    </svg>
+                </button>
+            </div>
+        </div>
+    `).join('');
+
+    // Re-setup drag and drop
+    setupCategoryDragDrop();
+    setupCategoryReorderButtons();
+}
+
+function setupCategoryReorderButtons() {
+    const moveUpBtns = document.querySelectorAll('.reorder-btn.move-up');
+    const moveDownBtns = document.querySelectorAll('.reorder-btn.move-down');
+
+    moveUpBtns.forEach(btn => {
+        btn.addEventListener('click', async () => {
+            const category = btn.dataset.category;
+            const currentOrder = pendingCategoryOrder || [...state.categories];
+            const index = currentOrder.indexOf(category);
+
+            if (index > 0) {
+                // Swap with previous
+                [currentOrder[index - 1], currentOrder[index]] = [currentOrder[index], currentOrder[index - 1]];
+                pendingCategoryOrder = currentOrder;
+                renderCategoryReorderListWithOrder(currentOrder);
+            }
+        });
+    });
+
+    moveDownBtns.forEach(btn => {
+        btn.addEventListener('click', async () => {
+            const category = btn.dataset.category;
+            const currentOrder = pendingCategoryOrder || [...state.categories];
+            const index = currentOrder.indexOf(category);
+
+            if (index < currentOrder.length - 1) {
+                // Swap with next
+                [currentOrder[index], currentOrder[index + 1]] = [currentOrder[index + 1], currentOrder[index]];
+                pendingCategoryOrder = currentOrder;
+                renderCategoryReorderListWithOrder(currentOrder);
+            }
+        });
+    });
+}
+
+async function handleSaveCategoryOrder() {
+    const orderToSave = pendingCategoryOrder || state.categories;
+
+    if (pendingCategoryOrder) {
+        const success = await CategoryManager.reorderCategories(state, orderToSave);
+        if (success) {
+            pendingCategoryOrder = null;
+            renderCategoryReorderList();
+        }
+    } else {
+        UIManager.showMessage('No changes to save.', 'info');
+    }
+}
+
+function setupCategoryReorder() {
+    const saveBtn = document.getElementById('saveCategoryOrderBtn');
+    if (saveBtn) {
+        saveBtn.addEventListener('click', handleSaveCategoryOrder);
+    }
+
+    // Initial render
+    renderCategoryReorderList();
 }
 
 // Start the application

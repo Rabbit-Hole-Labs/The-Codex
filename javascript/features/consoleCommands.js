@@ -4,6 +4,7 @@
 import { dataVerification } from './dataVerification.js';
 import { syncManager } from '../core-systems/syncManager.js';
 import { getCacheStats, clearIconCache, resetCacheStats, preloadIcons } from './iconCache.js';
+import { setDebugEnabled, isDebugEnabled } from '../core-systems/debug.js';
 
 // Global console helper for The Codex
 const CodexConsole = {
@@ -676,10 +677,28 @@ const CodexConsole = {
         }
     },
 
+    // Debug Mode Control
+    debug(enable = true) {
+        setDebugEnabled(enable);
+        console.log(`Debug mode: ${enable ? 'ENABLED' : 'DISABLED'}`);
+        console.log('Use CodexConsole.debug(true) to enable, CodexConsole.debug(false) to disable');
+        return isDebugEnabled();
+    },
+
+    debugStatus() {
+        console.log(`Debug mode is currently: ${isDebugEnabled() ? 'ENABLED' : 'DISABLED'}`);
+        return isDebugEnabled();
+    },
+
     // Help command
     help() {
         console.log(`
 CODEX CONSOLE COMMANDS
+
+Debug Mode:
+- CodexConsole.debug(true)     - Enable debug logging
+- CodexConsole.debug(false)    - Disable debug logging
+- CodexConsole.debugStatus()   - Check debug mode status
 
 Data Access:
 - CodexConsole.cloudData()     - Get all cloud storage data
@@ -720,6 +739,7 @@ Utilities:
 - CodexConsole.help()          - Show this help
 
 Example Usage:
+CodexConsole.debug(true)        # Enable debug logging
 await CodexConsole.compare()
 await CodexConsole.findLinks('github')
 await CodexConsole.storageInfo()
