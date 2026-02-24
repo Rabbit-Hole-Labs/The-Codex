@@ -56,6 +56,11 @@ const FALLBACK_COLORS = [
  * @returns {Promise<string>} - Promise resolving to icon URL
  */
 export async function loadIconWithCache(link, options = {}) {
+    // Handle null or undefined link
+    if (!link) {
+        return null;
+    }
+
     const {
         preferCustom = true,
         allowClearbit = true,
@@ -118,12 +123,12 @@ export async function loadIconWithCache(link, options = {}) {
 
         // If all attempts failed, return null
         cacheStats.failures++;
-        console.warn(`Failed to load icon for: ${link.name}`);
+        console.warn(`Failed to load icon for: ${link?.name || 'unknown'}`);
         return null;
 
     } catch (error) {
         cacheStats.failures++;
-        console.error(`Error loading icon for ${link.name}:`, error);
+        console.error(`Error loading icon for ${link?.name || 'unknown'}:`, error);
         return null;
     }
 }
