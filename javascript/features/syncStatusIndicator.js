@@ -11,11 +11,11 @@ export class SyncStatusIndicator {
 
         // Status states
         this.states = {
-            synced: { icon: '✓', text: 'Synced', class: 'sync-success' },
-            syncing: { icon: '↻', text: 'Syncing...', class: 'sync-progress' },
-            error: { icon: '!', text: 'Sync Error', class: 'sync-error' },
-            offline: { icon: '◌', text: 'Offline', class: 'sync-offline' },
-            pending: { icon: '•', text: 'Changes Pending', class: 'sync-pending' }
+            synced: { text: 'Synced', class: 'sync-success' },
+            syncing: { text: 'Syncing...', class: 'sync-progress' },
+            error: { text: 'Sync Error', class: 'sync-error' },
+            offline: { text: 'Offline', class: 'sync-offline' },
+            pending: { text: 'Changes Pending', class: 'sync-pending' }
         };
     }
 

@@ -24,10 +24,10 @@ async function runCriticalBugTests() {
   const result = await tester.runAllCriticalTests();
   
   if (result) {
-    console.log('\n🎉 All critical bug tests passed!');
+    console.log('\n[SUCCESS] All critical bug tests passed!');
     process.exit(0);
   } else {
-    console.log('\n❌ Some critical bug tests failed.');
+    console.log('\n[FAILED] Some critical bug tests failed.');
     process.exit(1);
   }
 }

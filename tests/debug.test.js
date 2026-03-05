@@ -222,7 +222,7 @@ describe('Debug Module', () => {
         test('should handle Unicode characters', async () => {
             const debugModule = await import('../javascript/core-systems/debug.js');
             debugModule.setDebugEnabled(true);
-            const unicode = '日本語 中文 العربية 🎉';
+            const unicode = '日本語 中文 العربية';
             debugModule.debug(unicode);
 
             expect(mockConsole.log).toHaveBeenCalledWith('[DEBUG]', unicode);
