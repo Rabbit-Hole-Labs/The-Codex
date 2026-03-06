@@ -123,10 +123,10 @@ try {
     tester.runAllCriticalTests().then((result) => {
       console.log('\n=== TEST RESULTS ===');
       if (result) {
-        console.log('✓ ALL CRITICAL BUG TESTS PASSED');
+        console.log('[PASS] ALL CRITICAL BUG TESTS PASSED');
         console.log('The Chrome storage corruption fixes are working correctly');
       } else {
-        console.log('✗ SOME CRITICAL BUG TESTS FAILED');
+        console.log('[FAIL] SOME CRITICAL BUG TESTS FAILED');
         console.log('The Chrome storage corruption fixes may not be working');
       }
       process.exit(result ? 0 : 1);
@@ -144,12 +144,13 @@ try {
     tester.runAllCriticalTests().then((result) => {
       console.log('\n=== TEST RESULTS ===');
       if (result) {
-        console.log('✓ ALL CRITICAL BUG TESTS PASSED');
+        console.log('[PASS] ALL CRITICAL BUG TESTS PASSED');
         console.log('The Chrome storage corruption fixes are working correctly');
       } else {
-        console.log('✗ SOME CRITICAL BUG TESTS FAILED');
+        console.log('[FAIL] SOME CRITICAL BUG TESTS FAILED');
         console.log('The Chrome storage corruption fixes may not be working');
       }
+      process.exit(result ? 0 : 1);
       process.exit(result ? 0 : 1);
     }).catch((error) => {
       console.error('Error running tests:', error);

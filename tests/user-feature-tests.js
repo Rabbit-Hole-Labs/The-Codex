@@ -13,9 +13,9 @@ function describe(name, fn) {
 function test(name, fn) {
   try {
     fn();
-    console.log(`  ✓ ${name}`);
+    console.log(`  [PASS] ${name}`);
   } catch (error) {
-    console.log(`  ✗ ${name}: ${error.message}`);
+    console.log(`  [FAIL] ${name}: ${error.message}`);
     throw error;
   }
 }
@@ -224,4 +224,4 @@ describe('User Experience Features', () => {
 });
 
 console.log('\n=== All User-Facing Feature Tests Completed ===');
-console.log('✓ Core application features are working correctly');
+console.log('[PASS] Core application features are working correctly');

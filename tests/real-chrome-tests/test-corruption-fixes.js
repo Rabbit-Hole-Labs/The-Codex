@@ -46,13 +46,13 @@ async function testStorageCorruptionFixes() {
             
             // Check if links is properly handled
             if (Array.isArray(result.links)) {
-                console.log('  ✓ Storage manager correctly handled corruption');
-                console.log(`  ✓ Links is array: ${Array.isArray(result.links)}`);
-                console.log(`  ✓ Links length: ${result.links.length}`);
+                console.log('  [PASS] Storage manager correctly handled corruption');
+                console.log(`  [PASS] Links is array: ${Array.isArray(result.links)}`);
+                console.log(`  [PASS] Links length: ${result.links.length}`);
             } else {
-                console.error('  ✗ Storage manager failed to handle corruption');
-                console.error(`  ✗ Links type: ${typeof result.links}`);
-                console.error(`  ✗ Links value:`, result.links);
+                console.error('  [FAIL] Storage manager failed to handle corruption');
+                console.error(`  [FAIL] Links type: ${typeof result.links}`);
+                console.error(`  [FAIL] Links value:`, result.links);
                 allPassed = false;
             }
             
@@ -67,9 +67,9 @@ async function testStorageCorruptionFixes() {
             
             const corruptedResult = await safeUpdateState(corruptedUpdate, { validate: true });
             if (!corruptedResult.success) {
-                console.log('  ✓ State manager correctly rejected corrupted data');
+                console.log('  [PASS] State manager correctly rejected corrupted data');
             } else {
-                console.error('  ✗ State manager should have rejected corrupted data');
+                console.error('  [FAIL] State manager should have rejected corrupted data');
                 allPassed = false;
             }
             
@@ -81,14 +81,14 @@ async function testStorageCorruptionFixes() {
             
             const validResult = await safeUpdateState(validUpdate, { validate: true });
             if (validResult.success) {
-                console.log('  ✓ State manager correctly accepted valid data');
+                console.log('  [PASS] State manager correctly accepted valid data');
             } else {
-                console.error('  ✗ State manager should have accepted valid data');
+                console.error('  [FAIL] State manager should have accepted valid data');
                 allPassed = false;
             }
             
         } catch (error) {
-            console.error(`  ✗ Test failed for ${scenario.name}:`, error);
+            console.error(`  [FAIL] Test failed for ${scenario.name}:`, error);
             allPassed = false;
         }
     }
@@ -103,30 +103,30 @@ async function testStorageCorruptionFixes() {
         const { initializeState } = await import('../javascript/entry-points/script.js');
         await initializeState();
         
-        console.log('  ✓ Extension initialization completed successfully');
+        console.log('  [PASS] Extension initialization completed successfully');
         
         // Check final state
         const { getState } = await import('../javascript/core-systems/stateManager.js');
         const finalState = getState();
         
         if (Array.isArray(finalState.links)) {
-            console.log('  ✓ Final state has valid links array');
+            console.log('  [PASS] Final state has valid links array');
         } else {
-            console.error('  ✗ Final state has invalid links');
+            console.error('  [FAIL] Final state has invalid links');
             allPassed = false;
         }
         
     } catch (error) {
-        console.error('  ✗ Extension initialization failed:', error);
+        console.error('  [FAIL] Extension initialization failed:', error);
         allPassed = false;
     }
     
     // Final results
     console.log('\n=== FINAL RESULTS ===');
     if (allPassed) {
-        console.log('  ✓ ALL TESTS PASSED - Chrome storage corruption fixes are working!');
+        console.log('  [SUCCESS] ALL TESTS PASSED - Chrome storage corruption fixes are working!');
     } else {
-        console.error('  ✗ SOME TESTS FAILED - Chrome storage corruption fixes need attention');
+        console.error('  [FAIL] SOME TESTS FAILED - Chrome storage corruption fixes need attention');
     }
     
     return allPassed;

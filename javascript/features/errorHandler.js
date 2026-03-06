@@ -4,7 +4,7 @@
  */
 
 // Error types and categories
-const ERROR_TYPES = {
+export const ERROR_TYPES = {
     // Security errors
     SECURITY: 'security',
     VALIDATION: 'validation',
@@ -36,7 +36,7 @@ const ERROR_TYPES = {
 };
 
 // Error severity levels
-const ERROR_SEVERITY = {
+export const ERROR_SEVERITY = {
     LOW: 'low',      // Warning, non-blocking
     MEDIUM: 'medium', // User should be notified
     HIGH: 'high',     // Blocking error, requires action
@@ -44,7 +44,7 @@ const ERROR_SEVERITY = {
 };
 
 // Error recovery strategies
-const RECOVERY_STRATEGIES = {
+export const RECOVERY_STRATEGIES = {
     RETRY: 'retry',
     FALLBACK: 'fallback',
     ROLLBACK: 'rollback',
@@ -149,7 +149,7 @@ const ERROR_MESSAGES = {
 export function handleError(error, options = {}) {
     const {
         context = 'general',
-        showUserNotification = true,
+        showNotifications = true,
         allowRecovery = true,
         logToConsole = true,
         reportToAnalytics = false
@@ -180,7 +180,7 @@ export function handleError(error, options = {}) {
         }
 
         // Show user notification if requested
-        if (showUserNotification) {
+        if (showNotifications) {
             showUserNotification(userMessage, normalizedError.severity);
         }
 
@@ -313,15 +313,15 @@ function addToErrorLog(error, context) {
  * @returns {string} - User-friendly message
  */
 function generateUserMessage(error) {
+    // Use custom user message from details if provided (takes precedence)
+    if (error.details && error.details.userMessage) {
+        return error.details.userMessage;
+    }
+
     // Use predefined messages if available
     const typeMessages = ERROR_MESSAGES[error.type];
     if (typeMessages && typeMessages[error.severity]) {
         return typeMessages[error.severity];
-    }
-
-    // Generate message based on error details
-    if (error.details && error.details.userMessage) {
-        return error.details.userMessage;
     }
 
     // Default message based on severity
@@ -655,7 +655,8 @@ export function safeAsync(asyncFunction, options = {}) {
         context = 'general',
         fallbackValue = null,
         retryAttempts = 0,
-        retryDelay = 1000
+        retryDelay = 1000,
+        onError = null
     } = options;
 
     return async function(...args) {
@@ -667,6 +668,11 @@ export function safeAsync(asyncFunction, options = {}) {
                 showUserNotification: true,
                 allowRecovery: retryAttempts > 0
             });
+
+            // Call the onError callback if provided
+            if (onError && typeof onError === 'function') {
+                onError(error, result);
+            }
 
             if (result.recoveryResult && result.recoveryResult.success) {
                 // Recovery succeeded, retry the operation
@@ -730,7 +736,8 @@ export function createErrorBoundary(operationName, operation, options = {}) {
     }, {
         context: operationName,
         fallbackValue: fallbackValue,
-        retryAttempts: retryAttempts
+        retryAttempts: retryAttempts,
+        onError: onError
     });
 }
 

@@ -59,10 +59,10 @@ import('./real-chrome-tests/critical-bug-tests.js').then(async (module) => {
     
     console.log('\n=== FINAL RESULTS ===');
     if (result) {
-      console.log('✓ ALL CRITICAL BUG TESTS PASSED');
+      console.log('[PASS] ALL CRITICAL BUG TESTS PASSED');
       console.log('The Chrome storage corruption fixes are working correctly');
     } else {
-      console.log('✗ SOME CRITICAL BUG TESTS FAILED');
+      console.log('[FAIL] SOME CRITICAL BUG TESTS FAILED');
       console.log('The Chrome storage corruption fixes may not be working');
     }
     process.exit(result ? 0 : 1);
