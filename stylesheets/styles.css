@@ -538,6 +538,17 @@ body.light.theme-dark-sapphire {
 
 /* Additional theme for Bold Creative - Cyber */
 body.dark.theme-cyber,
+body.light.theme-cyber {
+  --primary-color: #06b6d4 !important;
+  --primary-hover: #0891b2 !important;
+  --gradient-primary: linear-gradient(135deg, #06b6d4 0%, #10b981 100%) !important;
+  --gradient-hero: linear-gradient(135deg, #06b6d4 0%, #10b981 50%, #22c55e 100%) !important;
+  --shadow-glow-primary: 0 0 40px rgba(6, 182, 212, 0.4) !important;
+  --bg-gradient-1: rgba(6, 182, 212, 0.12) !important;
+  --bg-gradient-2: rgba(16, 185, 129, 0.12) !important;
+  --bg-gradient-3: rgba(34, 197, 94, 0.08) !important;
+}
+
 /* Focus Theme - Productive Variant */
 body.dark.theme-focus {
   --primary-color: #0D9488 !important;
@@ -557,15 +568,8 @@ body.light.theme-focus {
   --bg-gradient-1: rgba(13, 148, 136, 0.06) !important;
   --bg-gradient-2: rgba(20, 184, 166, 0.06) !important;
   --bg-gradient-3: rgba(249, 115, 22, 0.04) !important;
+  --shadow-glow-primary: 0 0 40px rgba(13, 148, 136, 0.06) !important;
 }
-body.light.theme-cyber {
-  --primary-color: #06b6d4 !important;
-  --primary-hover: #0891b2 !important;
-  --gradient-primary: linear-gradient(135deg, #06b6d4 0%, #10b981 100%) !important;
-  --gradient-hero: linear-gradient(135deg, #06b6d4 0%, #10b981 50%, #22c55e 100%) !important;
-  --shadow-glow-primary: 0 0 40px rgba(6, 182, 212, 0.4) !important;
-}
-
 /* Base Styles */
 * {
   box-sizing: border-box;
