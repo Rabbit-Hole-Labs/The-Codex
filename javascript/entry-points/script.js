@@ -6,6 +6,7 @@ import { loadLinks, saveLinks, saveSettings } from '../core-systems/storageManag
 import { debounce, sanitizeHTML, validateAndSanitizeUrl } from '../features/utils.js';
 import { getState, addStateChangeListener, safeUpdateState } from '../core-systems/stateManager.js';
 import { getPerformanceMetrics, resetPerformanceMetrics } from '../features/domOptimizer.js';
+import { createCategorySection, renderNoResults } from '../core-systems/tileRenderer.js';
 import { handleError, safeAsync, registerErrorHandler } from '../features/errorHandler.js';
 import { loadIconWithCache, getCacheStats } from '../features/iconCache.js';
 import { syncStatusIndicator } from '../features/syncStatusIndicator.js';
@@ -424,35 +425,16 @@ async function renderLinksTraditional() {
 
     sortedCategories.forEach(category => {
         const links = groupedLinks[category];
-        const section = document.createElement('section');
-        section.className = 'category-section fade-in';
-        section.innerHTML = `
-            <h2>${sanitizeHTML(category)}</h2>
-            <div class="links-grid ${currentState.view === 'list' ? 'list-view' : ''}" data-category="${category}">
-                ${links.map((link, index) => {
-                    const size = link.size || currentState.defaultTileSize || 'medium';
-                    const isCompact = size === 'compact';
-                    const isHorizontal = size === 'wide' || isCompact;
-
-                    return `
-                    <a href="${validateAndSanitizeUrl(link.url)}" ${getTileClasses(link)} target="_blank"
-                       draggable="true"
-                       data-link-index="${index}"
-                       data-category="${category}">
-                        <div class="tile-content${isHorizontal ? ' horizontal' : ''}">
-                            <img class="tile-icon" src="" alt="" loading="lazy" data-icon-url="${sanitizeHTML(getIconUrl(link))}" data-link-id="${link.id}">
-                            <div class="tile-placeholder" style="display: none;"></div>
-                            <h3>${sanitizeHTML(link.name)}</h3>
-                        </div>
-                    </a>
-                `}).join('')}
-            </div>
-        `;
+        const section = createCategorySection(category, links, {
+            defaultTileSize: currentState.defaultTileSize,
+            view: currentState.view,
+            lazyIcons: true
+        });
         linksContainer.appendChild(section);
     });
 
     if (filteredLinks.length === 0) {
-        linksContainer.innerHTML = '<p class="no-results">No links found. Try a different search term or <a href="manage.html">add some links</a>.</p>';
+        renderNoResults(linksContainer);
     }
 
     // Load icons asynchronously with caching
