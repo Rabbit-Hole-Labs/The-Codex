@@ -469,10 +469,13 @@ export class SyncStatusIndicator {
                     <div class="sync-quota-fill ${quotaClass}" style="width: ${status.quotaPercentage}%"></div>
                 </div>
             </div>
-            <button class="sync-btn" style="margin-top: 16px; width: 100%;" onclick="this.parentElement.remove()">Close</button>
+            <button class="sync-btn sync-modal-close" style="margin-top: 16px; width: 100%;">Close</button>
         `;
 
         document.body.appendChild(modal);
+        modal.querySelector('.sync-modal-close').addEventListener('click', function() {
+            this.parentElement.remove();
+        });
     }
 
     // Show error message

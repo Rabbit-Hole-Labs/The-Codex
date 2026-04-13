@@ -959,14 +959,22 @@ function setupEventListeners() {
 function showFallbackUI() {
     const container = document.querySelector('.app-container');
     if (container) {
-        container.innerHTML = `
-            <div class="error-fallback">
-                <h2> Application Error</h2>
-                <p>The application failed to initialize properly.</p>
-                <button onclick="location.reload()">Reload Application</button>
-                <p><small>If the problem persists, please check the console for error details.</small></p>
-            </div>
-        `;
+        container.textContent = '';
+        const fallback = document.createElement('div');
+        fallback.className = 'error-fallback';
+        const h2 = document.createElement('h2');
+        h2.textContent = 'Application Error';
+        const p1 = document.createElement('p');
+        p1.textContent = 'The application failed to initialize properly.';
+        const btn = document.createElement('button');
+        btn.textContent = 'Reload Application';
+        btn.addEventListener('click', () => location.reload());
+        const p2 = document.createElement('p');
+        const small = document.createElement('small');
+        small.textContent = 'If the problem persists, please check the console for error details.';
+        p2.appendChild(small);
+        fallback.append(h2, p1, btn, p2);
+        container.appendChild(fallback);
     }
 }
 

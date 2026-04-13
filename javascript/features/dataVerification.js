@@ -490,9 +490,9 @@ export class DataVerification {
             </div>
 
             <div class="data-viewer-controls">
-                <button onclick="dataVerification.toggleFormat()" class="btn-secondary">Toggle Format</button>
-                <button onclick="dataVerification.exportCurrentData()" class="btn-secondary">Export</button>
-                <button onclick="dataVerification.copyToClipboard()" class="btn-secondary">Copy</button>
+                <button class="btn-secondary" data-action="toggleFormat">Toggle Format</button>
+                <button class="btn-secondary" data-action="exportCurrentData">Export</button>
+                <button class="btn-secondary" data-action="copyToClipboard">Copy</button>
             </div>
 
             <div class="data-content" id="data-content">
@@ -606,8 +606,16 @@ ${crossVal.warnings.map(warn => `• ${warn}`).join('\n')}
 
     // Setup modal controls
     setupModalControls() {
-        // Make methods available globally for button clicks
-        window.dataVerification = this;
+        // Event delegation for data-action buttons (replaces inline onclick handlers)
+        const controls = document.querySelector('.data-viewer-controls');
+        if (controls) {
+            controls.addEventListener('click', (e) => {
+                const action = e.target.dataset.action;
+                if (action && typeof this[action] === 'function') {
+                    this[action]();
+                }
+            });
+        }
     }
 
     // Toggle data formatting

@@ -407,22 +407,30 @@ export class SyncSettingsController {
         this.updateLogDisplay();
     }
 
-    // Update log display
+    // Update log display (safe DOM construction — no innerHTML with dynamic content)
     updateLogDisplay() {
         if (!this.elements.syncLog) return;
 
-        const logHTML = this.syncLog
-            .slice(-20) // Show last 20 entries
+        const fragment = document.createDocumentFragment();
+        this.syncLog
+            .slice(-20)
             .reverse()
-            .map(entry => `
-                <div class="log-entry ${entry.type}">
-                    <span class="log-time">${this.formatTime(entry.timestamp)}</span>
-                    <span class="log-message">${entry.message}</span>
-                </div>
-            `)
-            .join('');
+            .forEach(entry => {
+                const div = document.createElement('div');
+                div.className = `log-entry ${entry.type}`;
+                const timeSpan = document.createElement('span');
+                timeSpan.className = 'log-time';
+                timeSpan.textContent = this.formatTime(entry.timestamp);
+                const msgSpan = document.createElement('span');
+                msgSpan.className = 'log-message';
+                msgSpan.textContent = entry.message;
+                div.appendChild(timeSpan);
+                div.appendChild(msgSpan);
+                fragment.appendChild(div);
+            });
 
-        this.elements.syncLog.innerHTML = logHTML;
+        this.elements.syncLog.textContent = '';
+        this.elements.syncLog.appendChild(fragment);
     }
 
     // Clear sync log

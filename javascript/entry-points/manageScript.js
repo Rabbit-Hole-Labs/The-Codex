@@ -570,13 +570,25 @@ function showIconHelper(targetId = 'siteIcon') {
             modalTitle.textContent = 'Icon Helper';
         }
 
-        // Show additional context information
+        // Show additional context information (safe DOM construction — no innerHTML with user input)
         if (contextElement) {
+            contextElement.textContent = '';
             if (titleText && urlText) {
-                contextElement.innerHTML = `<strong>Service:</strong> ${titleText}<br><strong>URL:</strong> ${urlText}`;
+                const serviceLabel = document.createElement('strong');
+                serviceLabel.textContent = 'Service:';
+                const urlLabel = document.createElement('strong');
+                urlLabel.textContent = 'URL:';
+                contextElement.appendChild(serviceLabel);
+                contextElement.appendChild(document.createTextNode(` ${titleText}`));
+                contextElement.appendChild(document.createElement('br'));
+                contextElement.appendChild(urlLabel);
+                contextElement.appendChild(document.createTextNode(` ${urlText}`));
                 contextElement.style.display = 'block';
             } else if (titleText) {
-                contextElement.innerHTML = `<strong>Service:</strong> ${titleText}`;
+                const serviceLabel = document.createElement('strong');
+                serviceLabel.textContent = 'Service:';
+                contextElement.appendChild(serviceLabel);
+                contextElement.appendChild(document.createTextNode(` ${titleText}`));
                 contextElement.style.display = 'block';
             } else {
                 contextElement.style.display = 'none';
