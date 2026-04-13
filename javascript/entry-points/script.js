@@ -1,13 +1,16 @@
+// NOTE: After Security/Rendering refactor, these imports may be needed:
+// - purifyHTML (from securityUtils.js) — for innerHTML sanitization
+// - optimizedRender (from domOptimizer.js) — for unified rendering pipeline
+// - preloadIcons, batchLoadIcons (from iconCache.js) — for icon preloading optimization
 import { loadLinks, saveLinks, saveSettings } from '../core-systems/storageManager.js';
 import { debounce, sanitizeHTML, validateAndSanitizeUrl } from '../features/utils.js';
-import { purifyHTML, sanitizeUserInput, validateLink } from '../features/securityUtils.js';
-import { getState, updateState, addStateChangeListener, safeUpdateState, createStateUpdater } from '../core-systems/stateManager.js';
-import { optimizedRender, getPerformanceMetrics, resetPerformanceMetrics } from '../features/domOptimizer.js';
-import { handleError, safeAsync, safeSync, registerErrorHandler, CodexError } from '../features/errorHandler.js';
-import { loadIconWithCache, preloadIcons, batchLoadIcons, getCacheStats } from '../features/iconCache.js';
+import { getState, addStateChangeListener, safeUpdateState } from '../core-systems/stateManager.js';
+import { getPerformanceMetrics, resetPerformanceMetrics } from '../features/domOptimizer.js';
+import { handleError, safeAsync, registerErrorHandler } from '../features/errorHandler.js';
+import { loadIconWithCache, getCacheStats } from '../features/iconCache.js';
 import { syncStatusIndicator } from '../features/syncStatusIndicator.js';
-import CodexConsole from '../features/consoleCommands.js';
-import { debug, debugWarn, debugError, setDebugEnabled, isDebugEnabled } from '../core-systems/debug.js';
+import '../features/consoleCommands.js';
+import { debug } from '../core-systems/debug.js';
 
 // State
 let state = {
@@ -848,15 +851,6 @@ function cleanTitleForIcon(title) {
         .replace(/^-+|-+$/g, ''); // Remove leading/trailing hyphens
 }
 
-function extractDomain(url) {
-    try {
-        const urlObj = new URL(url);
-        return urlObj.hostname.replace('www.', '');
-    } catch {
-        return url.replace(/^https?:\/\/(www\.)?/, '').split('/')[0];
-    }
-}
-
 function toggleTheme() {
     const currentState = getState();
     const newTheme = currentState.theme === 'dark' ? 'light' : 'dark';
@@ -886,25 +880,6 @@ function applyTheme() {
     // Also store in data attribute for debugging
     document.body.setAttribute('data-theme', theme);
     document.body.setAttribute('data-color-theme', colorTheme);
-}
-
-function toggleColorThemeDropdown() {
-    // Theme controls moved to management page - this function is no longer used
-    console.log('Theme controls are now on the management page');
-}
-
-function setColorTheme(theme) {
-    console.log('Setting color theme to:', theme);
-    state.colorTheme = theme;
-    applyTheme();
-    updateActiveThemeOption();
-    saveSettings({ colorTheme: state.colorTheme });
-}
-
-function updateActiveThemeOption() {
-    // This function is no longer needed since theme controls moved to management page
-    // Left as placeholder for compatibility
-    console.log('Theme controls are now on the management page');
 }
 
 function toggleView() {
@@ -1056,11 +1031,6 @@ const init = safeAsync(async function init() {
 
         // Initialize sync status indicator
         syncStatusIndicator.init('sync-status-container');
-
-        // Update theme dropdown after everything is initialized
-        setTimeout(() => {
-            updateActiveThemeOption();
-        }, 100);
 
         const initTime = performance.now() - startTime;
         console.log(`Application initialized in ${initTime.toFixed(2)}ms`);

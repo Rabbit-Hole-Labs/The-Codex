@@ -600,8 +600,19 @@ export async function batchLoadIcons(links, options = {}) {
     return results;
 }
 
-// Periodic cache cleanup
-setInterval(clearExpiredCache, 60 * 60 * 1000); // Clean every hour
+// Periodic cache cleanup — handle stored for lifecycle management
+let cacheCleanupInterval = setInterval(clearExpiredCache, 60 * 60 * 1000);
+
+/**
+ * Stop the periodic cache cleanup interval.
+ * Call during page teardown to prevent resource leaks.
+ */
+export function stopCacheCleanup() {
+    if (cacheCleanupInterval !== null) {
+        clearInterval(cacheCleanupInterval);
+        cacheCleanupInterval = null;
+    }
+}
 
 /**
  * Checks if a URL is allowed by CSP policies

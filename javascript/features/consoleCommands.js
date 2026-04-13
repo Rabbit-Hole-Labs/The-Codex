@@ -1,5 +1,15 @@
-// Console Commands for Advanced Data Verification
-// These commands can be run in the browser console for direct data access
+/**
+ * Console Commands for Advanced Data Verification
+ * These commands are accessed dynamically via window.CodexConsole in Chrome DevTools.
+ *
+ * INTENTIONALLY KEPT — Static analysis shows zero call sites because all access
+ * is dynamic via the global CodexConsole object. Do not remove these functions
+ * during dead code cleanup.
+ *
+ * Exposed methods: cloudData, localData, compare, validate, sync, help,
+ *   debug.enable, debug.disable, debug.status, cache.stats, cache.clear,
+ *   cache.reset, cache.preload
+ */
 
 import { dataVerification } from './dataVerification.js';
 import { syncManager } from '../core-systems/syncManager.js';

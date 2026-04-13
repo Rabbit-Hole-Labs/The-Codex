@@ -462,7 +462,7 @@ export function resetPerformanceMetrics() {
 /**
  * Monitors memory usage (if available)
  */
-export function monitorMemoryUsage() {
+function monitorMemoryUsage() {
     if (performance.memory) {
         performanceMetrics.memoryUsage = performance.memory.usedJSHeapSize;
     }
@@ -475,7 +475,7 @@ export function monitorMemoryUsage() {
  * @param {Object} oldState - The previous state
  * @returns {boolean} - Success status
  */
-export function optimizedRender(container, newState, oldState = null) {
+function optimizedRender(container, newState, oldState = null) {
     const startTime = performance.now();
 
     try {
@@ -527,7 +527,7 @@ function createStateSnapshot(state = null) {
  * @param {number} delay - Debounce delay in milliseconds
  * @returns {Function} - Debounced function
  */
-export function debouncedUpdate(updateFunction, delay = 16) {
+function debouncedUpdate(updateFunction, delay = 16) {
     let timeoutId;
 
     return function(...args) {
@@ -546,7 +546,7 @@ export function debouncedUpdate(updateFunction, delay = 16) {
  * @param {number} viewportHeight - Height of viewport in pixels
  * @param {Function} renderItem - Function to render individual items
  */
-export function virtualScroll(container, items, itemHeight, viewportHeight, renderItem) {
+function virtualScroll(container, items, itemHeight, viewportHeight, renderItem) {
     const totalHeight = items.length * itemHeight;
     const visibleItems = Math.ceil(viewportHeight / itemHeight) + 2; // +2 for buffer
 

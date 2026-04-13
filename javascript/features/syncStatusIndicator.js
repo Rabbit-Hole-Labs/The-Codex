@@ -8,6 +8,7 @@ export class SyncStatusIndicator {
         this.lastSyncElement = null;
         this.syncButton = null;
         this.isInitialized = false;
+        this._abortController = null;
 
         // Status states
         this.states = {
@@ -267,8 +268,12 @@ export class SyncStatusIndicator {
         document.head.insertAdjacentHTML('beforeend', styles);
     }
 
-    // Attach event listeners
+    // Attach event listeners with AbortController for lifecycle management
     attachEventListeners() {
+        this._abortController?.abort();
+        this._abortController = new AbortController();
+        const { signal } = this._abortController;
+
         // Listen to sync manager events
         syncManager.addSyncListener((event, data) => {
             this.handleSyncEvent(event, data);
@@ -278,13 +283,13 @@ export class SyncStatusIndicator {
         this.statusElement.addEventListener('click', () => {
             const details = this.container.querySelector('.sync-details');
             details.style.display = details.style.display === 'none' ? 'block' : 'none';
-        });
+        }, { signal });
 
         // Sync now button
         this.syncButton.addEventListener('click', async (e) => {
             e.stopPropagation();
             await this.handleSyncNow();
-        });
+        }, { signal });
 
         // Menu button
         const menuBtn = this.container.querySelector('#sync-menu-btn');
@@ -293,7 +298,7 @@ export class SyncStatusIndicator {
         menuBtn.addEventListener('click', (e) => {
             e.stopPropagation();
             menu.style.display = menu.style.display === 'none' ? 'block' : 'none';
-        });
+        }, { signal });
 
         // Menu items
         menu.addEventListener('click', async (e) => {
@@ -302,7 +307,7 @@ export class SyncStatusIndicator {
                 await this.handleMenuAction(action);
                 menu.style.display = 'none';
             }
-        });
+        }, { signal });
 
         // Close menu when clicking outside
         document.addEventListener('click', (e) => {
@@ -310,11 +315,21 @@ export class SyncStatusIndicator {
                 menu.style.display = 'none';
                 this.container.querySelector('.sync-details').style.display = 'none';
             }
-        });
+        }, { signal });
 
         // Check online/offline status
-        window.addEventListener('online', () => this.updateStatus());
-        window.addEventListener('offline', () => this.updateStatus('offline'));
+        window.addEventListener('online', () => this.updateStatus(), { signal });
+        window.addEventListener('offline', () => this.updateStatus('offline'), { signal });
+    }
+
+    /**
+     * Remove all event listeners and clean up resources.
+     * Call during page teardown to prevent listener leaks.
+     */
+    destroy() {
+        this._abortController?.abort();
+        this._abortController = null;
+        this.isInitialized = false;
     }
 
     // Handle sync events

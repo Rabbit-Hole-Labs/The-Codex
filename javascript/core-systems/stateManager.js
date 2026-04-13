@@ -369,7 +369,7 @@ function addToHistory(state) {
  * @param {number} steps - Number of steps to roll back (default: 1)
  * @returns {Object} - Rollback result
  */
-export function rollbackState(steps = 1) {
+function rollbackState(steps = 1) {
     if (stateHistory.length < steps) {
         return {
             success: false,
@@ -429,7 +429,7 @@ export function getState() {
  * @param {string} property - The property to get
  * @returns {*} - The property value
  */
-export function getStateProperty(property) {
+function getStateProperty(property) {
     return currentState[property];
 }
 
@@ -454,7 +454,7 @@ export function addStateChangeListener(listener) {
  * @param {Function} listener - Function to call when validation occurs
  * @returns {Function} - Function to unregister the listener
  */
-export function addStateValidationListener(listener) {
+function addStateValidationListener(listener) {
     stateValidationListeners.push(listener);
 
     return () => {
@@ -469,14 +469,14 @@ export function addStateValidationListener(listener) {
  * Gets the current state history
  * @returns {Array} - Array of historical state snapshots
  */
-export function getStateHistory() {
+function getStateHistory() {
     return [...stateHistory]; // Return copy to prevent external modification
 }
 
 /**
  * Clears the state history
  */
-export function clearStateHistory() {
+function clearStateHistory() {
     stateHistory = [];
 }
 
@@ -511,7 +511,7 @@ export function createStateUpdater(property, validator = null) {
  * @param {Object} options - Update options
  * @returns {Object} - Update result
  */
-export function batchUpdateState(updates, options = {}) {
+function batchUpdateState(updates, options = {}) {
     return updateState(updates, { ...options, validate: true });
 }
 
