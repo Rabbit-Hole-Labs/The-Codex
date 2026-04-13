@@ -39,13 +39,22 @@ async function init() {
 
         // Load state into stateManager singleton
         const loadedState = await StorageManager.loadState(getState());
-        safeUpdateState(loadedState, { validate: false });
+        // Ensure categories is always an array before updating state
+        if (loadedState.categories && !Array.isArray(loadedState.categories)) {
+            console.warn('Categories loaded as non-array, resetting:', typeof loadedState.categories);
+            loadedState.categories = ['Default'];
+        }
+        if (loadedState.filteredLinks && !Array.isArray(loadedState.filteredLinks)) {
+            loadedState.filteredLinks = loadedState.links || [];
+        }
+        safeUpdateState(loadedState, { validate: false, skipPersistence: true });
         console.log('Initial state after loading:', getState());
 
         // Ensure we have the Default category
-        if (!getState().categories.includes('Default')) {
-            const cats = ['Default', ...getState().categories];
-            safeUpdateState({ categories: cats }, { validate: false });
+        const currentCategories = getState().categories;
+        if (!Array.isArray(currentCategories) || !currentCategories.includes('Default')) {
+            const cats = ['Default', ...(Array.isArray(currentCategories) ? currentCategories : [])];
+            safeUpdateState({ categories: cats }, { validate: false, skipPersistence: true });
             await StorageManager.saveCategories(getState().categories);
         }
 
@@ -728,6 +737,12 @@ function renderCategoryReorderList() {
     const container = document.getElementById('categoryReorderList');
     if (!container) return;
 
+    const categories = getState().categories;
+    if (!Array.isArray(categories)) {
+        console.warn('Categories not an array in renderCategoryReorderList:', typeof categories);
+        return;
+    }
+
     // Count links per category
     const categoryCounts = {};
     getState().links.forEach(link => {
@@ -735,7 +750,7 @@ function renderCategoryReorderList() {
         categoryCounts[cat] = (categoryCounts[cat] || 0) + 1;
     });
 
-    container.innerHTML = getState().categories.map((category, index) => `
+    container.innerHTML = categories.map((category, index) => `
         <div class="category-reorder-item"
              data-category="${category}"
              draggable="true"
@@ -758,7 +773,7 @@ function renderCategoryReorderList() {
                         <polyline points="18 15 12 9 6 15"></polyline>
                     </svg>
                 </button>
-                <button type="button" class="reorder-btn move-down" data-category="${category}" ${index === getState().categories.length - 1 ? 'disabled' : ''}>
+                <button type="button" class="reorder-btn move-down" data-category="${category}" ${index === categories.length - 1 ? 'disabled' : ''}>
                     <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                         <polyline points="6 9 12 15 18 9"></polyline>
                     </svg>
