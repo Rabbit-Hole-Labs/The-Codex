@@ -1,6 +1,7 @@
 {
   "manifest_version": 3,
   "name": "The Codex",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAr2a3c7f5h8j1k4m6n9p2q5s7u0v3w6x9y1A4B7C0D3E6F9G2H5I8J1K4L7M0N3O6P9Q2R5S8T1U4V7W0X3Y6Z9a2b5c8d1e4f7g0h3i6j9k2l5m8n1o4p7q0r3s6t9u2v5w8x1y4z7A0B3C6D9E2F5G8H1I4J7K0L3M6N9O2P5Q8R1S4T7U0V3W6X9Y2Z5a8b1c4d7e0f3g6h9i2j5k8l1m4n7o0p3q6r5s8t1u4v7w0x3y6z9A2B5C8D1E4F7G0H3I6J9K2L5M8N1O4P7Q0R3QIDAQAB",
   "version": "7.0.0.2",
   "description": "Transform your new tab into a personalized dashboard with smart icons, multiple themes, and advanced sync.",
   "background": {
