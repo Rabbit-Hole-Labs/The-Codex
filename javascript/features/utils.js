@@ -21,11 +21,23 @@ export function throttle(func, limit) {
     }
 }
 
-export function sanitizeHTML(str) {
-    const template = document.createElement('template');
-    template.innerHTML = str;
-    return template.content.textContent || '';
+/**
+ * Extract plain text from a string that may contain HTML markup.
+ * Parses the HTML and returns only the text content with all tags stripped.
+ * NOTE: This is a text EXTRACTOR, not an HTML sanitizer.
+ * For safe HTML output that preserves allowed tags, use purifyHTML() from securityUtils.js.
+ * @param {string} str - Input string possibly containing HTML
+ * @returns {string} Plain text with all HTML stripped
+ */
+export function extractTextContent(str) {
+    if (!str) return '';
+    // Use DOMParser to safely parse HTML and extract text
+    const doc = new DOMParser().parseFromString(str, 'text/html');
+    return doc.body.textContent || '';
 }
+
+// Backwards-compatible alias
+export { extractTextContent as sanitizeHTML };
 
 /**
  * Validates and sanitizes URLs to prevent security vulnerabilities
