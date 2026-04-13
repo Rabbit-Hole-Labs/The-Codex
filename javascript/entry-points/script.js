@@ -12,20 +12,8 @@ import { syncStatusIndicator } from '../features/syncStatusIndicator.js';
 import '../features/consoleCommands.js';
 import { debug } from '../core-systems/debug.js';
 
-// State
-let state = {
-    links: [],
-    theme: 'dark',
-    colorTheme: 'default',
-    view: 'grid',
-    searchTerm: '',
-    defaultTileSize: 'medium',
-    isDragging: false,
-    draggedElement: null,
-    draggedLink: null,
-    draggedCategory: null,
-    draggedIndex: null,
-};
+// State is managed exclusively through stateManager — no local state object.
+// Use getState() for reads, safeUpdateState() for writes.
 
 // Event listener tracking for proper cleanup
 let eventListeners = [];

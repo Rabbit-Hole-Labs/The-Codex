@@ -2,19 +2,13 @@ import * as LinkManager from '../core-systems/linkManager.js';
 import * as CategoryManager from '../core-systems/categoryManager.js';
 import * as UIManager from '../core-systems/uiManager.js';
 import * as StorageManager from '../core-systems/storageManager.js';
+import { getState, safeUpdateState } from '../core-systems/stateManager.js';
 import { syncStatusIndicator } from '../features/syncStatusIndicator.js';
 import { syncSettingsController } from '../features/syncSettingsController.js';
 import '../features/consoleCommands.js';
 
-// State
-let state = {
-    links: [],
-    categories: ['Default'],  // Initialize with Default category
-    currentPage: 1,
-    linksPerPage: 20,
-    filteredLinks: [],
-    editIndex: -1
-};
+// State is managed exclusively through stateManager — no local state object.
+// Use getState() for reads, safeUpdateState() for writes.
 
 // Early theme application function
 async function applyInitialTheme() {
@@ -43,21 +37,24 @@ async function init() {
 
         const elements = UIManager.getElements();
 
-        state = await StorageManager.loadState(state);
-        console.log('Initial state after loading:', state);
+        // Load state into stateManager singleton
+        const loadedState = await StorageManager.loadState(getState());
+        safeUpdateState(loadedState, { validate: false });
+        console.log('Initial state after loading:', getState());
 
         // Ensure we have the Default category
-        if (!state.categories.includes('Default')) {
-            state.categories.unshift('Default');
-            await StorageManager.saveCategories(state.categories);
+        if (!getState().categories.includes('Default')) {
+            const cats = ['Default', ...getState().categories];
+            safeUpdateState({ categories: cats }, { validate: false });
+            await StorageManager.saveCategories(getState().categories);
         }
 
-        UIManager.renderLinks(state);
-        await CategoryManager.populateCategories(state);
+        UIManager.renderLinks(getState());
+        await CategoryManager.populateCategories(getState());
 
         // Event Listeners
         elements.linkForm.addEventListener('submit', handleLinkFormSubmit);
-        elements.filterCategory.addEventListener('change', () => UIManager.filterLinks(state));
+        elements.filterCategory.addEventListener('change', () => UIManager.filterLinks(getState()));
         elements.selectAllCheckbox.addEventListener('change', UIManager.handleSelectAll);
         elements.bulkDeleteBtn.addEventListener('click', handleBulkDelete);
         elements.bulkMoveBtn.addEventListener('click', handleBulkMove);
@@ -65,14 +62,14 @@ async function init() {
         elements.createCategoryForm.addEventListener('submit', handleCreateCategory);
         elements.editCategoryForm.addEventListener('submit', handleEditCategory);
         elements.deleteCategoryForm.addEventListener('submit', handleDeleteCategory);
-        elements.prevPageBtn.addEventListener('click', () => UIManager.changePage(state, -1));
-        elements.nextPageBtn.addEventListener('click', () => UIManager.changePage(state, 1));
-        elements.exportBtn.addEventListener('click', () => StorageManager.exportLinks(state));
+        elements.prevPageBtn.addEventListener('click', () => UIManager.changePage(getState(), -1));
+        elements.nextPageBtn.addEventListener('click', () => UIManager.changePage(getState(), 1));
+        elements.exportBtn.addEventListener('click', () => StorageManager.exportLinks(getState()));
         elements.importBtn.addEventListener('click', () => elements.importFile.click());
         elements.importFile.addEventListener('change', handleImport);
         elements.importBookmarksBtn.addEventListener('click', handleImportBookmarks);
 
-        UIManager.setupModalListeners(state);
+        UIManager.setupModalListeners(getState());
         setupTabs();
         setupIconHelperListeners();
         setupLinksViewToggle();
@@ -102,12 +99,12 @@ async function handleLinkFormSubmit(e) {
 
         if (name && url) {
             try { new URL(url); } catch { UIManager.showMessage('Invalid URL.', 'error'); return; }
-            await LinkManager.addLink(state, name, url, category, icon, size);
+            await LinkManager.addLink(getState(), name, url, category, icon, size);
             e.target.reset();
-            await CategoryManager.populateCategories(state);
-            UIManager.filterLinks(state);
-            UIManager.renderLinks(state);
-            console.log('Link added, current state:', state);
+            await CategoryManager.populateCategories(getState());
+            UIManager.filterLinks(getState());
+            UIManager.renderLinks(getState());
+            console.log('Link added, current state:', getState());
         } else {
             UIManager.showMessage('Please fill in both name and URL.', 'error');
         }
@@ -126,10 +123,10 @@ async function handleCreateCategory(e) {
             return;
         }
 
-        const created = await CategoryManager.createCategory(state, newCategoryName);
+        const created = await CategoryManager.createCategory(getState(), newCategoryName);
         if (created) {
             e.target.reset();
-            await CategoryManager.populateCategories(state);
+            await CategoryManager.populateCategories(getState());
             renderCategoryReorderList();
             UIManager.showMessage(`Category "${newCategoryName}" created successfully.`);
         }
@@ -151,7 +148,7 @@ async function handleEditCategory(e) {
             return;
         }
 
-        const success = await CategoryManager.renameCategory(state, oldCategory, newCategory);
+        const success = await CategoryManager.renameCategory(getState(), oldCategory, newCategory);
         if (success) {
             e.target.reset();
             renderCategoryReorderList();
@@ -172,7 +169,7 @@ async function handleDeleteCategory(e) {
             return;
         }
 
-        const success = await CategoryManager.deleteCategory(state, categoryToDelete);
+        const success = await CategoryManager.deleteCategory(getState(), categoryToDelete);
         if (success) {
             e.target.reset();
             renderCategoryReorderList();
@@ -193,9 +190,9 @@ async function handleBulkDelete() {
         }
 
         if (confirm(`Are you sure you want to delete ${selectedIndices.length} link(s)?`)) {
-            await LinkManager.bulkDeleteLinks(state, selectedIndices);
+            await LinkManager.bulkDeleteLinks(getState(), selectedIndices);
             UIManager.getElements().selectAllCheckbox.checked = false;
-            UIManager.filterLinks(state);
+            UIManager.filterLinks(getState());
             UIManager.showMessage('Selected links deleted successfully.');
         }
     } catch (error) {
@@ -220,9 +217,9 @@ async function handleBulkMove() {
             return;
         }
 
-        await LinkManager.bulkMoveLinks(state, selectedIndices, newCategory);
+        await LinkManager.bulkMoveLinks(getState(), selectedIndices, newCategory);
         elements.selectAllCheckbox.checked = false;
-        UIManager.filterLinks(state);
+        UIManager.filterLinks(getState());
         UIManager.showMessage(`${selectedIndices.length} link(s) moved to "${newCategory}".`);
     } catch (error) {
         console.error('Error in handleBulkMove:', error);
@@ -246,11 +243,11 @@ async function handleBulkSizeChange() {
             return;
         }
 
-        await LinkManager.bulkChangeSizeLinks(state, selectedIndices, newSize);
+        await LinkManager.bulkChangeSizeLinks(getState(), selectedIndices, newSize);
         elements.selectAllCheckbox.checked = false;
         elements.bulkSizeChange.value = '';
-        UIManager.filterLinks(state);
-        UIManager.renderLinks(state);
+        UIManager.filterLinks(getState());
+        UIManager.renderLinks(getState());
 
         const sizeLabel = newSize === 'default' ? 'default size' : newSize;
         UIManager.showMessage(`${selectedIndices.length} link(s) changed to ${sizeLabel}.`);
@@ -264,9 +261,9 @@ async function handleImport(event) {
     try {
         const file = event.target.files[0];
         if (file) {
-            await StorageManager.importLinks(state, file);
-            await CategoryManager.populateCategories(state);
-            UIManager.filterLinks(state);
+            await StorageManager.importLinks(getState(), file);
+            await CategoryManager.populateCategories(getState());
+            UIManager.filterLinks(getState());
             UIManager.showMessage('Links imported successfully.');
             event.target.value = ''; // Reset file input
         }
@@ -289,9 +286,9 @@ async function handleImport(event) {
 
 async function handleImportBookmarks() {
     try {
-        await StorageManager.importBookmarks(state);
-        await CategoryManager.populateCategories(state);
-        UIManager.filterLinks(state);
+        await StorageManager.importBookmarks(getState());
+        await CategoryManager.populateCategories(getState());
+        UIManager.filterLinks(getState());
         UIManager.showMessage('Bookmarks imported successfully.');
     } catch (error) {
         console.error('Error in handleImportBookmarks:', error);
@@ -733,12 +730,12 @@ function renderCategoryReorderList() {
 
     // Count links per category
     const categoryCounts = {};
-    state.links.forEach(link => {
+    getState().links.forEach(link => {
         const cat = link.category || 'Default';
         categoryCounts[cat] = (categoryCounts[cat] || 0) + 1;
     });
 
-    container.innerHTML = state.categories.map((category, index) => `
+    container.innerHTML = getState().categories.map((category, index) => `
         <div class="category-reorder-item"
              data-category="${category}"
              draggable="true"
@@ -761,7 +758,7 @@ function renderCategoryReorderList() {
                         <polyline points="18 15 12 9 6 15"></polyline>
                     </svg>
                 </button>
-                <button type="button" class="reorder-btn move-down" data-category="${category}" ${index === state.categories.length - 1 ? 'disabled' : ''}>
+                <button type="button" class="reorder-btn move-down" data-category="${category}" ${index === getState().categories.length - 1 ? 'disabled' : ''}>
                     <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                         <polyline points="6 9 12 15 18 9"></polyline>
                     </svg>
@@ -834,7 +831,7 @@ function handleCategoryDrop(e) {
     const toCategory = this.dataset.category;
 
     // Get current order
-    const currentOrder = pendingCategoryOrder || [...state.categories];
+    const currentOrder = pendingCategoryOrder || [...getState().categories];
     const fromIndex = currentOrder.indexOf(fromCategory);
     const toIndex = currentOrder.indexOf(toCategory);
 
@@ -858,7 +855,7 @@ function renderCategoryReorderListWithOrder(order) {
 
     // Count links per category
     const categoryCounts = {};
-    state.links.forEach(link => {
+    getState().links.forEach(link => {
         const cat = link.category || 'Default';
         categoryCounts[cat] = (categoryCounts[cat] || 0) + 1;
     });
@@ -907,7 +904,7 @@ function setupCategoryReorderButtons() {
     moveUpBtns.forEach(btn => {
         btn.addEventListener('click', async () => {
             const category = btn.dataset.category;
-            const currentOrder = pendingCategoryOrder || [...state.categories];
+            const currentOrder = pendingCategoryOrder || [...getState().categories];
             const index = currentOrder.indexOf(category);
 
             if (index > 0) {
@@ -922,7 +919,7 @@ function setupCategoryReorderButtons() {
     moveDownBtns.forEach(btn => {
         btn.addEventListener('click', async () => {
             const category = btn.dataset.category;
-            const currentOrder = pendingCategoryOrder || [...state.categories];
+            const currentOrder = pendingCategoryOrder || [...getState().categories];
             const index = currentOrder.indexOf(category);
 
             if (index < currentOrder.length - 1) {
@@ -936,10 +933,10 @@ function setupCategoryReorderButtons() {
 }
 
 async function handleSaveCategoryOrder() {
-    const orderToSave = pendingCategoryOrder || state.categories;
+    const orderToSave = pendingCategoryOrder || getState().categories;
 
     if (pendingCategoryOrder) {
-        const success = await CategoryManager.reorderCategories(state, orderToSave);
+        const success = await CategoryManager.reorderCategories(getState(), orderToSave);
         if (success) {
             pendingCategoryOrder = null;
             renderCategoryReorderList();

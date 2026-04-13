@@ -81,7 +81,8 @@ let currentState = {
     categories: ['Default'],
     filteredLinks: [],
     currentPage: 1,
-    linksPerPage: 20
+    linksPerPage: 20,
+    editIndex: -1
 };
 
 /**
