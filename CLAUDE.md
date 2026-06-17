@@ -19,6 +19,12 @@ npm run test:e2e         # End-to-end tests
 npm run test:critical-bugs # Critical bug regression tests
 npm run test:regression  # Regression tests
 
+# Run a single test file
+npm test -- tests/unit/state-management.test.js
+
+# Run tests matching a pattern
+npm test -- --testNamePattern="should validate state"
+
 # Development
 npm run test:watch       # Watch mode for development
 npm run test:coverage    # Generate coverage report
@@ -60,6 +66,7 @@ javascript/
 - State schemas enforce types, enums, and constraints at runtime
 - Immutable update patterns - always create new state objects
 - State change listeners trigger automatic re-rendering
+- State history maintained for rollback (max 50 entries)
 
 ### Error Handling
 - Use `CodexError` class from `errorHandler.js` for all errors
@@ -73,8 +80,9 @@ javascript/
 
 ### Theme System
 - CSS custom properties with `!important` for theme overrides
-- Themes: dark/light mode + 7 color themes (default, ocean, cosmic, sunset, forest, fire, aurora)
-- Tile sizes: compact, small, medium, large, square, wide, tall, giant
+- Base themes: `dark`, `light`
+- Color themes: `default`, `ocean`, `cosmic`, `sunset`, `forest`, `fire`, `aurora`, `theme-purple`, `theme-pink`, `theme-green`, `theme-orange`, `theme-teal`, `theme-focus`, `theme-dark-orange`, `theme-dark-purple`, `theme-dark-emerald`, `theme-dark-crimson`, `theme-dark-sapphire`
+- Tile sizes: `compact`, `small`, `medium`, `large`, `square`, `wide`, `tall`, `giant`
 
 ### Icon Loading
 - Progressive enhancement: custom > Clearbit logos > high-res favicons > text fallbacks
@@ -88,7 +96,7 @@ javascript/
   id: string,        // Auto-generated unique ID
   name: string,      // Site name (1-100 chars)
   url: string,       // Full URL (validated)
-  category: string,  // Category name (1-50 chars)
+  category: string,   // Category name (1-50 chars)
   icon: string|null, // Icon URL or 'default'
   size: string|null  // Tile size override
 }
@@ -99,7 +107,7 @@ javascript/
 {
   links: Link[],
   theme: 'dark' | 'light',
-  colorTheme: 'default' | 'ocean' | 'cosmic' | 'sunset' | 'forest' | 'fire' | 'aurora',
+  colorTheme: string, // See theme system above
   view: 'grid' | 'list',
   searchTerm: string,
   defaultTileSize: string,
@@ -115,6 +123,7 @@ javascript/
 - **Permissions**: storage, bookmarks, activeTab, tabs
 - **CSP**: script-src 'self'; object-src 'self'; img-src 'self' data: https:
 - **Overrides**: newtab (index.html), browser_action (popup.html)
+- **ES6 Modules**: Uses `"type": "module"` in package.json; all imports must include `.js` extension
 
 ## Debugging
 
@@ -123,6 +132,9 @@ Access console commands in Chrome DevTools:
 CodexConsole.help()    // Show all commands
 CodexConsole.compare() // Compare local vs cloud data
 CodexConsole.sync('local') // Force sync with local wins
+CodexConsole.validate() // Validate data integrity
+CodexConsole.cloudData() // View raw cloud data
+CodexConsole.localData() // View raw local data
 ```
 
 ## Testing
@@ -130,4 +142,5 @@ CodexConsole.sync('local') // Force sync with local wins
 - Jest with jsdom environment for unit/integration tests
 - Mock Chrome APIs in tests/setup.js
 - Test files follow `*.test.js` naming
-- Run real Chrome tests: `tests/real-chrome-tests/`
+- Real Chrome tests in `tests/real-chrome-tests/` directory
+- ESLint configured with browser and Chrome extension globals
