@@ -624,7 +624,7 @@ export function registerErrorHandler(type, context, handler) {
  * Sets global error handler
  * @param {Function} handler - Global handler function
  */
-export function setGlobalErrorHandler(handler) {
+function setGlobalErrorHandler(handler) {
     globalErrorHandler = handler;
 }
 

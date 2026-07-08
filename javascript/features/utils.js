@@ -21,10 +21,45 @@ export function throttle(func, limit) {
     }
 }
 
-export function sanitizeHTML(str) {
-    const template = document.createElement('template');
-    template.innerHTML = str;
-    return template.content.textContent || '';
+/**
+ * Extract plain text from a string that may contain HTML markup.
+ * Parses the HTML and returns only the text content with all tags stripped.
+ * NOTE: This is a text EXTRACTOR, not an HTML sanitizer.
+ * For safe HTML output that preserves allowed tags, use purifyHTML() from securityUtils.js.
+ * @param {string} str - Input string possibly containing HTML
+ * @returns {string} Plain text with all HTML stripped
+ */
+export function extractTextContent(str) {
+    if (!str) return '';
+    // Use DOMParser to safely parse HTML and extract text
+    const doc = new DOMParser().parseFromString(str, 'text/html');
+    return doc.body.textContent || '';
+}
+
+// Backwards-compatible alias
+export { extractTextContent as sanitizeHTML };
+
+/**
+ * Escape a string for safe interpolation into HTML text or double-quoted
+ * attribute contexts. Encodes the five characters that can break out of
+ * markup (& < > " ') so an untrusted value can never inject elements or
+ * attributes.
+ *
+ * Use this — NOT extractTextContent/sanitizeHTML — whenever an untrusted
+ * value is placed into an innerHTML template string. (extractTextContent
+ * DECODES entities, so it must only ever feed textContent, never innerHTML.)
+ *
+ * @param {*} value - The value to escape (coerced to string)
+ * @returns {string} HTML-escaped string
+ */
+export function escapeHtml(value) {
+    if (value === null || value === undefined) return '';
+    return String(value)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
 }
 
 /**

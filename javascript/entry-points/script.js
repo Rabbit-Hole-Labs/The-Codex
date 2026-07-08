@@ -1,28 +1,20 @@
+// NOTE: After Security/Rendering refactor, these imports may be needed:
+// - purifyHTML (from securityUtils.js) — for innerHTML sanitization
+// - optimizedRender (from domOptimizer.js) — for unified rendering pipeline
+// - preloadIcons, batchLoadIcons (from iconCache.js) — for icon preloading optimization
 import { loadLinks, saveLinks, saveSettings } from '../core-systems/storageManager.js';
 import { debounce, sanitizeHTML, validateAndSanitizeUrl } from '../features/utils.js';
-import { purifyHTML, sanitizeUserInput, validateLink } from '../features/securityUtils.js';
-import { getState, updateState, addStateChangeListener, safeUpdateState, createStateUpdater } from '../core-systems/stateManager.js';
-import { optimizedRender, getPerformanceMetrics, resetPerformanceMetrics } from '../features/domOptimizer.js';
-import { handleError, safeAsync, safeSync, registerErrorHandler, CodexError } from '../features/errorHandler.js';
-import { loadIconWithCache, preloadIcons, batchLoadIcons, getCacheStats } from '../features/iconCache.js';
+import { getState, addStateChangeListener, safeUpdateState } from '../core-systems/stateManager.js';
+import { getPerformanceMetrics, resetPerformanceMetrics } from '../features/domOptimizer.js';
+import { createCategorySection, renderNoResults } from '../core-systems/tileRenderer.js';
+import { handleError, safeAsync, registerErrorHandler } from '../features/errorHandler.js';
+import { loadIconWithCache, getCacheStats } from '../features/iconCache.js';
 import { syncStatusIndicator } from '../features/syncStatusIndicator.js';
-import CodexConsole from '../features/consoleCommands.js';
-import { debug, debugWarn, debugError, setDebugEnabled, isDebugEnabled } from '../core-systems/debug.js';
+import '../features/consoleCommands.js';
+import { debug } from '../core-systems/debug.js';
 
-// State
-let state = {
-    links: [],
-    theme: 'dark',
-    colorTheme: 'default',
-    view: 'grid',
-    searchTerm: '',
-    defaultTileSize: 'medium',
-    isDragging: false,
-    draggedElement: null,
-    draggedLink: null,
-    draggedCategory: null,
-    draggedIndex: null,
-};
+// State is managed exclusively through stateManager — no local state object.
+// Use getState() for reads, safeUpdateState() for writes.
 
 // Event listener tracking for proper cleanup
 let eventListeners = [];
@@ -433,35 +425,16 @@ async function renderLinksTraditional() {
 
     sortedCategories.forEach(category => {
         const links = groupedLinks[category];
-        const section = document.createElement('section');
-        section.className = 'category-section fade-in';
-        section.innerHTML = `
-            <h2>${sanitizeHTML(category)}</h2>
-            <div class="links-grid ${currentState.view === 'list' ? 'list-view' : ''}" data-category="${category}">
-                ${links.map((link, index) => {
-                    const size = link.size || currentState.defaultTileSize || 'medium';
-                    const isCompact = size === 'compact';
-                    const isHorizontal = size === 'wide' || isCompact;
-
-                    return `
-                    <a href="${validateAndSanitizeUrl(link.url)}" ${getTileClasses(link)} target="_blank"
-                       draggable="true"
-                       data-link-index="${index}"
-                       data-category="${category}">
-                        <div class="tile-content${isHorizontal ? ' horizontal' : ''}">
-                            <img class="tile-icon" src="" alt="" loading="lazy" data-icon-url="${sanitizeHTML(getIconUrl(link))}" data-link-id="${link.id}">
-                            <div class="tile-placeholder" style="display: none;"></div>
-                            <h3>${sanitizeHTML(link.name)}</h3>
-                        </div>
-                    </a>
-                `}).join('')}
-            </div>
-        `;
+        const section = createCategorySection(category, links, {
+            defaultTileSize: currentState.defaultTileSize,
+            view: currentState.view,
+            lazyIcons: true
+        });
         linksContainer.appendChild(section);
     });
 
     if (filteredLinks.length === 0) {
-        linksContainer.innerHTML = '<p class="no-results">No links found. Try a different search term or <a href="manage.html">add some links</a>.</p>';
+        renderNoResults(linksContainer);
     }
 
     // Load icons asynchronously with caching
@@ -848,15 +821,6 @@ function cleanTitleForIcon(title) {
         .replace(/^-+|-+$/g, ''); // Remove leading/trailing hyphens
 }
 
-function extractDomain(url) {
-    try {
-        const urlObj = new URL(url);
-        return urlObj.hostname.replace('www.', '');
-    } catch {
-        return url.replace(/^https?:\/\/(www\.)?/, '').split('/')[0];
-    }
-}
-
 function toggleTheme() {
     const currentState = getState();
     const newTheme = currentState.theme === 'dark' ? 'light' : 'dark';
@@ -886,25 +850,6 @@ function applyTheme() {
     // Also store in data attribute for debugging
     document.body.setAttribute('data-theme', theme);
     document.body.setAttribute('data-color-theme', colorTheme);
-}
-
-function toggleColorThemeDropdown() {
-    // Theme controls moved to management page - this function is no longer used
-    console.log('Theme controls are now on the management page');
-}
-
-function setColorTheme(theme) {
-    console.log('Setting color theme to:', theme);
-    state.colorTheme = theme;
-    applyTheme();
-    updateActiveThemeOption();
-    saveSettings({ colorTheme: state.colorTheme });
-}
-
-function updateActiveThemeOption() {
-    // This function is no longer needed since theme controls moved to management page
-    // Left as placeholder for compatibility
-    console.log('Theme controls are now on the management page');
 }
 
 function toggleView() {
@@ -984,14 +929,22 @@ function setupEventListeners() {
 function showFallbackUI() {
     const container = document.querySelector('.app-container');
     if (container) {
-        container.innerHTML = `
-            <div class="error-fallback">
-                <h2> Application Error</h2>
-                <p>The application failed to initialize properly.</p>
-                <button onclick="location.reload()">Reload Application</button>
-                <p><small>If the problem persists, please check the console for error details.</small></p>
-            </div>
-        `;
+        container.textContent = '';
+        const fallback = document.createElement('div');
+        fallback.className = 'error-fallback';
+        const h2 = document.createElement('h2');
+        h2.textContent = 'Application Error';
+        const p1 = document.createElement('p');
+        p1.textContent = 'The application failed to initialize properly.';
+        const btn = document.createElement('button');
+        btn.textContent = 'Reload Application';
+        btn.addEventListener('click', () => location.reload());
+        const p2 = document.createElement('p');
+        const small = document.createElement('small');
+        small.textContent = 'If the problem persists, please check the console for error details.';
+        p2.appendChild(small);
+        fallback.append(h2, p1, btn, p2);
+        container.appendChild(fallback);
     }
 }
 
@@ -1056,11 +1009,6 @@ const init = safeAsync(async function init() {
 
         // Initialize sync status indicator
         syncStatusIndicator.init('sync-status-container');
-
-        // Update theme dropdown after everything is initialized
-        setTimeout(() => {
-            updateActiveThemeOption();
-        }, 100);
 
         const initTime = performance.now() - startTime;
         console.log(`Application initialized in ${initTime.toFixed(2)}ms`);

@@ -11,6 +11,11 @@
  * @param {Object} options - Sanitization options
  * @returns {string} - Sanitized HTML string
  */
+/**
+ * CANONICAL HTML SANITIZER — use this for any context that needs safe HTML output.
+ * Preserves allowed tags (b, i, em, strong, a, etc.) while stripping dangerous content.
+ * For plain text extraction (stripping ALL HTML), use extractTextContent() from utils.js.
+ */
 export function purifyHTML(html, options = {}) {
     if (!html || typeof html !== 'string') {
         return '';

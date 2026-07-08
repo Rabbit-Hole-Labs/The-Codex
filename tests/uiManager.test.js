@@ -1,0 +1,197 @@
+/**
+ * Unit tests for uiManager.js
+ * Covers: pagination, category dropdown population, link rendering
+ */
+
+function createLinks(count, category = 'Default') {
+    return Array.from({ length: count }, (_, i) => ({
+        id: `link-${i}`,
+        name: `Site ${i}`,
+        url: `https://site${i}.com`,
+        category,
+        icon: null,
+        size: null
+    }));
+}
+
+function makeState(overrides = {}) {
+    const links = overrides.links || createLinks(5);
+    return {
+        links,
+        filteredLinks: overrides.filteredLinks || links,
+        currentPage: overrides.currentPage || 1,
+        linksPerPage: overrides.linksPerPage || 20,
+        categories: overrides.categories || ['Default'],
+        theme: 'dark',
+        colorTheme: 'default',
+        view: 'grid',
+        searchTerm: '',
+        defaultTileSize: 'medium'
+    };
+}
+
+function setupTestDOM() {
+    const ids = {
+        linkForm: 'form', linksContainer: 'div', exportBtn: 'button',
+        importBtn: 'button', filterCategory: 'select',
+        prevPage: 'button', nextPage: 'button', pageInfo: 'span',
+        bulkDeleteBtn: 'button', selectAllCheckbox: 'input', moveCategory: 'select',
+        bulkMoveBtn: 'button', bulkSizeChange: 'select', bulkSizeBtn: 'button',
+        newCategoryName: 'input', editCategoryName: 'input',
+        editCategorySelect: 'select', deleteCategorySelect: 'select',
+        editSiteName: 'input', editSiteUrl: 'input', editSiteIcon: 'input',
+        editSiteCategory: 'select', editSiteSize: 'select',
+        siteName: 'input', siteUrl: 'input', siteIcon: 'input',
+        siteCategory: 'select', siteSize: 'select',
+        importBookmarksBtn: 'button', importFile: 'input'
+    };
+    document.body.textContent = '';
+    for (const [id, tag] of Object.entries(ids)) {
+        const el = document.createElement(tag);
+        el.id = id;
+        if (id === 'selectAllCheckbox') el.type = 'checkbox';
+        if (id === 'importFile') el.type = 'file';
+        document.body.appendChild(el);
+    }
+    // Filter default option
+    const opt = document.createElement('option');
+    opt.value = 'all';
+    document.getElementById('filterCategory').appendChild(opt);
+    // Forms
+    ['createCategoryForm', 'editCategoryForm', 'deleteCategoryForm'].forEach(id => {
+        const f = document.createElement('form');
+        f.id = id;
+        document.body.appendChild(f);
+    });
+    // Edit modal
+    const modal = document.createElement('div');
+    modal.id = 'editModal';
+    modal.className = 'hidden';
+    const close = document.createElement('button');
+    close.className = 'close-button';
+    modal.appendChild(close);
+    const ef = document.createElement('form');
+    ef.id = 'editForm';
+    modal.appendChild(ef);
+    document.body.appendChild(modal);
+}
+
+describe('uiManager', () => {
+    let UIManager;
+
+    beforeEach(async () => {
+        setupTestDOM();
+        jest.resetModules();
+        UIManager = await import('../javascript/core-systems/uiManager.js');
+    });
+
+    describe('Pagination', () => {
+        test('renderLinks renders correct number of links for a page', () => {
+            const state = makeState({ links: createLinks(25), filteredLinks: createLinks(25), linksPerPage: 10, currentPage: 1 });
+            UIManager.renderLinks(state);
+            const container = document.getElementById('linksContainer');
+            expect(container.children.length).toBe(10);
+        });
+
+        test('renderLinks renders remaining links on last page', () => {
+            const links = createLinks(25);
+            const state = makeState({ links, filteredLinks: links, linksPerPage: 10, currentPage: 3 });
+            UIManager.renderLinks(state);
+            expect(document.getElementById('linksContainer').children.length).toBe(5);
+        });
+
+        test('updatePaginationControls shows correct page info', () => {
+            const state = makeState({ filteredLinks: createLinks(50), linksPerPage: 10, currentPage: 3 });
+            UIManager.updatePaginationControls(state);
+            expect(document.getElementById('pageInfo').textContent).toBe('Page 3 of 5');
+        });
+
+        test('updatePaginationControls disables prev on first page', () => {
+            const state = makeState({ filteredLinks: createLinks(50), linksPerPage: 10, currentPage: 1 });
+            UIManager.updatePaginationControls(state);
+            expect(document.getElementById('prevPage').disabled).toBe(true);
+            expect(document.getElementById('nextPage').disabled).toBe(false);
+        });
+
+        test('updatePaginationControls disables next on last page', () => {
+            const state = makeState({ filteredLinks: createLinks(50), linksPerPage: 10, currentPage: 5 });
+            UIManager.updatePaginationControls(state);
+            expect(document.getElementById('nextPage').disabled).toBe(true);
+        });
+
+        test('changePage increments currentPage', () => {
+            const state = makeState({ filteredLinks: createLinks(30), linksPerPage: 10, currentPage: 1 });
+            UIManager.changePage(state, 1);
+            expect(state.currentPage).toBe(2);
+        });
+    });
+
+    describe('Category Dropdown Population', () => {
+        test('populateCategoryDropdowns fills select elements', () => {
+            UIManager.populateCategoryDropdowns(['Default', 'Work', 'Social']);
+            const siteCategory = document.getElementById('siteCategory');
+            expect(siteCategory.options.length).toBeGreaterThanOrEqual(3);
+        });
+
+        test('populateCategoryDropdowns handles empty categories', () => {
+            expect(() => UIManager.populateCategoryDropdowns([])).not.toThrow();
+        });
+
+        test('populateCategoryDropdowns populates filter with All option', () => {
+            UIManager.populateCategoryDropdowns(['Default', 'Work']);
+            const filter = document.getElementById('filterCategory');
+            expect(filter.options.length).toBeGreaterThanOrEqual(2);
+        });
+    });
+
+    describe('Link Rendering', () => {
+        test('renderLinks creates link-item elements', () => {
+            const state = makeState();
+            UIManager.renderLinks(state);
+            expect(document.querySelectorAll('.link-item').length).toBe(5);
+        });
+
+        test('rendered links have action buttons', () => {
+            const state = makeState({ links: createLinks(1), filteredLinks: createLinks(1) });
+            UIManager.renderLinks(state);
+            const item = document.querySelector('.link-item');
+            expect(item.querySelector('.visit-button')).toBeTruthy();
+            expect(item.querySelector('.edit-button')).toBeTruthy();
+            expect(item.querySelector('.delete-button')).toBeTruthy();
+        });
+
+        test('rendered links display name and category', () => {
+            const links = [{ id: '1', name: 'Test Site', url: 'https://test.com', category: 'Work', icon: null, size: null }];
+            const state = makeState({ links, filteredLinks: links });
+            UIManager.renderLinks(state);
+            expect(document.querySelector('.link-item').textContent).toContain('Test Site');
+        });
+
+        test('filterLinks filters by category', () => {
+            const links = [...createLinks(3, 'Work'), ...createLinks(2, 'Social')];
+            const state = makeState({ links, filteredLinks: links });
+            const filter = document.getElementById('filterCategory');
+            filter.textContent = '';
+            const opt = document.createElement('option');
+            opt.value = 'Work';
+            filter.appendChild(opt);
+            filter.value = 'Work';
+            UIManager.filterLinks(state);
+            expect(state.filteredLinks.length).toBe(3);
+        });
+
+        test('renderLinks handles empty links', () => {
+            const state = makeState({ links: [], filteredLinks: [] });
+            expect(() => UIManager.renderLinks(state)).not.toThrow();
+        });
+
+        test('getSelectedIndices returns checked indices', () => {
+            const state = makeState({ links: createLinks(3), filteredLinks: createLinks(3) });
+            UIManager.renderLinks(state);
+            const checkboxes = document.querySelectorAll('.link-checkbox');
+            checkboxes[0].checked = true;
+            checkboxes[2].checked = true;
+            expect(UIManager.getSelectedIndices()).toEqual([0, 2]);
+        });
+    });
+});

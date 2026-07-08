@@ -30,6 +30,7 @@ const stateSchemas = {
         enum: [
             'default', 'ocean', 'cosmic', 'sunset', 'forest', 'fire', 'aurora',
             'theme-purple', 'theme-pink', 'theme-green', 'theme-orange', 'theme-teal',
+            'theme-focus',
             'theme-dark-orange', 'theme-dark-purple', 'theme-dark-emerald',
             'theme-dark-crimson', 'theme-dark-sapphire'
         ]
@@ -80,7 +81,8 @@ let currentState = {
     categories: ['Default'],
     filteredLinks: [],
     currentPage: 1,
-    linksPerPage: 20
+    linksPerPage: 20,
+    editIndex: -1
 };
 
 /**
@@ -299,6 +301,14 @@ export function updateState(updates, options = {}) {
             });
         });
 
+        // Auto-persist persistent fields to chrome.storage (T-027)
+        if (!options.skipPersistence) {
+            const hasPersistentChanges = Object.keys(updates).some(k => PERSISTENT_FIELDS.includes(k));
+            if (hasPersistentChanges) {
+                persistToStorage(updates);
+            }
+        }
+
         return {
             success: true,
             newState: currentState,
@@ -368,7 +378,7 @@ function addToHistory(state) {
  * @param {number} steps - Number of steps to roll back (default: 1)
  * @returns {Object} - Rollback result
  */
-export function rollbackState(steps = 1) {
+function rollbackState(steps = 1) {
     if (stateHistory.length < steps) {
         return {
             success: false,
@@ -428,7 +438,7 @@ export function getState() {
  * @param {string} property - The property to get
  * @returns {*} - The property value
  */
-export function getStateProperty(property) {
+function getStateProperty(property) {
     return currentState[property];
 }
 
@@ -453,7 +463,7 @@ export function addStateChangeListener(listener) {
  * @param {Function} listener - Function to call when validation occurs
  * @returns {Function} - Function to unregister the listener
  */
-export function addStateValidationListener(listener) {
+function addStateValidationListener(listener) {
     stateValidationListeners.push(listener);
 
     return () => {
@@ -468,14 +478,14 @@ export function addStateValidationListener(listener) {
  * Gets the current state history
  * @returns {Array} - Array of historical state snapshots
  */
-export function getStateHistory() {
+function getStateHistory() {
     return [...stateHistory]; // Return copy to prevent external modification
 }
 
 /**
  * Clears the state history
  */
-export function clearStateHistory() {
+function clearStateHistory() {
     stateHistory = [];
 }
 
@@ -510,7 +520,7 @@ export function createStateUpdater(property, validator = null) {
  * @param {Object} options - Update options
  * @returns {Object} - Update result
  */
-export function batchUpdateState(updates, options = {}) {
+function batchUpdateState(updates, options = {}) {
     return updateState(updates, { ...options, validate: true });
 }
 
@@ -531,6 +541,104 @@ export function safeUpdateState(updates, options = {}) {
             rollbackState: createStateSnapshot()
         };
     }
+}
+
+// --- T-026: Cross-tab reactivity via chrome.storage.onChanged ---
+// Persistent fields that should be synced to/from chrome.storage
+const PERSISTENT_FIELDS = ['theme', 'colorTheme', 'links', 'categories', 'defaultTileSize', 'view'];
+
+// Flag to prevent circular updates (our own write triggering onChanged)
+let isWritingToStorage = false;
+
+/**
+ * Listen for chrome.storage changes from other tabs/contexts.
+ * Updates the stateManager singleton when storage changes externally.
+ */
+if (typeof chrome !== 'undefined' && chrome.storage?.onChanged) {
+    chrome.storage.onChanged.addListener((changes, areaName) => {
+        if (areaName !== 'sync' || isWritingToStorage) return;
+
+        const updates = {};
+        for (const [key, { newValue }] of Object.entries(changes)) {
+            if (PERSISTENT_FIELDS.includes(key) && newValue !== undefined) {
+                // Handle links stored as JSON string
+                if (key === 'links' && typeof newValue === 'string') {
+                    try { updates[key] = JSON.parse(newValue); } catch { /* skip corrupt */ }
+                } else {
+                    updates[key] = newValue;
+                }
+            }
+        }
+
+        if (Object.keys(updates).length > 0) {
+            updateState(updates, { validate: false, skipPersistence: true });
+        }
+    });
+}
+
+// --- T-027: Auto-persist persistent fields to chrome.storage ---
+
+/**
+ * Write persistent state fields to chrome.storage.sync.
+ * Called automatically after safeUpdateState when persistent fields change.
+ * @param {Object} updates - The state updates that were applied
+ */
+async function persistToStorage(updates) {
+    if (typeof chrome === 'undefined' || !chrome.storage?.sync) return;
+
+    const toStore = {};
+    for (const key of PERSISTENT_FIELDS) {
+        if (key in updates) {
+            toStore[key] = key === 'links' ? JSON.stringify(updates[key]) : updates[key];
+        }
+    }
+
+    if (Object.keys(toStore).length === 0) return;
+
+    try {
+        isWritingToStorage = true;
+        await chrome.storage.sync.set(toStore);
+    } catch (error) {
+        console.error('Failed to persist state to storage:', error);
+    } finally {
+        isWritingToStorage = false;
+    }
+}
+
+// --- T-028: Initialize stateManager from chrome.storage on page load ---
+
+/**
+ * Load state from chrome.storage.sync and initialize the stateManager.
+ * Should be called once during page initialization, before rendering.
+ * @returns {Promise<Object>} The loaded state
+ */
+export async function initializeFromStorage() {
+    if (typeof chrome === 'undefined' || !chrome.storage?.sync) {
+        return getState();
+    }
+
+    try {
+        const data = await chrome.storage.sync.get(null);
+        const updates = {};
+
+        for (const key of PERSISTENT_FIELDS) {
+            if (data[key] !== undefined) {
+                if (key === 'links' && typeof data[key] === 'string') {
+                    try { updates[key] = JSON.parse(data[key]); } catch { /* skip corrupt */ }
+                } else {
+                    updates[key] = data[key];
+                }
+            }
+        }
+
+        if (Object.keys(updates).length > 0) {
+            updateState(updates, { validate: false, skipPersistence: true });
+        }
+    } catch (error) {
+        console.error('Failed to initialize state from storage:', error);
+    }
+
+    return getState();
 }
 
 // Export the state management system

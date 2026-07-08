@@ -8,6 +8,7 @@ export class SyncStatusIndicator {
         this.lastSyncElement = null;
         this.syncButton = null;
         this.isInitialized = false;
+        this._abortController = null;
 
         // Status states
         this.states = {
@@ -74,201 +75,18 @@ export class SyncStatusIndicator {
         this.injectStyles();
     }
 
-    // Inject CSS styles
+    // Styles are now in stylesheets/sync-status.css (linked in HTML pages).
+    // No dynamic <style> injection needed — enables removal of 'unsafe-inline' from CSP.
     injectStyles() {
-        if (document.getElementById('sync-status-styles')) return;
-
-        const styles = `
-            <style id="sync-status-styles">
-                .sync-status-wrapper {
-                    position: relative;
-                    display: inline-flex;
-                    align-items: center;
-                    gap: 8px;
-                }
-
-                .sync-status {
-                    display: flex;
-                    align-items: center;
-                    gap: 6px;
-                    padding: 6px 12px;
-                    border-radius: 20px;
-                    background: rgba(255, 255, 255, 0.1);
-                    cursor: pointer;
-                    transition: all 0.3s ease;
-                    font-size: 14px;
-                }
-
-                .sync-status:hover {
-                    background: rgba(255, 255, 255, 0.15);
-                }
-
-                .sync-icon {
-                    font-size: 16px;
-                    display: inline-flex;
-                    align-items: center;
-                    justify-content: center;
-                }
-
-                .sync-success .sync-icon { color: #4caf50; }
-                .sync-progress .sync-icon {
-                    color: #2196f3;
-                    animation: spin 1s linear infinite;
-                }
-                .sync-error .sync-icon { color: #f44336; }
-                .sync-offline .sync-icon { color: #9e9e9e; }
-                .sync-pending .sync-icon { color: #ff9800; }
-
-                @keyframes spin {
-                    100% { transform: rotate(360deg); }
-                }
-
-                .sync-details {
-                    position: absolute;
-                    top: 100%;
-                    right: 0;
-                    margin-top: 8px;
-                    padding: 16px;
-                    background: var(--bg-secondary, #1e1e1e);
-                    border-radius: 8px;
-                    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-                    min-width: 200px;
-                    z-index: 1000;
-                }
-
-                .sync-last-time {
-                    font-size: 12px;
-                    color: var(--text-secondary, #aaa);
-                    margin-bottom: 12px;
-                }
-
-                .sync-actions {
-                    display: flex;
-                    gap: 8px;
-                    margin-bottom: 8px;
-                }
-
-                .sync-btn {
-                    background: transparent;
-                    border: 1px solid rgba(255, 255, 255, 0.2);
-                    border-radius: 4px;
-                    padding: 4px 8px;
-                    cursor: pointer;
-                    transition: all 0.2s ease;
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
-                }
-
-                .sync-btn:hover {
-                    background: rgba(255, 255, 255, 0.1);
-                    border-color: rgba(255, 255, 255, 0.3);
-                }
-
-                .sync-btn svg {
-                    fill: currentColor;
-                }
-
-                .sync-menu {
-                    margin-top: 8px;
-                    border-top: 1px solid rgba(255, 255, 255, 0.1);
-                    padding-top: 8px;
-                }
-
-                .sync-menu-item {
-                    display: block;
-                    width: 100%;
-                    padding: 8px 12px;
-                    background: transparent;
-                    border: none;
-                    text-align: left;
-                    cursor: pointer;
-                    transition: background 0.2s ease;
-                    font-size: 14px;
-                    color: var(--text-primary, #fff);
-                }
-
-                .sync-menu-item:hover {
-                    background: rgba(255, 255, 255, 0.1);
-                }
-
-                .sync-menu-danger {
-                    color: #f44336;
-                }
-
-                .sync-menu hr {
-                    margin: 8px 0;
-                    border: none;
-                    border-top: 1px solid rgba(255, 255, 255, 0.1);
-                }
-
-                .sync-status-modal {
-                    position: fixed;
-                    top: 50%;
-                    left: 50%;
-                    transform: translate(-50%, -50%);
-                    background: var(--bg-primary, #121212);
-                    padding: 24px;
-                    border-radius: 8px;
-                    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
-                    max-width: 400px;
-                    z-index: 10000;
-                }
-
-                .sync-status-modal h3 {
-                    margin-top: 0;
-                    margin-bottom: 16px;
-                }
-
-                .sync-status-info {
-                    display: grid;
-                    gap: 12px;
-                }
-
-                .sync-status-row {
-                    display: flex;
-                    justify-content: space-between;
-                    font-size: 14px;
-                }
-
-                .sync-status-label {
-                    color: var(--text-secondary, #aaa);
-                }
-
-                .sync-status-value {
-                    font-weight: 500;
-                }
-
-                .sync-quota-bar {
-                    width: 100%;
-                    height: 8px;
-                    background: rgba(255, 255, 255, 0.1);
-                    border-radius: 4px;
-                    overflow: hidden;
-                    margin-top: 4px;
-                }
-
-                .sync-quota-fill {
-                    height: 100%;
-                    background: #2196f3;
-                    transition: width 0.3s ease;
-                }
-
-                .sync-quota-fill.warning {
-                    background: #ff9800;
-                }
-
-                .sync-quota-fill.danger {
-                    background: #f44336;
-                }
-            </style>
-        `;
-
-        document.head.insertAdjacentHTML('beforeend', styles);
+        // No-op: styles loaded via external CSS file
     }
 
-    // Attach event listeners
+    // Attach event listeners with AbortController for lifecycle management
     attachEventListeners() {
+        this._abortController?.abort();
+        this._abortController = new AbortController();
+        const { signal } = this._abortController;
+
         // Listen to sync manager events
         syncManager.addSyncListener((event, data) => {
             this.handleSyncEvent(event, data);
@@ -278,13 +96,13 @@ export class SyncStatusIndicator {
         this.statusElement.addEventListener('click', () => {
             const details = this.container.querySelector('.sync-details');
             details.style.display = details.style.display === 'none' ? 'block' : 'none';
-        });
+        }, { signal });
 
         // Sync now button
         this.syncButton.addEventListener('click', async (e) => {
             e.stopPropagation();
             await this.handleSyncNow();
-        });
+        }, { signal });
 
         // Menu button
         const menuBtn = this.container.querySelector('#sync-menu-btn');
@@ -293,7 +111,7 @@ export class SyncStatusIndicator {
         menuBtn.addEventListener('click', (e) => {
             e.stopPropagation();
             menu.style.display = menu.style.display === 'none' ? 'block' : 'none';
-        });
+        }, { signal });
 
         // Menu items
         menu.addEventListener('click', async (e) => {
@@ -302,7 +120,7 @@ export class SyncStatusIndicator {
                 await this.handleMenuAction(action);
                 menu.style.display = 'none';
             }
-        });
+        }, { signal });
 
         // Close menu when clicking outside
         document.addEventListener('click', (e) => {
@@ -310,11 +128,21 @@ export class SyncStatusIndicator {
                 menu.style.display = 'none';
                 this.container.querySelector('.sync-details').style.display = 'none';
             }
-        });
+        }, { signal });
 
         // Check online/offline status
-        window.addEventListener('online', () => this.updateStatus());
-        window.addEventListener('offline', () => this.updateStatus('offline'));
+        window.addEventListener('online', () => this.updateStatus(), { signal });
+        window.addEventListener('offline', () => this.updateStatus('offline'), { signal });
+    }
+
+    /**
+     * Remove all event listeners and clean up resources.
+     * Call during page teardown to prevent listener leaks.
+     */
+    destroy() {
+        this._abortController?.abort();
+        this._abortController = null;
+        this.isInitialized = false;
     }
 
     // Handle sync events
@@ -454,10 +282,13 @@ export class SyncStatusIndicator {
                     <div class="sync-quota-fill ${quotaClass}" style="width: ${status.quotaPercentage}%"></div>
                 </div>
             </div>
-            <button class="sync-btn" style="margin-top: 16px; width: 100%;" onclick="this.parentElement.remove()">Close</button>
+            <button class="sync-btn sync-modal-close" style="margin-top: 16px; width: 100%;">Close</button>
         `;
 
         document.body.appendChild(modal);
+        modal.querySelector('.sync-modal-close').addEventListener('click', function() {
+            this.parentElement.remove();
+        });
     }
 
     // Show error message

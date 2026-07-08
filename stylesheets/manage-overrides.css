@@ -1,0 +1,174 @@
+/* Manage page button color overrides
+ * Moved from inline <style> in manage.html (T-030)
+ * to enable removal of 'unsafe-inline' from style-src CSP.
+ */
+
+/* Override all button colors with maximum specificity */
+html body .container main .tab-content button,
+html body .container main .tab-content form button,
+html body .container main .category-card button,
+html body .container main .links-management-panel button,
+html body .container main button,
+html body .container main form button {
+    background: var(--surface-elevated) !important;
+    border: 1px solid var(--border-color) !important;
+    color: var(--on-surface) !important;
+    box-shadow: none !important;
+}
+
+html body .container main .tab-content .btn-primary,
+html body .container main .category-card .btn-primary,
+html body .container main .links-management-panel .btn-primary,
+html body .container main .btn-primary {
+    background: var(--primary-color) !important;
+    border: 1px solid var(--primary-color) !important;
+    color: white !important;
+}
+
+html body .container main .tab-content .btn-secondary,
+html body .container main .category-card .btn-secondary,
+html body .container main .links-management-panel .btn-secondary,
+html body .container main .btn-secondary {
+    background: var(--surface-elevated) !important;
+    border: 1px solid var(--border-color) !important;
+    color: var(--on-surface) !important;
+}
+
+html body .container main .tab-content .btn-danger,
+html body .container main .category-card .btn-danger,
+html body .container main .links-management-panel .btn-danger,
+html body .container main .btn-danger {
+    background: var(--error-color, #ef4444) !important;
+    border: 1px solid var(--error-color, #ef4444) !important;
+    color: white !important;
+}
+
+html body #deleteCategoryForm button[type="submit"],
+html body button[type="submit"].btn-danger {
+    background: var(--error-color) !important;
+    border: 1px solid var(--error-color) !important;
+    color: white !important;
+    box-shadow: none !important;
+}
+
+html body #editCategoryForm button[type="submit"],
+html body button[type="submit"].btn-secondary {
+    background: var(--surface-elevated) !important;
+    border: 1px solid var(--border-color) !important;
+    color: var(--on-surface) !important;
+    box-shadow: none !important;
+}
+
+html body #createCategoryForm button[type="submit"],
+html body button[type="submit"].btn-primary {
+    background: var(--primary-color) !important;
+    border: 1px solid var(--primary-color) !important;
+    color: white !important;
+    box-shadow: none !important;
+}
+
+html body #bulkMoveBtn,
+html body #bulkSizeBtn,
+html body #prevPage,
+html body #nextPage,
+html body .links-management-panel .btn-secondary,
+html body .pagination .btn-secondary,
+html body .pagination button {
+    background: var(--surface-elevated) !important;
+    border: 1px solid var(--border-color) !important;
+    color: var(--on-surface) !important;
+    box-shadow: none !important;
+}
+
+html body #bulkDeleteBtn,
+html body .links-management-panel .btn-danger {
+    background: var(--error-color) !important;
+    border: 1px solid var(--error-color) !important;
+    color: white !important;
+    box-shadow: none !important;
+}
+
+html body #linksContainer button,
+html body .links-container button,
+html body .link-item button,
+html body .link-actions button {
+    background: var(--surface-elevated) !important;
+    border: 1px solid var(--border-color) !important;
+    color: var(--on-surface) !important;
+    box-shadow: none !important;
+    padding: var(--space-2) !important;
+}
+
+html body .link-actions .visit-button {
+    background: var(--primary-color) !important;
+    border: 1px solid var(--primary-color) !important;
+    color: white !important;
+}
+
+html body .link-actions .edit-button {
+    background: var(--surface-elevated) !important;
+    border: 1px solid var(--border-color) !important;
+    color: var(--on-surface) !important;
+}
+
+html body .link-actions .delete-button {
+    background: var(--error-color) !important;
+    border: 1px solid var(--error-color) !important;
+    color: white !important;
+}
+
+html body .link-actions .visit-button:hover {
+    background: var(--primary-hover) !important;
+}
+
+html body .link-actions .edit-button:hover {
+    background: var(--surface-hover) !important;
+    color: var(--primary-color) !important;
+}
+
+html body .link-actions .delete-button:hover {
+    background: var(--error-hover) !important;
+}
+
+html body .sync-actions-card button,
+html body .sync-diagnostics-card button,
+html body .sync-data-verification-card button,
+html body .sync-log-card button,
+html body .quick-actions-panel button {
+    background: var(--surface-elevated) !important;
+    border: 1px solid var(--border-color) !important;
+    color: var(--on-surface) !important;
+    box-shadow: none !important;
+}
+
+html body .sync-actions-card .btn-primary,
+html body .quick-actions-panel .btn-primary {
+    background: var(--primary-color) !important;
+    border: 1px solid var(--primary-color) !important;
+    color: white !important;
+}
+
+html body .sync-actions-card .btn-danger {
+    background: var(--error-color) !important;
+    border: 1px solid var(--error-color) !important;
+    color: white !important;
+}
+
+html body .view-toggle,
+html body .view-toggle .view-option {
+    background: var(--surface-elevated) !important;
+    border: 1px solid var(--border-color) !important;
+    color: var(--on-surface-variant) !important;
+}
+
+html body .view-toggle .view-option.active {
+    background: var(--primary-color) !important;
+    border: 1px solid var(--primary-color) !important;
+    color: white !important;
+}
+
+html body .view-toggle .view-option:hover:not(.active) {
+    background: var(--surface-hover) !important;
+    border: 1px solid var(--border-hover) !important;
+    color: var(--on-surface) !important;
+}
