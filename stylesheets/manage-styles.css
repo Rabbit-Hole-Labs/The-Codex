@@ -1195,6 +1195,15 @@ p, span, div, label {
   margin-top: var(--space-6);
 }
 
+/* Sync Settings diagnostics: lay the cards out in a grid like .settings-grid
+   (this selector had no rule, so the cards stacked full-width). */
+.sync-info-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: var(--space-6);
+  margin-top: var(--space-6);
+}
+
 .settings-card {
   background: var(--surface-color);
   border: 1px solid var(--border-color);
