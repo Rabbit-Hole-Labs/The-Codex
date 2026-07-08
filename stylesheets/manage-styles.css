@@ -706,6 +706,118 @@ button:disabled {
   box-shadow: var(--shadow-sm);
 }
 
+/* Captured Errors panel (Sync Settings & Diagnostics tab) */
+.error-log-card {
+  background: var(--surface-color);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-xl);
+  padding: var(--space-6);
+  box-shadow: var(--shadow-sm);
+  margin-top: var(--space-6);
+}
+
+.error-log-hint {
+  color: var(--on-surface-variant);
+  font-size: var(--font-size-sm);
+  line-height: 1.5;
+  margin: 0 0 var(--space-4);
+}
+
+.error-log {
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  background: var(--background-color);
+  max-height: 360px;
+  overflow-y: auto;
+  padding: var(--space-3);
+}
+
+.error-log-empty {
+  color: var(--on-surface-variant);
+  text-align: center;
+  padding: var(--space-6);
+  font-size: var(--font-size-sm);
+}
+
+.error-log-entry {
+  border: 1px solid var(--border-color);
+  border-left: 3px solid var(--primary-color);
+  border-radius: var(--radius-md);
+  background: var(--surface-color);
+  padding: var(--space-3) var(--space-4);
+  margin-bottom: var(--space-3);
+}
+
+.error-log-entry:last-child {
+  margin-bottom: 0;
+}
+
+.error-log-entry[data-type="csp-violation"] { border-left-color: #e0a800; }
+.error-log-entry[data-type="uncaught-error"],
+.error-log-entry[data-type="unhandled-rejection"] { border-left-color: #dc3545; }
+
+.error-log-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
+}
+
+.error-log-time {
+  color: var(--on-surface-variant);
+  font-size: var(--font-size-xs);
+}
+
+.error-log-badge {
+  font-size: var(--font-size-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  padding: 2px 8px;
+  border-radius: var(--radius-full, 999px);
+  background: var(--surface-elevated);
+  border: 1px solid var(--border-color);
+  color: var(--on-surface-variant);
+}
+
+.error-log-type {
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+  color: var(--on-surface);
+}
+
+.error-log-count {
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-bold);
+  color: #fff;
+  background: var(--primary-color);
+  border-radius: var(--radius-full, 999px);
+  padding: 1px 7px;
+}
+
+.error-log-message {
+  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  font-size: var(--font-size-sm);
+  color: var(--on-surface);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.error-log-source {
+  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  font-size: var(--font-size-xs);
+  color: var(--on-surface-variant);
+  margin-top: var(--space-1);
+  word-break: break-all;
+}
+
+.error-log-actions {
+  display: flex;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  margin-top: var(--space-4);
+}
+
 .link-item.selected {
   border-color: var(--primary-color);
   background: var(--surface-elevated);

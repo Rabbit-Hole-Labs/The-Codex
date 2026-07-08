@@ -12,18 +12,27 @@
  *
  * Everything is written to chrome.storage.local as a de-duplicated ring
  * buffer so it survives reloads and spans every context (newtab, manage,
- * popup, service worker). Export it consistently via CodexConsole.errors()
- * / exportErrors(), or the "Export Diagnostics" button.
+ * popup, service worker). To avoid unsynchronized read-modify-writes across
+ * those independent contexts, the service worker is the single writer: page
+ * contexts forward their entries to it via chrome.runtime.sendMessage. Export
+ * the log consistently via CodexConsole.errors() / exportErrors(), or the
+ * "Export Diagnostics" button.
  */
 
 const STORAGE_KEY = 'codexErrorLog';
+const MESSAGE_TYPE = 'codex:error-capture'; // page → service-worker write funnel
 const MAX_ENTRIES = 200;
 const MAX_MESSAGE_LENGTH = 1000;
 const MAX_STACK_LENGTH = 2000;
 
 let initialized = false;
 let currentContext = 'unknown';
-// Serialize storage writes within this context to avoid read/modify/write races.
+// The service worker is the single owner of the codexErrorLog storage key.
+// Page contexts (newtab, manage, popup) forward their entries to it rather than
+// writing directly, so read-modify-writes from different execution contexts can't
+// clobber each other. Within the owner, writes are still serialized through
+// writeChain so its own errors and inbound messages don't race one another.
+let isOwner = false;
 let writeChain = Promise.resolve();
 
 /** Bounds any value we're about to persist so a single pathological entry
@@ -68,7 +77,62 @@ function signatureOf(entry) {
     return [entry.type, entry.message, entry.source || '', entry.directive || ''].join('|');
 }
 
-/** Append (or increment) an entry in the persisted ring buffer. */
+/** Serialize a storage-mutating task onto the owner's write chain so the
+ *  owner's own errors and inbound forwarded entries never interleave a
+ *  read-modify-write. Returns the settled promise for callers that must wait. */
+function enqueueWrite(task) {
+    writeChain = writeChain.then(async () => {
+        try {
+            if (typeof chrome === 'undefined' || !chrome.storage || !chrome.storage.local) return;
+            await task();
+        } catch {
+            /* Never let error capture throw — that would be self-defeating. */
+        }
+    });
+    return writeChain;
+}
+
+/** Owner-only: append (or increment) an entry in the persisted ring buffer. */
+async function applyRecord(entry) {
+    const data = await chrome.storage.local.get(STORAGE_KEY);
+    const log = Array.isArray(data[STORAGE_KEY]) ? data[STORAGE_KEY] : [];
+
+    const sig = signatureOf(entry);
+    const existing = log.find(e => signatureOf(e) === sig);
+    if (existing) {
+        existing.count = (existing.count || 1) + 1;
+        existing.lastTs = entry.ts;
+    } else {
+        entry.count = 1;
+        entry.firstTs = entry.ts;
+        entry.lastTs = entry.ts;
+        log.push(entry);
+        while (log.length > MAX_ENTRIES) log.shift();
+    }
+
+    await chrome.storage.local.set({ [STORAGE_KEY]: log });
+}
+
+/** Owner-only: reset the ring buffer. */
+async function applyClear() {
+    await chrome.storage.local.set({ [STORAGE_KEY]: [] });
+}
+
+/** Forward a write request to the owner (service worker). Fire-and-forget: a
+ *  dropped diagnostic entry is acceptable, a thrown error from capture is not. */
+function forwardToOwner(payload) {
+    try {
+        if (typeof chrome === 'undefined' || !chrome.runtime || typeof chrome.runtime.sendMessage !== 'function') return;
+        const p = chrome.runtime.sendMessage({ type: MESSAGE_TYPE, ...payload });
+        // Swallow "no receiver"/lastError rejections when the SW is transiently unavailable.
+        if (p && typeof p.catch === 'function') p.catch(() => { /* dropped */ });
+    } catch {
+        /* ignore */
+    }
+}
+
+/** Capture an entry. The owner writes it directly (serialized); every other
+ *  context forwards it to the owner so there is a single writer. */
 function record(partial) {
     const entry = {
         context: currentContext,
@@ -79,30 +143,11 @@ function record(partial) {
         ...partial
     };
 
-    writeChain = writeChain.then(async () => {
-        try {
-            if (typeof chrome === 'undefined' || !chrome.storage || !chrome.storage.local) return;
-            const data = await chrome.storage.local.get(STORAGE_KEY);
-            const log = Array.isArray(data[STORAGE_KEY]) ? data[STORAGE_KEY] : [];
-
-            const sig = signatureOf(entry);
-            const existing = log.find(e => signatureOf(e) === sig);
-            if (existing) {
-                existing.count = (existing.count || 1) + 1;
-                existing.lastTs = entry.ts;
-            } else {
-                entry.count = 1;
-                entry.firstTs = entry.ts;
-                entry.lastTs = entry.ts;
-                log.push(entry);
-                while (log.length > MAX_ENTRIES) log.shift();
-            }
-
-            await chrome.storage.local.set({ [STORAGE_KEY]: log });
-        } catch {
-            /* Never let error capture throw — that would be self-defeating. */
-        }
-    });
+    if (isOwner) {
+        enqueueWrite(() => applyRecord(entry));
+    } else {
+        forwardToOwner({ kind: 'record', entry });
+    }
 }
 
 /**
@@ -114,6 +159,29 @@ export function initErrorCapture(context = 'page') {
     if (initialized) return;
     initialized = true;
     currentContext = context;
+    isOwner = (context === 'service-worker');
+
+    // Owner: accept forwarded write requests from the page contexts. Registered
+    // synchronously so the listener is ready when Chrome wakes the service worker
+    // to deliver a message.
+    if (isOwner && typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage) {
+        chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+            if (!msg || msg.type !== MESSAGE_TYPE) return undefined;
+            let done;
+            if (msg.kind === 'record' && msg.entry) {
+                done = enqueueWrite(() => applyRecord(msg.entry));
+            } else if (msg.kind === 'clear') {
+                done = enqueueWrite(() => applyClear());
+            } else {
+                return undefined;
+            }
+            // Ack only once the write settles, so the SW isn't torn down mid-write.
+            done.then(() => {
+                try { sendResponse({ ok: true }); } catch { /* port already closed */ }
+            });
+            return true; // keep the message channel open for the async ack
+        });
+    }
 
     const globalScope = (typeof self !== 'undefined') ? self
         : (typeof window !== 'undefined') ? window : null;
@@ -178,11 +246,24 @@ export async function getCapturedErrors() {
     return Array.isArray(data[STORAGE_KEY]) ? data[STORAGE_KEY] : [];
 }
 
-/** Clears the captured error log. */
+/** Clears the captured error log. Routed through the owner so it can't race the
+ *  owner's in-flight writes; falls back to a direct write if messaging is
+ *  unavailable. */
 export async function clearCapturedErrors() {
-    if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
-        await chrome.storage.local.set({ [STORAGE_KEY]: [] });
+    if (typeof chrome === 'undefined' || !chrome.storage || !chrome.storage.local) return;
+    if (isOwner) {
+        await enqueueWrite(() => applyClear());
+        return;
     }
+    if (chrome.runtime && typeof chrome.runtime.sendMessage === 'function') {
+        try {
+            await chrome.runtime.sendMessage({ type: MESSAGE_TYPE, kind: 'clear' });
+            return;
+        } catch {
+            /* fall through to a best-effort direct clear */
+        }
+    }
+    await chrome.storage.local.set({ [STORAGE_KEY]: [] });
 }
 
 /** Formats entries into a consistent, paste-friendly text block. */

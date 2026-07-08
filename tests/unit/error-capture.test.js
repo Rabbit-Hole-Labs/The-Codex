@@ -30,7 +30,10 @@ describe('formatCapturedErrors', () => {
     });
 });
 
-describe('capture round-trip (mocked chrome.storage)', () => {
+// Init as the 'service-worker' context so this suite exercises the OWNER path:
+// the owner writes to chrome.storage.local directly (page contexts instead
+// forward to it — that funnel is covered in error-capture-funnel.test.js).
+describe('owner-context capture (mocked chrome.storage)', () => {
     let store;
 
     // The serialized write chain and all storage operations resolve on the
@@ -48,7 +51,10 @@ describe('capture round-trip (mocked chrome.storage)', () => {
                     set: (obj) => { Object.assign(store, obj); return Promise.resolve(); }
                 }
             },
-            runtime: { getManifest: () => ({ version: 'test' }) }
+            runtime: {
+                getManifest: () => ({ version: 'test' }),
+                onMessage: { addListener: () => {} }
+            }
         };
     });
 
@@ -61,7 +67,7 @@ describe('capture round-trip (mocked chrome.storage)', () => {
     });
 
     it('captures console.error and collapses repeats into one entry with a count', async () => {
-        initErrorCapture('test');
+        initErrorCapture('service-worker');
         console.error('CAPTURE_TEST boom');
         console.error('CAPTURE_TEST boom');
         await flush();
@@ -74,7 +80,7 @@ describe('capture round-trip (mocked chrome.storage)', () => {
     });
 
     it('captures an uncaught error event with source and stack', async () => {
-        initErrorCapture('test');
+        initErrorCapture('service-worker');
         window.dispatchEvent(new ErrorEvent('error', {
             message: 'UNCAUGHT_TEST kaboom',
             filename: 'chrome-extension://abc/script.js',
@@ -92,7 +98,7 @@ describe('capture round-trip (mocked chrome.storage)', () => {
     });
 
     it('captures an unhandled promise rejection', async () => {
-        initErrorCapture('test');
+        initErrorCapture('service-worker');
         window.dispatchEvent(Object.assign(new Event('unhandledrejection'), {
             reason: new Error('REJECT_TEST nope')
         }));
@@ -104,7 +110,7 @@ describe('capture round-trip (mocked chrome.storage)', () => {
     });
 
     it('captures a CSP (securitypolicyviolation) event', async () => {
-        initErrorCapture('test');
+        initErrorCapture('service-worker');
         document.dispatchEvent(Object.assign(new Event('securitypolicyviolation'), {
             violatedDirective: 'img-src',
             blockedURI: 'https://evil.example.com/tracker.gif',
@@ -121,7 +127,7 @@ describe('capture round-trip (mocked chrome.storage)', () => {
     });
 
     it('collapses CSP violations that differ only by query/fragment into one entry', async () => {
-        initErrorCapture('test');
+        initErrorCapture('service-worker');
         const fire = (uri) => document.dispatchEvent(Object.assign(new Event('securitypolicyviolation'), {
             violatedDirective: 'img-src',
             blockedURI: uri,
@@ -140,7 +146,7 @@ describe('capture round-trip (mocked chrome.storage)', () => {
     });
 
     it('caps the ring buffer at 200 entries, evicting the oldest', async () => {
-        initErrorCapture('test');
+        initErrorCapture('service-worker');
         const TOTAL = 250;
         for (let i = 0; i < TOTAL; i++) {
             // Distinct message per entry → distinct signature → no dedup.

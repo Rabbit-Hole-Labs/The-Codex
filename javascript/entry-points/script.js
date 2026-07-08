@@ -45,7 +45,7 @@ function removeTrackedEventListener(element, event, handler, options = false) {
 }
 
 function cleanupAllEventListeners() {
-    console.log('Cleaning up event listeners:', eventListeners.length);
+    debug('Cleaning up event listeners:', eventListeners.length);
 
     // Remove all tracked listeners
     eventListeners.forEach(({ element, event, handler, options }) => {
@@ -84,7 +84,7 @@ async function initializeState() {
         
         // Enhanced cleanup and validation for corrupted link data
         if (Array.isArray(loadedState.links)) {
-            console.log(`Processing ${loadedState.links.length} links for cleanup and validation`);
+            debug(`Processing ${loadedState.links.length} links for cleanup and validation`);
             
             loadedState.links = loadedState.links
                 .map((link, index) => {
@@ -172,11 +172,11 @@ async function initializeState() {
                         } catch {
                             // Set to null for invalid icon URL rather than deleting
                             cleanLink.icon = null;
-                            console.log(`Removed invalid icon URL for link at index ${index}`, cleanLink.icon);
+                            debug(`Removed invalid icon URL for link at index ${index}`, cleanLink.icon);
                         }
                     } else if (typeof cleanLink.icon === 'object') {
                         // Handle object values for icon property with enhanced object handling
-                        console.log(`Found icon as object at index ${index}:`, cleanLink.icon);
+                        debug(`Found icon as object at index ${index}:`, cleanLink.icon);
                         
                         // Try to extract URL from common object structures with enhanced handling
                         let extractedIcon = null;
@@ -210,7 +210,7 @@ async function initializeState() {
                             try {
                                 const jsonStr = JSON.stringify(cleanLink.icon);
                                 if (jsonStr && jsonStr.length > 0) {
-                                    console.log(`Serialized icon object to JSON at index ${index}:`, jsonStr);
+                                    debug(`Serialized icon object to JSON at index ${index}:`, jsonStr);
                                 }
                             } catch (e) {
                                 console.warn(`Failed to serialize icon object to JSON at index ${index}:`, e);
@@ -222,20 +222,20 @@ async function initializeState() {
                             try {
                                 new URL(extractedIcon);
                                 cleanLink.icon = extractedIcon;
-                                console.log(`Successfully extracted icon URL from object at index ${index}:`, extractedIcon);
+                                debug(`Successfully extracted icon URL from object at index ${index}:`, extractedIcon);
                             } catch {
                                 cleanLink.icon = null;
-                                console.log(`Extracted icon URL is invalid at index ${index}:`, extractedIcon);
+                                debug(`Extracted icon URL is invalid at index ${index}:`, extractedIcon);
                             }
                         } else {
                             // For validation consistency, explicitly set to null rather than deleting
                             cleanLink.icon = null;
-                            console.log(`Could not extract valid icon URL from object at index ${index}`, cleanLink.icon);
+                            debug(`Could not extract valid icon URL from object at index ${index}`, cleanLink.icon);
                         }
                     } else {
                         // Set to null for non-string, non-object icon property rather than deleting
                         cleanLink.icon = null;
-                        console.log(`Removed invalid icon type (${typeof cleanLink.icon}) for link at index ${index}`, cleanLink.icon);
+                        debug(`Removed invalid icon type (${typeof cleanLink.icon}) for link at index ${index}`, cleanLink.icon);
                     }
                     
                     // Handle size property - ensure proper default values for validation
@@ -247,11 +247,11 @@ async function initializeState() {
                         if (!validSizes.includes(cleanLink.size)) {
                             // Set to null for invalid size value rather than deleting
                             cleanLink.size = null;
-                            console.log(`Removed invalid size for link at index ${index}`, cleanLink.size);
+                            debug(`Removed invalid size for link at index ${index}`, cleanLink.size);
                         }
                     } else if (typeof cleanLink.size === 'object') {
                         // Handle object values for size property with enhanced object handling
-                        console.log(`Found size as object at index ${index}:`, cleanLink.size);
+                        debug(`Found size as object at index ${index}:`, cleanLink.size);
                         
                         // Try to extract value from common object structures with enhanced handling
                         let extractedSize = null;
@@ -275,46 +275,46 @@ async function initializeState() {
                                     extractedSize = stringified;
                                 }
                             } catch (e) {
-                                console.log(`Failed to convert size object to string at index ${index}:`, e);
+                                debug(`Failed to convert size object to string at index ${index}:`, e);
                             }
                         } else if (Object.keys(cleanLink.size).length > 0) {
                             // Try JSON serialization for complex objects as last resort
                             try {
                                 const jsonStr = JSON.stringify(cleanLink.size);
                                 if (jsonStr && jsonStr.length > 0) {
-                                    console.log(`Serialized size object to JSON at index ${index}:`, jsonStr);
+                                    debug(`Serialized size object to JSON at index ${index}:`, jsonStr);
                                 }
                             } catch (e) {
-                                console.log(`Failed to serialize size object to JSON at index ${index}:`, e);
+                                debug(`Failed to serialize size object to JSON at index ${index}:`, e);
                             }
                         }
                         
                         // Validate extracted size value
                         if (extractedSize && validSizes.includes(extractedSize)) {
                             cleanLink.size = extractedSize;
-                            console.log(`Successfully extracted size value from object at index ${index}:`, extractedSize);
+                            debug(`Successfully extracted size value from object at index ${index}:`, extractedSize);
                         } else {
                             // For validation consistency, explicitly set to null rather than deleting
                             cleanLink.size = null;
-                            console.log(`Could not extract valid size from object at index ${index}`, cleanLink.size);
+                            debug(`Could not extract valid size from object at index ${index}`, cleanLink.size);
                         }
                     } else {
                         // Set to null for non-string, non-object size property rather than deleting
                         cleanLink.size = null;
-                        console.log(`Removed invalid size type (${typeof cleanLink.size}) for link at index ${index}`, cleanLink.size);
+                        debug(`Removed invalid size type (${typeof cleanLink.size}) for link at index ${index}`, cleanLink.size);
                     }
                     
                     // Add ID if missing
                     if (!cleanLink.id) {
                         cleanLink.id = `link_${Date.now()}_${index}`;
-                        console.log(`Added missing ID for link at index ${index}: ${cleanLink.id}`);
+                        debug(`Added missing ID for link at index ${index}: ${cleanLink.id}`);
                     }
                     
                     return cleanLink;
                 })
                 .filter(link => link !== null); // Remove null links that couldn't be salvaged
             
-            console.log(`After cleanup: ${loadedState.links.length} valid links remaining`);
+            debug(`After cleanup: ${loadedState.links.length} valid links remaining`);
         }
         
         // Create state updates with validated data
@@ -849,7 +849,7 @@ function applyTheme() {
 
     // Apply to body
     document.body.className = classes;
-    console.log('Applied theme classes:', classes);
+    debug('Applied theme classes:', classes);
 
     // Also store in data attribute for debugging
     document.body.setAttribute('data-theme', theme);
@@ -899,7 +899,7 @@ function initializeDOMElements() {
     searchSuggestions = document.getElementById('searchSuggestions');
     linksContainer = document.getElementById('linksContainer');
 
-    console.log('DOM Elements:', { searchInput, searchSuggestions, linksContainer });
+    debug('DOM Elements:', { searchInput, searchSuggestions, linksContainer });
 
     if (!searchInput) console.warn('Search input not found');
     if (!searchSuggestions) console.warn('Search suggestions datalist not found');
@@ -979,7 +979,7 @@ registerErrorHandler('validation', 'user_input', async (error, context) => {
 
 // Initialize the application with comprehensive error handling
 const init = safeAsync(async function init() {
-    console.log('Initializing application...');
+    debug('Initializing application...');
 
     // Reset performance metrics
     resetPerformanceMetrics();
@@ -992,12 +992,12 @@ const init = safeAsync(async function init() {
         setupEventListeners();
         
         // Render links after state is initialized
-        console.log('Rendering links after initialization...');
+        debug('Rendering links after initialization...');
         renderLinks();
 
         // Add state change listener for automatic re-rendering
         addStateChangeListener((changeInfo) => {
-            console.log('State changed:', changeInfo);
+            debug('State changed:', changeInfo);
 
             // Only re-render if relevant properties changed
             const relevantChanges = ['links', 'theme', 'colorTheme', 'view', 'searchTerm', 'defaultTileSize', 'categories'];
@@ -1006,7 +1006,7 @@ const init = safeAsync(async function init() {
             );
 
             if (hasRelevantChange) {
-                console.log('Re-rendering due to state change');
+                debug('Re-rendering due to state change');
                 renderLinks();
             }
         });
@@ -1015,11 +1015,11 @@ const init = safeAsync(async function init() {
         syncStatusIndicator.init('sync-status-container');
 
         const initTime = performance.now() - startTime;
-        console.log(`Application initialized in ${initTime.toFixed(2)}ms`);
+        debug(`Application initialized in ${initTime.toFixed(2)}ms`);
 
         // Log performance metrics
         const metrics = getPerformanceMetrics();
-        console.log('Performance metrics:', metrics);
+        debug('Performance metrics:', metrics);
 
     } catch (error) {
         console.error('Initialization failed:', error);
@@ -1050,7 +1050,7 @@ if (document.readyState === 'loading') {
 
 // Cleanup on page unload
 window.addEventListener('beforeunload', () => {
-    console.log('Cleaning up before page unload...');
+    debug('Cleaning up before page unload...');
     cleanupAllEventListeners();
 });
 
@@ -1059,11 +1059,11 @@ let wasHidden = false;
 document.addEventListener('visibilitychange', () => {
     if (document.hidden) {
         wasHidden = true;
-        console.log('Page hidden - performing light cleanup');
+        debug('Page hidden - performing light cleanup');
         // Could perform lighter cleanup here if needed
     } else if (wasHidden) {
         wasHidden = false;
-        console.log('Page visible again');
+        debug('Page visible again');
         // Could re-initialize certain components if needed
     }
 });
@@ -1081,7 +1081,7 @@ async function loadIconsWithCaching(links) {
     if (!links || links.length === 0) return;
 
     try {
-        console.log(`Loading icons for ${links.length} links...`);
+        debug(`Loading icons for ${links.length} links...`);
         const startTime = performance.now();
 
         // Get all icon elements
@@ -1158,11 +1158,11 @@ async function loadIconsWithCaching(links) {
         }
 
         const endTime = performance.now();
-        console.log(`Icon loading completed in ${(endTime - startTime).toFixed(2)}ms`);
+        debug(`Icon loading completed in ${(endTime - startTime).toFixed(2)}ms`);
 
         // Log cache statistics
         const cacheStats = getCacheStats();
-        console.log('Icon cache stats:', cacheStats);
+        debug('Icon cache stats:', cacheStats);
 
     } catch (error) {
         console.error('Error in icon loading process:', error);
