@@ -212,9 +212,12 @@ export class SyncManager {
 
             let resolvedData;
             if (metadata.local.version === metadata.remote.version) {
-                // No conflict, data is in sync
-                debug('No conflict detected, using local data');
-                resolvedData = localData;
+                // No version conflict. storageManager persists to sync storage
+                // as primary, so chrome.storage.local may be empty — prefer
+                // whichever storage actually holds data instead of blindly
+                // using (empty) local, which would fail the save validation.
+                debug('No version conflict; using whichever storage has data');
+                resolvedData = (localData.links || localData.categories) ? localData : syncData;
             } else {
                 // Conflict detected, resolve based on strategy
                 debug('Conflict detected, resolving with strategy:', strategy);
@@ -375,15 +378,11 @@ export class SyncManager {
 
             // Validate data before saving with detailed validation
             if (!data.links && !data.categories) {
-                const validationError = new Error('Invalid resolved data structure: both links and categories are missing');
-                debugError('Sync save validation failed: missing required data');
-                this.notifyListeners('syncError', {
-                    type: 'data_validation',
-                    message: 'Sync data validation failed',
-                    details: 'Both links and categories data are missing',
-                    recommendation: 'Please check your data and try again.'
-                });
-                throw validationError;
+                // Nothing to persist (e.g. a fresh profile with no data yet).
+                // This is a no-op, not an error — skip quietly instead of
+                // throwing and spamming the console on every sync tick.
+                debug('Nothing to sync — no links or categories present; skipping save');
+                return;
             }
 
             // Save to local storage (always succeeds)
