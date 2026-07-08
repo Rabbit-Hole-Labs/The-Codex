@@ -1,0 +1,8 @@
+{
+    "chat.tools.terminal.autoApprove": {
+        "/^cd tests/unit && node -e \"import\\('\\.\\./\\.\\./javascript/core-systems/storageManager\\.js'\\)\\.then\\(m => console\\.log\\('OK', Object\\.keys\\(m\\)\\.slice\\(0,3\\)\\)\\)\\.catch\\(e => console\\.error\\('FAIL', e\\.message\\)\\)\" 2>&1 \\| head -5$/": {
+            "approve": true,
+            "matchCommandLine": true
+        }
+    }
+}

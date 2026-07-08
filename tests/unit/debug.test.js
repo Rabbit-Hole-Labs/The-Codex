@@ -18,18 +18,18 @@ describe('Debug Module', () => {
 
     describe('Debug Toggle', () => {
         test('should be disabled by default', async () => {
-            const debugModule = await import('../javascript/core-systems/debug.js');
+            const debugModule = await import('../../javascript/core-systems/debug.js');
             expect(debugModule.isDebugEnabled()).toBe(false);
         });
 
         test('should enable debug logging', async () => {
-            const debugModule = await import('../javascript/core-systems/debug.js');
+            const debugModule = await import('../../javascript/core-systems/debug.js');
             debugModule.setDebugEnabled(true);
             expect(debugModule.isDebugEnabled()).toBe(true);
         });
 
         test('should disable debug logging', async () => {
-            const debugModule = await import('../javascript/core-systems/debug.js');
+            const debugModule = await import('../../javascript/core-systems/debug.js');
             debugModule.setDebugEnabled(true);
             expect(debugModule.isDebugEnabled()).toBe(true);
 
@@ -38,7 +38,7 @@ describe('Debug Module', () => {
         });
 
         test('should toggle debug state', async () => {
-            const debugModule = await import('../javascript/core-systems/debug.js');
+            const debugModule = await import('../../javascript/core-systems/debug.js');
             expect(debugModule.isDebugEnabled()).toBe(false);
 
             debugModule.setDebugEnabled(true);
@@ -51,7 +51,7 @@ describe('Debug Module', () => {
 
     describe('debug() Function', () => {
         test('should log when debug is enabled', async () => {
-            const debugModule = await import('../javascript/core-systems/debug.js');
+            const debugModule = await import('../../javascript/core-systems/debug.js');
             debugModule.setDebugEnabled(true);
             debugModule.debug('Test message', { data: 'value' });
 
@@ -59,7 +59,7 @@ describe('Debug Module', () => {
         });
 
         test('should not log when debug is disabled', async () => {
-            const debugModule = await import('../javascript/core-systems/debug.js');
+            const debugModule = await import('../../javascript/core-systems/debug.js');
             debugModule.setDebugEnabled(false);
             debugModule.debug('Test message');
 
@@ -67,7 +67,7 @@ describe('Debug Module', () => {
         });
 
         test('should handle single argument', async () => {
-            const debugModule = await import('../javascript/core-systems/debug.js');
+            const debugModule = await import('../../javascript/core-systems/debug.js');
             debugModule.setDebugEnabled(true);
             debugModule.debug('Single message');
 
@@ -75,7 +75,7 @@ describe('Debug Module', () => {
         });
 
         test('should handle multiple arguments', async () => {
-            const debugModule = await import('../javascript/core-systems/debug.js');
+            const debugModule = await import('../../javascript/core-systems/debug.js');
             debugModule.setDebugEnabled(true);
             debugModule.debug('Message', 'arg1', 'arg2', 'arg3');
 
@@ -83,7 +83,7 @@ describe('Debug Module', () => {
         });
 
         test('should not log anything when called with no arguments', async () => {
-            const debugModule = await import('../javascript/core-systems/debug.js');
+            const debugModule = await import('../../javascript/core-systems/debug.js');
             debugModule.setDebugEnabled(true);
             debugModule.debug();
 
@@ -93,7 +93,7 @@ describe('Debug Module', () => {
 
     describe('debugWarn() Function', () => {
         test('should log warning when debug is enabled', async () => {
-            const debugModule = await import('../javascript/core-systems/debug.js');
+            const debugModule = await import('../../javascript/core-systems/debug.js');
             debugModule.setDebugEnabled(true);
             debugModule.debugWarn('Warning message', { data: 'value' });
 
@@ -101,7 +101,7 @@ describe('Debug Module', () => {
         });
 
         test('should not log when debug is disabled', async () => {
-            const debugModule = await import('../javascript/core-systems/debug.js');
+            const debugModule = await import('../../javascript/core-systems/debug.js');
             debugModule.setDebugEnabled(false);
             debugModule.debugWarn('Warning message');
 
@@ -109,7 +109,7 @@ describe('Debug Module', () => {
         });
 
         test('should log to console.warn not console.log', async () => {
-            const debugModule = await import('../javascript/core-systems/debug.js');
+            const debugModule = await import('../../javascript/core-systems/debug.js');
             debugModule.setDebugEnabled(true);
             debugModule.debugWarn('Test');
 
@@ -120,7 +120,7 @@ describe('Debug Module', () => {
 
     describe('debugError() Function', () => {
         test('should log error when debug is enabled', async () => {
-            const debugModule = await import('../javascript/core-systems/debug.js');
+            const debugModule = await import('../../javascript/core-systems/debug.js');
             debugModule.setDebugEnabled(true);
             debugModule.debugError('Error message', { data: 'value' });
 
@@ -128,7 +128,7 @@ describe('Debug Module', () => {
         });
 
         test('should log error even when debug is disabled', async () => {
-            const debugModule = await import('../javascript/core-systems/debug.js');
+            const debugModule = await import('../../javascript/core-systems/debug.js');
             debugModule.setDebugEnabled(false);
             debugModule.debugError('Error message');
 
@@ -137,7 +137,7 @@ describe('Debug Module', () => {
         });
 
         test('should include debug prefix when enabled', async () => {
-            const debugModule = await import('../javascript/core-systems/debug.js');
+            const debugModule = await import('../../javascript/core-systems/debug.js');
             debugModule.setDebugEnabled(true);
             debugModule.debugError('Error message');
 
@@ -145,7 +145,7 @@ describe('Debug Module', () => {
         });
 
         test('should handle Error objects', async () => {
-            const debugModule = await import('../javascript/core-systems/debug.js');
+            const debugModule = await import('../../javascript/core-systems/debug.js');
             debugModule.setDebugEnabled(true);
             const error = new Error('Test error');
             debugModule.debugError('Error occurred:', error);
@@ -156,7 +156,7 @@ describe('Debug Module', () => {
 
     describe('State Persistence', () => {
         test('should maintain state between calls', async () => {
-            const debugModule = await import('../javascript/core-systems/debug.js');
+            const debugModule = await import('../../javascript/core-systems/debug.js');
             debugModule.setDebugEnabled(true);
             debugModule.debug('First call');
             debugModule.debug('Second call');
@@ -165,7 +165,7 @@ describe('Debug Module', () => {
         });
 
         test('should not log after being disabled', async () => {
-            const debugModule = await import('../javascript/core-systems/debug.js');
+            const debugModule = await import('../../javascript/core-systems/debug.js');
             debugModule.setDebugEnabled(true);
             debugModule.debug('Enabled');
             debugModule.setDebugEnabled(false);
@@ -178,7 +178,7 @@ describe('Debug Module', () => {
 
     describe('Multiple Function Calls', () => {
         test('should handle multiple debug calls', async () => {
-            const debugModule = await import('../javascript/core-systems/debug.js');
+            const debugModule = await import('../../javascript/core-systems/debug.js');
             debugModule.setDebugEnabled(true);
             debugModule.debug('Call 1');
             debugModule.debug('Call 2');
@@ -188,7 +188,7 @@ describe('Debug Module', () => {
         });
 
         test('should handle mix of debug function calls', async () => {
-            const debugModule = await import('../javascript/core-systems/debug.js');
+            const debugModule = await import('../../javascript/core-systems/debug.js');
             debugModule.setDebugEnabled(true);
             debugModule.debug('Info');
             debugModule.debugWarn('Warning');
@@ -202,7 +202,7 @@ describe('Debug Module', () => {
 
     describe('Edge Cases', () => {
         test('should handle very long messages', async () => {
-            const debugModule = await import('../javascript/core-systems/debug.js');
+            const debugModule = await import('../../javascript/core-systems/debug.js');
             debugModule.setDebugEnabled(true);
             const longMessage = 'A'.repeat(10000);
             debugModule.debug(longMessage);
@@ -211,7 +211,7 @@ describe('Debug Module', () => {
         });
 
         test('should handle special characters', async () => {
-            const debugModule = await import('../javascript/core-systems/debug.js');
+            const debugModule = await import('../../javascript/core-systems/debug.js');
             debugModule.setDebugEnabled(true);
             const specialChars = 'Test <>&"\'\\/\n\t';
             debugModule.debug(specialChars);
@@ -220,7 +220,7 @@ describe('Debug Module', () => {
         });
 
         test('should handle Unicode characters', async () => {
-            const debugModule = await import('../javascript/core-systems/debug.js');
+            const debugModule = await import('../../javascript/core-systems/debug.js');
             debugModule.setDebugEnabled(true);
             const unicode = '日本語 中文 العربية';
             debugModule.debug(unicode);

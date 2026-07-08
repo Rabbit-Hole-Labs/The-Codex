@@ -1,20 +1,9 @@
 # AGENTS.md
 
-This file provides guidance to agents when working with code in this repository.
+This file provides guidance to AI agents when working with code in this repository.
 
-## Build/Run Commands
-- Test suite: `npm test` (runs all tests with Jest)
-- Critical bug tests: `npm run test:critical-bugs`
-- Unit tests: `npm run test:unit`
-- Integration tests: `npm run test:integration`
-- Watch mode: `npm run test:watch`
-- Linting: `npm run lint` or `npm run lint:fix`
-
-## Project Structure
-- Core systems in `javascript/core-systems/` (storage, state, sync, UI)
-- Entry points in `javascript/entry-points/` (script.js for main page, popup.js, manageScript.js)
-- Features in `javascript/features/` (utils, error handling, security, icon cache)
-- Tests in `tests/` with real Chrome test environment in `tests/real-chrome-tests/`
+> Commands, architecture tree, data schemas, and Chrome extension specifics live in [CLAUDE.md](../CLAUDE.md).
+> Subfolder-specific guidance (plans, impl notes, kits, designs, refs) lives in [context/CLAUDE.md](../context/CLAUDE.md).
 
 ## Modular Architecture
 
@@ -48,40 +37,41 @@ Feature modules provide specialized functionality:
 - **Sync Settings Controller**: UI controller for sync configuration
 
 ## Critical Patterns
-- State management: Use `safeUpdateState()` with validation for all state changes
-- Error handling: Use `CodexError` class with `handleError()` for all errors
-- Event listeners: Use `addTrackedEventListener()` for proper cleanup
-- Async operations: Wrap with `safeAsync()` for automatic error handling
-- Icon loading: Uses progressive enhancement with caching via `loadIconWithCache()`
-- State updates: Trigger automatic re-rendering through state change listeners
-- Link validation: Happens at multiple levels (input, state update, and rendering)
-- Drag and drop: Uses tracked event listeners with proper cleanup
-- Theme system: Applies CSS custom properties with `!important` to override default styles
-- Performance optimization: Uses debouncing for search and batch loading for icons
-- Data integrity: Maintained through validation schemas in state manager
-- Extension initialization: Has multiple fallback layers for robust startup
+
+- **State management**: Use `safeUpdateState()` with validation for all state changes
+- **Error handling**: Use `CodexError` class with `handleError()` for all errors
+- **Event listeners**: Use `addTrackedEventListener()` for proper cleanup
+- **Async operations**: Wrap with `safeAsync()` for automatic error handling
+- **Icon loading**: Uses progressive enhancement with caching via `loadIconWithCache()`
+- **State updates**: Trigger automatic re-rendering through state change listeners
+- **Link validation**: Happens at multiple levels (input, state update, and rendering)
+- **Drag and drop**: Uses tracked event listeners with proper cleanup
+- **Theme system**: Applies CSS custom properties with `!important` to override default styles
+- **Performance optimization**: Uses debouncing for search and batch loading for icons
+- **Data integrity**: Maintained through validation schemas in state manager
+- **Extension initialization**: Has multiple fallback layers for robust startup
 
 ## Code Style
-- ES6 modules with import/export
+
+- ES6 modules with import/export (all imports must include `.js` extension)
 - JSDoc comments for all functions
 - Console logs for debugging (removed in production)
 - Strict validation of all user inputs and data
-- Defensive programming - never assume data structure
-
-## Testing
-- Critical bug tests in `tests/real-chrome-tests/critical-bug-tests.js`
-- Jest with jsdom test environment
-- Mock Chrome APIs for testing
-- Test files end with `.test.js`
+- Defensive programming — never assume data structure
+- Prefer small focused files: 200-400 lines typical, 800 max
+- Use immutable update patterns; never mutate state in place
 
 ## Security
+
 - Sanitize all user inputs with `sanitizeHTML()`
 - Validate all URLs with `validateAndSanitizeUrl()`
-- Use CSP-compliant external resources only
+- Use CSP-compliant external resources only (see CSP in [CLAUDE.md](../CLAUDE.md))
 - Never store credentials in source code
+- All file paths and external resources must respect the manifest's CSP
 
-## Chrome Extension Specifics
-- Manifest V3 with service worker background scripts
-- Storage strategy: sync (primary) with local (fallback)
-- Permissions: storage, bookmarks, activeTab, tabs
-- Content Security Policy restrictions
+## Test Conventions
+
+- Test files use `*.test.js` naming and live under [tests/](../tests/) (Jest picks up `tests/**/*.test.js`; the `test:unit` / `test:integration` / `test:e2e` scripts reference `tests/unit`, `tests/integration`, `tests/e2e` folders per [package.json](../package.json))
+- Critical bug tests in [tests/real-chrome-tests/critical-bug-tests.js](../tests/real-chrome-tests/critical-bug-tests.js)
+- Jest with jsdom test environment; Chrome APIs are mocked in [tests/setup.js](../tests/setup.js)
+- See [TESTING.md](../TESTING.md) for the full testing guide

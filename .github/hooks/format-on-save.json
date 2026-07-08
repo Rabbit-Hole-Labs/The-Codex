@@ -1,0 +1,11 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "type": "command",
+        "command": "node -e \"const fs=require('fs');const input=JSON.parse(fs.readFileSync(0,'utf8'));const p=input.tool_input?.file_path||input.tool_input?.path||'';if(/javascript\\/.*\\.js$/.test(p)){const{execSync}=require('child_process');try{execSync('npx --no-install eslint --fix '+JSON.stringify(p),{stdio:'ignore'});}catch(e){process.exit(0);}}\"",
+        "timeout": 30
+      }
+    ]
+  }
+}

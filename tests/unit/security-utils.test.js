@@ -40,7 +40,7 @@ describe('Security Utils', () => {
 
     describe('HTML Purification', () => {
         test('should sanitize HTML with dangerous elements', async () => {
-            const securityUtils = await import('../javascript/features/securityUtils.js');
+            const securityUtils = await import('../../javascript/features/securityUtils.js');
             const purifyHTML = securityUtils.purifyHTML;
 
             const dangerousHTML = '<script>alert("XSS")</script><p>Safe content</p>';
@@ -51,7 +51,7 @@ describe('Security Utils', () => {
         });
 
         test('should remove style tags', async () => {
-            const securityUtils = await import('../javascript/features/securityUtils.js');
+            const securityUtils = await import('../../javascript/features/securityUtils.js');
             const purifyHTML = securityUtils.purifyHTML;
 
             const htmlWithStyle = '<style>body { background: red; }</style><p>Content</p>';
@@ -61,7 +61,7 @@ describe('Security Utils', () => {
         });
 
         test('should remove iframe elements', async () => {
-            const securityUtils = await import('../javascript/features/securityUtils.js');
+            const securityUtils = await import('../../javascript/features/securityUtils.js');
             const purifyHTML = securityUtils.purifyHTML;
 
             const htmlWithIframe = '<iframe src="evil.com"></iframe><p>Content</p>';
@@ -71,7 +71,7 @@ describe('Security Utils', () => {
         });
 
         test('should remove event handler attributes', async () => {
-            const securityUtils = await import('../javascript/features/securityUtils.js');
+            const securityUtils = await import('../../javascript/features/securityUtils.js');
             const purifyHTML = securityUtils.purifyHTML;
 
             const htmlWithEvents = '<p onclick="alert(\'XSS\')">Click me</p>';
@@ -81,7 +81,7 @@ describe('Security Utils', () => {
         });
 
         test('should keep allowed tags', async () => {
-            const securityUtils = await import('../javascript/features/securityUtils.js');
+            const securityUtils = await import('../../javascript/features/securityUtils.js');
             const purifyHTML = securityUtils.purifyHTML;
 
             const htmlWithAllowed = '<div><p><strong>Bold</strong> <em>italic</em></p></div>';
@@ -94,7 +94,7 @@ describe('Security Utils', () => {
         });
 
         test('should validate URLs in href attributes', async () => {
-            const securityUtils = await import('../javascript/features/securityUtils.js');
+            const securityUtils = await import('../../javascript/features/securityUtils.js');
             const purifyHTML = securityUtils.purifyHTML;
 
             const htmlWithHref = '<a href="javascript:alert(\'XSS\')">Click</a>';
@@ -104,7 +104,7 @@ describe('Security Utils', () => {
         });
 
         test('should handle custom allowed tags', async () => {
-            const securityUtils = await import('../javascript/features/securityUtils.js');
+            const securityUtils = await import('../../javascript/features/securityUtils.js');
             const purifyHTML = securityUtils.purifyHTML;
 
             const html = '<div><span>Text</span><code>code</code></div>';
@@ -116,7 +116,7 @@ describe('Security Utils', () => {
         });
 
         test('should handle empty or null input', async () => {
-            const securityUtils = await import('../javascript/features/securityUtils.js');
+            const securityUtils = await import('../../javascript/features/securityUtils.js');
             const purifyHTML = securityUtils.purifyHTML;
 
             expect(purifyHTML('')).toBe('');
@@ -125,7 +125,7 @@ describe('Security Utils', () => {
         });
 
         test('should handle non-string input', async () => {
-            const securityUtils = await import('../javascript/features/securityUtils.js');
+            const securityUtils = await import('../../javascript/features/securityUtils.js');
             const purifyHTML = securityUtils.purifyHTML;
 
             expect(purifyHTML(123)).toBe('');
@@ -135,7 +135,7 @@ describe('Security Utils', () => {
 
     describe('Schema Validation', () => {
         test('should validate correct data structure', async () => {
-            const securityUtils = await import('../javascript/features/securityUtils.js');
+            const securityUtils = await import('../../javascript/features/securityUtils.js');
             const validateSchema = securityUtils.validateSchema;
 
             const schema = {
@@ -153,7 +153,7 @@ describe('Security Utils', () => {
         });
 
         test('should fail validation for missing required field', async () => {
-            const securityUtils = await import('../javascript/features/securityUtils.js');
+            const securityUtils = await import('../../javascript/features/securityUtils.js');
             const validateSchema = securityUtils.validateSchema;
 
             const schema = {
@@ -170,7 +170,7 @@ describe('Security Utils', () => {
         });
 
         test('should fail validation for wrong type', async () => {
-            const securityUtils = await import('../javascript/features/securityUtils.js');
+            const securityUtils = await import('../../javascript/features/securityUtils.js');
             const validateSchema = securityUtils.validateSchema;
 
             const schema = {
@@ -187,7 +187,7 @@ describe('Security Utils', () => {
         });
 
         test('should fail validation for string too short', async () => {
-            const securityUtils = await import('../javascript/features/securityUtils.js');
+            const securityUtils = await import('../../javascript/features/securityUtils.js');
             const validateSchema = securityUtils.validateSchema;
 
             const schema = {
@@ -204,7 +204,7 @@ describe('Security Utils', () => {
         });
 
         test('should fail validation for string too long', async () => {
-            const securityUtils = await import('../javascript/features/securityUtils.js');
+            const securityUtils = await import('../../javascript/features/securityUtils.js');
             const validateSchema = securityUtils.validateSchema;
 
             const schema = {
@@ -221,7 +221,7 @@ describe('Security Utils', () => {
         });
 
         test('should validate enum values', async () => {
-            const securityUtils = await import('../javascript/features/securityUtils.js');
+            const securityUtils = await import('../../javascript/features/securityUtils.js');
             const validateSchema = securityUtils.validateSchema;
 
             const schema = {
@@ -240,7 +240,7 @@ describe('Security Utils', () => {
         });
 
         test('should validate pattern matching', async () => {
-            const securityUtils = await import('../javascript/features/securityUtils.js');
+            const securityUtils = await import('../../javascript/features/securityUtils.js');
             const validateSchema = securityUtils.validateSchema;
 
             const schema = {
@@ -259,7 +259,7 @@ describe('Security Utils', () => {
         });
 
         test('should handle nullable types', async () => {
-            const securityUtils = await import('../javascript/features/securityUtils.js');
+            const securityUtils = await import('../../javascript/features/securityUtils.js');
             const validateSchema = securityUtils.validateSchema;
 
             const schema = {
@@ -278,7 +278,7 @@ describe('Security Utils', () => {
         });
 
         test('should handle custom validation function', async () => {
-            const securityUtils = await import('../javascript/features/securityUtils.js');
+            const securityUtils = await import('../../javascript/features/securityUtils.js');
             const validateSchema = securityUtils.validateSchema;
 
             const schema = {
@@ -308,7 +308,7 @@ describe('Security Utils', () => {
 
     describe('Link Validation', () => {
         test('should validate correct link object', async () => {
-            const securityUtils = await import('../javascript/features/securityUtils.js');
+            const securityUtils = await import('../../javascript/features/securityUtils.js');
             const validateLink = securityUtils.validateLink;
 
             const validLink = {
@@ -325,7 +325,7 @@ describe('Security Utils', () => {
         });
 
         test('should validate link without optional fields', async () => {
-            const securityUtils = await import('../javascript/features/securityUtils.js');
+            const securityUtils = await import('../../javascript/features/securityUtils.js');
             const validateLink = securityUtils.validateLink;
 
             const validLink = {
@@ -339,7 +339,7 @@ describe('Security Utils', () => {
         });
 
         test('should accept null for optional icon field', async () => {
-            const securityUtils = await import('../javascript/features/securityUtils.js');
+            const securityUtils = await import('../../javascript/features/securityUtils.js');
             const validateLink = securityUtils.validateLink;
 
             const link = {
@@ -354,7 +354,7 @@ describe('Security Utils', () => {
         });
 
         test('should accept null for optional size field', async () => {
-            const securityUtils = await import('../javascript/features/securityUtils.js');
+            const securityUtils = await import('../../javascript/features/securityUtils.js');
             const validateLink = securityUtils.validateLink;
 
             const link = {
@@ -369,7 +369,7 @@ describe('Security Utils', () => {
         });
 
         test('should reject link without name', async () => {
-            const securityUtils = await import('../javascript/features/securityUtils.js');
+            const securityUtils = await import('../../javascript/features/securityUtils.js');
             const validateLink = securityUtils.validateLink;
 
             const invalidLink = {
@@ -383,7 +383,7 @@ describe('Security Utils', () => {
         });
 
         test('should reject link without url', async () => {
-            const securityUtils = await import('../javascript/features/securityUtils.js');
+            const securityUtils = await import('../../javascript/features/securityUtils.js');
             const validateLink = securityUtils.validateLink;
 
             const invalidLink = {
@@ -397,7 +397,7 @@ describe('Security Utils', () => {
         });
 
         test('should reject link without category', async () => {
-            const securityUtils = await import('../javascript/features/securityUtils.js');
+            const securityUtils = await import('../../javascript/features/securityUtils.js');
             const validateLink = securityUtils.validateLink;
 
             const invalidLink = {
@@ -411,7 +411,7 @@ describe('Security Utils', () => {
         });
 
         test('should reject link with invalid URL', async () => {
-            const securityUtils = await import('../javascript/features/securityUtils.js');
+            const securityUtils = await import('../../javascript/features/securityUtils.js');
             const validateLink = securityUtils.validateLink;
 
             const invalidLink = {
@@ -426,7 +426,7 @@ describe('Security Utils', () => {
         });
 
         test('should reject link with invalid size', async () => {
-            const securityUtils = await import('../javascript/features/securityUtils.js');
+            const securityUtils = await import('../../javascript/features/securityUtils.js');
             const validateLink = securityUtils.validateLink;
 
             const invalidLink = {
@@ -442,7 +442,7 @@ describe('Security Utils', () => {
         });
 
         test('should handle null link object', async () => {
-            const securityUtils = await import('../javascript/features/securityUtils.js');
+            const securityUtils = await import('../../javascript/features/securityUtils.js');
             const validateLink = securityUtils.validateLink;
 
             const result = validateLink(null);
@@ -451,7 +451,7 @@ describe('Security Utils', () => {
         });
 
         test('should handle non-object link', async () => {
-            const securityUtils = await import('../javascript/features/securityUtils.js');
+            const securityUtils = await import('../../javascript/features/securityUtils.js');
             const validateLink = securityUtils.validateLink;
 
             const result = validateLink('not an object');
@@ -462,7 +462,7 @@ describe('Security Utils', () => {
 
     describe('User Input Sanitization', () => {
         test('should sanitize user input by trimming whitespace', async () => {
-            const securityUtils = await import('../javascript/features/securityUtils.js');
+            const securityUtils = await import('../../javascript/features/securityUtils.js');
             const sanitizeUserInput = securityUtils.sanitizeUserInput;
 
             const input = '  spaced input  ';
@@ -472,7 +472,7 @@ describe('Security Utils', () => {
         });
 
         test('should remove control characters', async () => {
-            const securityUtils = await import('../javascript/features/securityUtils.js');
+            const securityUtils = await import('../../javascript/features/securityUtils.js');
             const sanitizeUserInput = securityUtils.sanitizeUserInput;
 
             const input = 'test\u0000\u0001\u007Fstring';
@@ -482,7 +482,7 @@ describe('Security Utils', () => {
         });
 
         test('should limit input length', async () => {
-            const securityUtils = await import('../javascript/features/securityUtils.js');
+            const securityUtils = await import('../../javascript/features/securityUtils.js');
             const sanitizeUserInput = securityUtils.sanitizeUserInput;
 
             const longInput = 'A'.repeat(200);
@@ -492,7 +492,7 @@ describe('Security Utils', () => {
         });
 
         test('should sanitize HTML in user input', async () => {
-            const securityUtils = await import('../javascript/features/securityUtils.js');
+            const securityUtils = await import('../../javascript/features/securityUtils.js');
             const sanitizeUserInput = securityUtils.sanitizeUserInput;
 
             const input = 'Click <script>alert("XSS")</script> here';
@@ -502,7 +502,7 @@ describe('Security Utils', () => {
         });
 
         test('should handle empty or null input', async () => {
-            const securityUtils = await import('../javascript/features/securityUtils.js');
+            const securityUtils = await import('../../javascript/features/securityUtils.js');
             const sanitizeUserInput = securityUtils.sanitizeUserInput;
 
             expect(sanitizeUserInput('')).toBe('');
@@ -511,7 +511,7 @@ describe('Security Utils', () => {
         });
 
         test('should handle non-string input', async () => {
-            const securityUtils = await import('../javascript/features/securityUtils.js');
+            const securityUtils = await import('../../javascript/features/securityUtils.js');
             const sanitizeUserInput = securityUtils.sanitizeUserInput;
 
             expect(sanitizeUserInput(123)).toBe('');
@@ -521,7 +521,7 @@ describe('Security Utils', () => {
 
     describe('Edge Cases', () => {
         test('should handle very long strings without crashing', async () => {
-            const securityUtils = await import('../javascript/features/securityUtils.js');
+            const securityUtils = await import('../../javascript/features/securityUtils.js');
             const sanitizeUserInput = securityUtils.sanitizeUserInput;
 
             const veryLongString = 'A'.repeat(10000);
@@ -531,7 +531,7 @@ describe('Security Utils', () => {
         });
 
         test('should handle special characters in input', async () => {
-            const securityUtils = await import('../javascript/features/securityUtils.js');
+            const securityUtils = await import('../../javascript/features/securityUtils.js');
             const sanitizeUserInput = securityUtils.sanitizeUserInput;
 
             const input = 'Test <>&"\'\\/';
@@ -541,7 +541,7 @@ describe('Security Utils', () => {
         });
 
         test('should handle Unicode characters', async () => {
-            const securityUtils = await import('../javascript/features/securityUtils.js');
+            const securityUtils = await import('../../javascript/features/securityUtils.js');
             const sanitizeUserInput = securityUtils.sanitizeUserInput;
 
             const input = '日本語 中文 العربية';
@@ -551,7 +551,7 @@ describe('Security Utils', () => {
         });
 
         test('should handle emoji in input', async () => {
-            const securityUtils = await import('../javascript/features/securityUtils.js');
+            const securityUtils = await import('../../javascript/features/securityUtils.js');
             const sanitizeUserInput = securityUtils.sanitizeUserInput;
 
             const input = 'Hello 😀 World 🌍';

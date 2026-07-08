@@ -6,6 +6,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 The Codex is a Chrome Extension (Manifest V3) that transforms the new tab page into a customizable dashboard with drag-and-drop tile management, advanced sync capabilities, and intelligent icon loading.
 
+> Conventions, patterns, code style, and security guidance live in [documentation/AGENTS.md](documentation/AGENTS.md).
+> Subfolder-specific guidance (plans, impl notes, kits, designs, refs) lives in [context/CLAUDE.md](context/CLAUDE.md).
+
 ## Development Commands
 
 ```bash
@@ -20,7 +23,7 @@ npm run test:critical-bugs # Critical bug regression tests
 npm run test:regression  # Regression tests
 
 # Run a single test file
-npm test -- tests/unit/state-management.test.js
+npm test -- tests/state-management.test.js
 
 # Run tests matching a pattern
 npm test -- --testNamePattern="should validate state"
@@ -119,11 +122,12 @@ javascript/
 
 ## Chrome Extension Specifics
 
-- **Manifest V3** with service worker background scripts
+- **Manifest V3** with service worker background scripts ([manifest.json](manifest.json))
 - **Permissions**: storage, bookmarks, activeTab, tabs
-- **CSP**: script-src 'self'; object-src 'self'; img-src 'self' data: https:
-- **Overrides**: newtab (index.html), browser_action (popup.html)
-- **ES6 Modules**: Uses `"type": "module"` in package.json; all imports must include `.js` extension
+- **CSP**: `script-src 'self'; object-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdnjs.cloudflare.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' https://cdn.jsdelivr.net https://clearbit.com https://www.google.com data: http: https:; connect-src 'self' https://clearbit.com;`
+- **Overrides**: newtab ([index.html](index.html)), browser_action ([popup.html](popup.html))
+- **ES6 Modules**: Uses `"type": "module"` in [package.json](package.json); all imports must include `.js` extension
+- Storage strategy: sync (primary) with local (fallback)
 
 ## Debugging
 
@@ -140,7 +144,7 @@ CodexConsole.localData() // View raw local data
 ## Testing
 
 - Jest with jsdom environment for unit/integration tests
-- Mock Chrome APIs in tests/setup.js
+- Mock Chrome APIs in [tests/setup.js](tests/setup.js)
 - Test files follow `*.test.js` naming
-- Real Chrome tests in `tests/real-chrome-tests/` directory
+- Real Chrome tests in [tests/real-chrome-tests/](tests/real-chrome-tests/) directory
 - ESLint configured with browser and Chrome extension globals

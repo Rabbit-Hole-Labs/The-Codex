@@ -82,7 +82,7 @@ describe('General Application Functionality', () => {
 
   describe('State Management', () => {
     it('should update state with valid link data', async () => {
-      const { safeUpdateState } = await import('../javascript/core-systems/stateManager.js');
+      const { safeUpdateState } = await import('../../javascript/core-systems/stateManager.js');
       
       const validState = {
         links: [{ name: 'Test', url: 'https://example.com/', category: 'Test', icon: 'https://example.com/favicon.ico' }],
@@ -98,7 +98,7 @@ describe('General Application Functionality', () => {
     });
 
     it('should reject state updates with invalid link data', async () => {
-      const { safeUpdateState } = await import('../javascript/core-systems/stateManager.js');
+      const { safeUpdateState } = await import('../../javascript/core-systems/stateManager.js');
       
       // Test with corrupted data (object instead of array)
       const invalidState = {
@@ -114,7 +114,7 @@ describe('General Application Functionality', () => {
     });
 
     it('should maintain state consistency during updates', async () => {
-      const { updateState } = await import('../javascript/core-systems/stateManager.js');
+      const { updateState } = await import('../../javascript/core-systems/stateManager.js');
       
       const updates = {
         theme: 'light',
@@ -131,7 +131,7 @@ describe('General Application Functionality', () => {
 
   describe('Link Operations', () => {
     it('should add a new link to the state', async () => {
-      const { addLink } = await import('../javascript/core-systems/linkManager.js');
+      const { addLink } = await import('../../javascript/core-systems/linkManager.js');
       
       const mockState = {
         links: [],
@@ -154,7 +154,7 @@ describe('General Application Functionality', () => {
     });
 
     it('should validate link data before adding', async () => {
-      const { addLink } = await import('../javascript/core-systems/linkManager.js');
+      const { addLink } = await import('../../javascript/core-systems/linkManager.js');
       
       const mockState = {
         links: [],
@@ -174,7 +174,7 @@ describe('General Application Functionality', () => {
     });
 
     it('should delete a link from the state', async () => {
-      const { deleteLink } = await import('../javascript/core-systems/linkManager.js');
+      const { deleteLink } = await import('../../javascript/core-systems/linkManager.js');
       
       // Create shared link objects
       const link1 = { name: 'Link 1', url: 'https://example1.com/', category: 'Test', icon: 'https://example1.com/favicon.ico' };
@@ -195,7 +195,7 @@ describe('General Application Functionality', () => {
 
   describe('Category Management', () => {
     it('should load categories from storage', async () => {
-      const { loadCategories } = await import('../javascript/core-systems/storageManager.js');
+      const { loadCategories } = await import('../../javascript/core-systems/storageManager.js');
       
       const result = await loadCategories();
       
@@ -204,7 +204,7 @@ describe('General Application Functionality', () => {
     });
 
     it('should ensure Default category exists', async () => {
-      const { loadCategories } = await import('../javascript/core-systems/storageManager.js');
+      const { loadCategories } = await import('../../javascript/core-systems/storageManager.js');
       
       // Even with empty storage, Default should be present
       const result = await loadCategories();
@@ -215,14 +215,14 @@ describe('General Application Functionality', () => {
 
   describe('User Interface Interactions', () => {
     it('should initialize application state correctly', async () => {
-      const { initializeState } = await import('../javascript/entry-points/script.js');
+      const { initializeState } = await import('../../javascript/entry-points/script.js');
       
       // This should not throw an error
       await expect(initializeState()).resolves.not.toThrow();
     });
 
     it('should handle theme changes properly', async () => {
-      const { updateState } = await import('../javascript/core-systems/stateManager.js');
+      const { updateState } = await import('../../javascript/core-systems/stateManager.js');
       
       const result = updateState({ theme: 'light' });
       
@@ -231,7 +231,7 @@ describe('General Application Functionality', () => {
     });
 
     it('should handle view changes properly', async () => {
-      const { updateState } = await import('../javascript/core-systems/stateManager.js');
+      const { updateState } = await import('../../javascript/core-systems/stateManager.js');
       
       const result = updateState({ view: 'list' });
       
@@ -242,7 +242,7 @@ describe('General Application Functionality', () => {
 
   describe('Data Validation', () => {
     it('should validate link structure', async () => {
-      const { validateLink } = await import('../javascript/features/securityUtils.js');
+      const { validateLink } = await import('../../javascript/features/securityUtils.js');
       
       // Valid link
       const validLink = {
@@ -267,7 +267,7 @@ describe('General Application Functionality', () => {
     });
 
     it('should sanitize user input', async () => {
-      const { sanitizeUserInput } = await import('../javascript/features/securityUtils.js');
+      const { sanitizeUserInput } = await import('../../javascript/features/securityUtils.js');
       
       // Test basic sanitization
       const result = sanitizeUserInput('<script>alert("xss")</script>Test Link');

@@ -35,7 +35,7 @@ describe('Sync Manager', () => {
 
     describe('Initialization', () => {
         test('should initialize with default values', async () => {
-            const syncModule = await import('../javascript/core-systems/syncManager.js');
+            const syncModule = await import('../../javascript/core-systems/syncManager.js');
             syncManager = new syncModule.SyncManager();
 
             expect(syncManager.syncInProgress).toBe(false);
@@ -45,7 +45,7 @@ describe('Sync Manager', () => {
         });
 
         test('should initialize sync status on construction', async () => {
-            const syncModule = await import('../javascript/core-systems/syncManager.js');
+            const syncModule = await import('../../javascript/core-systems/syncManager.js');
             syncManager = new syncModule.SyncManager();
 
             mockStorageLocal.get.mockResolvedValue({
@@ -59,7 +59,7 @@ describe('Sync Manager', () => {
         });
 
         test('should handle initialization errors gracefully', async () => {
-            const syncModule = await import('../javascript/core-systems/syncManager.js');
+            const syncModule = await import('../../javascript/core-systems/syncManager.js');
             syncManager = new syncModule.SyncManager();
 
             mockStorageLocal.get.mockRejectedValue(new Error('Storage error'));
@@ -71,7 +71,7 @@ describe('Sync Manager', () => {
 
     describe('Device ID Management', () => {
         test('should generate and store device ID', async () => {
-            const syncModule = await import('../javascript/core-systems/syncManager.js');
+            const syncModule = await import('../../javascript/core-systems/syncManager.js');
             syncManager = new syncModule.SyncManager();
 
             mockStorageLocal.get.mockResolvedValue({});
@@ -84,7 +84,7 @@ describe('Sync Manager', () => {
         });
 
         test('should reuse existing device ID', async () => {
-            const syncModule = await import('../javascript/core-systems/syncManager.js');
+            const syncModule = await import('../../javascript/core-systems/syncManager.js');
             syncManager = new syncModule.SyncManager();
 
             const existingId = 'device_123_abc123';
@@ -97,7 +97,7 @@ describe('Sync Manager', () => {
         });
 
         test('should handle device ID errors gracefully', async () => {
-            const syncModule = await import('../javascript/core-systems/syncManager.js');
+            const syncModule = await import('../../javascript/core-systems/syncManager.js');
             syncManager = new syncModule.SyncManager();
 
             mockStorageLocal.get.mockRejectedValue(new Error('Storage error'));
@@ -110,7 +110,7 @@ describe('Sync Manager', () => {
 
     describe('Sync Metadata', () => {
         test('should get sync metadata from both storages', async () => {
-            const syncModule = await import('../javascript/core-systems/syncManager.js');
+            const syncModule = await import('../../javascript/core-systems/syncManager.js');
             syncManager = new syncModule.SyncManager();
 
             mockStorageLocal.get.mockResolvedValue({ syncMetadata: { version: 100, lastModified: 1000 } });
@@ -123,7 +123,7 @@ describe('Sync Manager', () => {
         });
 
         test('should return default metadata when not found', async () => {
-            const syncModule = await import('../javascript/core-systems/syncManager.js');
+            const syncModule = await import('../../javascript/core-systems/syncManager.js');
             syncManager = new syncModule.SyncManager();
 
             mockStorageLocal.get.mockResolvedValue({});
@@ -136,7 +136,7 @@ describe('Sync Manager', () => {
         });
 
         test('should update sync metadata in both storages', async () => {
-            const syncModule = await import('../javascript/core-systems/syncManager.js');
+            const syncModule = await import('../../javascript/core-systems/syncManager.js');
             syncManager = new syncModule.SyncManager();
 
             mockStorageLocal.set.mockResolvedValue();
@@ -151,7 +151,7 @@ describe('Sync Manager', () => {
         });
 
         test('should handle quota exceeded error when updating metadata', async () => {
-            const syncModule = await import('../javascript/core-systems/syncManager.js');
+            const syncModule = await import('../../javascript/core-systems/syncManager.js');
             syncManager = new syncModule.SyncManager();
 
             mockStorageLocal.set.mockResolvedValue();
@@ -167,7 +167,7 @@ describe('Sync Manager', () => {
 
     describe('Conflict Resolution', () => {
         test('should resolve conflict with local strategy', async () => {
-            const syncModule = await import('../javascript/core-systems/syncManager.js');
+            const syncModule = await import('../../javascript/core-systems/syncManager.js');
             syncManager = new syncModule.SyncManager();
 
             const localData = { links: '[{"url":"local.com"}]', categories: '["Local"]' };
@@ -180,7 +180,7 @@ describe('Sync Manager', () => {
         });
 
         test('should resolve conflict with remote strategy', async () => {
-            const syncModule = await import('../javascript/core-systems/syncManager.js');
+            const syncModule = await import('../../javascript/core-systems/syncManager.js');
             syncManager = new syncModule.SyncManager();
 
             const localData = { links: '[{"url":"local.com"}]', categories: '["Local"]' };
@@ -193,7 +193,7 @@ describe('Sync Manager', () => {
         });
 
         test('should merge data with merge strategy', async () => {
-            const syncModule = await import('../javascript/core-systems/syncManager.js');
+            const syncModule = await import('../../javascript/core-systems/syncManager.js');
             syncManager = new syncModule.SyncManager();
 
             const localData = { links: '[{"url":"local.com","name":"Local"}]', categories: '["Local"]' };
@@ -207,7 +207,7 @@ describe('Sync Manager', () => {
         });
 
         test('should deduplicate links by URL when merging', async () => {
-            const syncModule = await import('../javascript/core-systems/syncManager.js');
+            const syncModule = await import('../../javascript/core-systems/syncManager.js');
             syncManager = new syncModule.SyncManager();
 
             const localData = { links: '[{"url":"same.com","name":"Local Name"}]', categories: '["Local"]' };
@@ -222,7 +222,7 @@ describe('Sync Manager', () => {
         });
 
         test('should merge categories and include Default', async () => {
-            const syncModule = await import('../javascript/core-systems/syncManager.js');
+            const syncModule = await import('../../javascript/core-systems/syncManager.js');
             syncManager = new syncModule.SyncManager();
 
             const localData = { links: '[]', categories: '["Work", "Personal"]' };
@@ -241,7 +241,7 @@ describe('Sync Manager', () => {
 
     describe('Data Validation', () => {
         test('should validate correct sync data structure', async () => {
-            const syncModule = await import('../javascript/core-systems/syncManager.js');
+            const syncModule = await import('../../javascript/core-systems/syncManager.js');
             syncManager = new syncModule.SyncManager();
 
             const validData = {
@@ -256,7 +256,7 @@ describe('Sync Manager', () => {
         });
 
         test('should reject non-object data', async () => {
-            const syncModule = await import('../javascript/core-systems/syncManager.js');
+            const syncModule = await import('../../javascript/core-systems/syncManager.js');
             syncManager = new syncModule.SyncManager();
 
             const invalidData = null;
@@ -268,7 +268,7 @@ describe('Sync Manager', () => {
         });
 
         test('should reject invalid links JSON', async () => {
-            const syncModule = await import('../javascript/core-systems/syncManager.js');
+            const syncModule = await import('../../javascript/core-systems/syncManager.js');
             syncManager = new syncModule.SyncManager();
 
             const invalidData = {
@@ -283,7 +283,7 @@ describe('Sync Manager', () => {
         });
 
         test('should reject links that are not an array', async () => {
-            const syncModule = await import('../javascript/core-systems/syncManager.js');
+            const syncModule = await import('../../javascript/core-systems/syncManager.js');
             syncManager = new syncModule.SyncManager();
 
             const invalidData = {
@@ -298,7 +298,7 @@ describe('Sync Manager', () => {
         });
 
         test('should validate individual link properties', async () => {
-            const syncModule = await import('../javascript/core-systems/syncManager.js');
+            const syncModule = await import('../../javascript/core-systems/syncManager.js');
             syncManager = new syncModule.SyncManager();
 
             const invalidData = {
@@ -313,7 +313,7 @@ describe('Sync Manager', () => {
         });
 
         test('should reject links with invalid URLs', async () => {
-            const syncModule = await import('../javascript/core-systems/syncManager.js');
+            const syncModule = await import('../../javascript/core-systems/syncManager.js');
             syncManager = new syncModule.SyncManager();
 
             const invalidData = {
@@ -328,7 +328,7 @@ describe('Sync Manager', () => {
         });
 
         test('should reject categories that are not an array', async () => {
-            const syncModule = await import('../javascript/core-systems/syncManager.js');
+            const syncModule = await import('../../javascript/core-systems/syncManager.js');
             syncManager = new syncModule.SyncManager();
 
             const invalidData = {
@@ -343,7 +343,7 @@ describe('Sync Manager', () => {
         });
 
         test('should reject empty category strings', async () => {
-            const syncModule = await import('../javascript/core-systems/syncManager.js');
+            const syncModule = await import('../../javascript/core-systems/syncManager.js');
             syncManager = new syncModule.SyncManager();
 
             const invalidData = {
@@ -358,7 +358,7 @@ describe('Sync Manager', () => {
         });
 
         test('should reject categories exceeding max length', async () => {
-            const syncModule = await import('../javascript/core-systems/syncManager.js');
+            const syncModule = await import('../../javascript/core-systems/syncManager.js');
             syncManager = new syncModule.SyncManager();
 
             const longCategory = 'A'.repeat(51);
@@ -374,7 +374,7 @@ describe('Sync Manager', () => {
         });
 
         test('should accept null values for links and categories', async () => {
-            const syncModule = await import('../javascript/core-systems/syncManager.js');
+            const syncModule = await import('../../javascript/core-systems/syncManager.js');
             syncManager = new syncModule.SyncManager();
 
             const dataWithNulls = {
@@ -390,7 +390,7 @@ describe('Sync Manager', () => {
 
     describe('Sync Status', () => {
         test('should get sync status with statistics', async () => {
-            const syncModule = await import('../javascript/core-systems/syncManager.js');
+            const syncModule = await import('../../javascript/core-systems/syncManager.js');
             syncManager = new syncModule.SyncManager();
 
             mockStorageLocal.get.mockResolvedValue({
@@ -418,7 +418,7 @@ describe('Sync Manager', () => {
         });
 
         test('should calculate quota percentage correctly', async () => {
-            const syncModule = await import('../javascript/core-systems/syncManager.js');
+            const syncModule = await import('../../javascript/core-systems/syncManager.js');
             syncManager = new syncModule.SyncManager();
 
             mockStorageLocal.get.mockResolvedValue({});
@@ -433,7 +433,7 @@ describe('Sync Manager', () => {
 
     describe('Sync Listeners', () => {
         test('should add and remove sync listeners', async () => {
-            const syncModule = await import('../javascript/core-systems/syncManager.js');
+            const syncModule = await import('../../javascript/core-systems/syncManager.js');
             syncManager = new syncModule.SyncManager();
 
             const listener1 = jest.fn();
@@ -456,7 +456,7 @@ describe('Sync Manager', () => {
         });
 
         test('should return unsubscribe function', async () => {
-            const syncModule = await import('../javascript/core-systems/syncManager.js');
+            const syncModule = await import('../../javascript/core-systems/syncManager.js');
             syncManager = new syncModule.SyncManager();
 
             const listener = jest.fn();

@@ -56,8 +56,8 @@ describe('Link Management Functionality', () => {
       });
 
       // Import the link manager and storage manager
-      const { addLink } = await import('../javascript/core-systems/linkManager.js');
-      const { loadLinks } = await import('../javascript/core-systems/storageManager.js');
+      const { addLink } = await import('../../javascript/core-systems/linkManager.js');
+      const { loadLinks } = await import('../../javascript/core-systems/storageManager.js');
 
       // Mock loadLinks to return empty array
       loadLinks.mockResolvedValue({ links: [] });
@@ -86,7 +86,7 @@ describe('Link Management Functionality', () => {
 
     test('should reject links with invalid URLs', async () => {
       // Import the link manager
-      const { addLink } = await import('../javascript/core-systems/linkManager.js');
+      const { addLink } = await import('../../javascript/core-systems/linkManager.js');
 
       // Create a mock state with both links and filteredLinks
       const state = {
@@ -108,7 +108,7 @@ describe('Link Management Functionality', () => {
 
     test('should reject links with missing required fields', async () => {
       // Import the link manager
-      const { addLink } = await import('../javascript/core-systems/linkManager.js');
+      const { addLink } = await import('../../javascript/core-systems/linkManager.js');
 
       // Create a mock state with both links and filteredLinks
       const state = {
@@ -132,7 +132,7 @@ describe('Link Management Functionality', () => {
   describe('Deleting Links', () => {
     test('should successfully delete a link by index', async () => {
       // Import the link manager and storage manager
-      const { deleteLink } = await import('../javascript/core-systems/linkManager.js');
+      const { deleteLink } = await import('../../javascript/core-systems/linkManager.js');
 
       // Create shared link objects
       const link1 = { name: 'Link 1', url: 'https://example1.com/', category: 'Test', icon: 'https://example1.com/favicon.ico' };
@@ -158,7 +158,7 @@ describe('Link Management Functionality', () => {
   describe('Bulk Operations', () => {
     test('should successfully delete multiple links', async () => {
       // Import the link manager
-      const { bulkDeleteLinks } = await import('../javascript/core-systems/linkManager.js');
+      const { bulkDeleteLinks } = await import('../../javascript/core-systems/linkManager.js');
 
       // Create shared link objects
       const link1 = { name: 'Link 1', url: 'https://example1.com/', category: 'Test', icon: 'https://example1.com/favicon.ico' };
@@ -183,7 +183,7 @@ describe('Link Management Functionality', () => {
 
     test('should successfully move multiple links to a new category', async () => {
       // Import the link manager
-      const { bulkMoveLinks } = await import('../javascript/core-systems/linkManager.js');
+      const { bulkMoveLinks } = await import('../../javascript/core-systems/linkManager.js');
 
       // Create shared link objects
       const link1 = { name: 'Link 1', url: 'https://example1.com/', category: 'Old Category', icon: 'https://example1.com/favicon.ico' };
@@ -210,7 +210,7 @@ describe('Link Management Functionality', () => {
   describe('Editing Links', () => {
     test('should successfully edit an existing link', async () => {
       // Import the link manager
-      const { editLink } = await import('../javascript/core-systems/linkManager.js');
+      const { editLink } = await import('../../javascript/core-systems/linkManager.js');
 
       // Create shared link objects
       const link1 = { name: 'Old Name', url: 'https://old.com/', category: 'Old Category', icon: 'https://old.com/favicon.ico' };

@@ -14,7 +14,7 @@ describe('State Management Functionality', () => {
   describe('State Updates', () => {
     test('should update state with valid data', async () => {
       // Import the state manager
-      const stateManagerModule = await import('../javascript/core-systems/stateManager.js');
+      const stateManagerModule = await import('../../javascript/core-systems/stateManager.js');
       const stateManager = stateManagerModule.default;
 
       // Update state with valid data
@@ -35,7 +35,7 @@ describe('State Management Functionality', () => {
 
     test('should reject state updates with invalid data', async () => {
       // Import the state manager
-      const stateManagerModule = await import('../javascript/core-systems/stateManager.js');
+      const stateManagerModule = await import('../../javascript/core-systems/stateManager.js');
       const stateManager = stateManagerModule.default;
 
       // Try to update with invalid theme
@@ -52,7 +52,7 @@ describe('State Management Functionality', () => {
 
     test('should handle batch updates atomically', async () => {
       // Import the state manager
-      const stateManagerModule = await import('../javascript/core-systems/stateManager.js');
+      const stateManagerModule = await import('../../javascript/core-systems/stateManager.js');
       const stateManager = stateManagerModule.default;
 
       // Batch update multiple properties
@@ -75,7 +75,7 @@ describe('State Management Functionality', () => {
   describe('State Validation', () => {
     test('should validate link data structure', async () => {
       // Import the state manager
-      const stateManagerModule = await import('../javascript/core-systems/stateManager.js');
+      const stateManagerModule = await import('../../javascript/core-systems/stateManager.js');
       const stateManager = stateManagerModule.default;
 
       // Test with valid links (with all required fields including icon)
@@ -98,7 +98,7 @@ describe('State Management Functionality', () => {
 
     test('should validate individual state properties', async () => {
       // Import the state manager
-      const stateManagerModule = await import('../javascript/core-systems/stateManager.js');
+      const stateManagerModule = await import('../../javascript/core-systems/stateManager.js');
       const stateManager = stateManagerModule.default;
 
       // Test valid property values
@@ -124,7 +124,7 @@ describe('State Management Functionality', () => {
 
     test('should handle links with undefined icon and size properties', async () => {
       // Import the state manager
-      const stateManagerModule = await import('../javascript/core-systems/stateManager.js');
+      const stateManagerModule = await import('../../javascript/core-systems/stateManager.js');
       const stateManager = stateManagerModule.default;
 
       // Test with undefined icon
@@ -153,7 +153,7 @@ describe('State Management Functionality', () => {
   describe('State Rollback', () => {
     test('should rollback to previous state', async () => {
       // Import the state manager
-      const stateManagerModule = await import('../javascript/core-systems/stateManager.js');
+      const stateManagerModule = await import('../../javascript/core-systems/stateManager.js');
       const stateManager = stateManagerModule.default;
 
       // Get initial state
@@ -173,7 +173,7 @@ describe('State Management Functionality', () => {
 
     test('should maintain state history', async () => {
       // Import the state manager
-      const stateManagerModule = await import('../javascript/core-systems/stateManager.js');
+      const stateManagerModule = await import('../../javascript/core-systems/stateManager.js');
       const stateManager = stateManagerModule.default;
 
       // Make several updates
@@ -190,7 +190,7 @@ describe('State Management Functionality', () => {
   describe('State Listeners', () => {
     test('should notify listeners of state changes', async () => {
       // Import the state manager
-      const stateManagerModule = await import('../javascript/core-systems/stateManager.js');
+      const stateManagerModule = await import('../../javascript/core-systems/stateManager.js');
       const stateManager = stateManagerModule.default;
 
       // Create a mock listener
@@ -216,7 +216,7 @@ describe('State Management Functionality', () => {
 
     test('should notify listeners of validation results', async () => {
       // Import the state manager
-      const stateManagerModule = await import('../javascript/core-systems/stateManager.js');
+      const stateManagerModule = await import('../../javascript/core-systems/stateManager.js');
       const stateManager = stateManagerModule.default;
 
       // Create a mock listener
@@ -241,7 +241,7 @@ describe('State Management Functionality', () => {
   describe('Safe State Updates', () => {
     test('should never throw errors during safe updates', async () => {
       // Import the state manager
-      const stateManagerModule = await import('../javascript/core-systems/stateManager.js');
+      const stateManagerModule = await import('../../javascript/core-systems/stateManager.js');
       const stateManager = stateManagerModule.default;
 
       // Try a valid update
@@ -257,7 +257,7 @@ describe('State Management Functionality', () => {
 
     test('should provide rollback state on failures', async () => {
       // Import the state manager
-      const stateManagerModule = await import('../javascript/core-systems/stateManager.js');
+      const stateManagerModule = await import('../../javascript/core-systems/stateManager.js');
       const stateManager = stateManagerModule.default;
 
       // Try an invalid update

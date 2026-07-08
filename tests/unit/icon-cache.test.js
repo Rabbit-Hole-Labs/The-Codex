@@ -25,39 +25,39 @@ describe('Icon Cache', () => {
 
     describe('Exported Functions', () => {
         test('loadIconWithCache should be exported', async () => {
-            const iconCacheModule = await import('../javascript/features/iconCache.js');
+            const iconCacheModule = await import('../../javascript/features/iconCache.js');
             expect(typeof iconCacheModule.loadIconWithCache).toBe('function');
         });
 
         test('clearIconCache should be exported', async () => {
-            const iconCacheModule = await import('../javascript/features/iconCache.js');
+            const iconCacheModule = await import('../../javascript/features/iconCache.js');
             expect(typeof iconCacheModule.clearIconCache).toBe('function');
         });
 
         test('getCacheStats should be exported', async () => {
-            const iconCacheModule = await import('../javascript/features/iconCache.js');
+            const iconCacheModule = await import('../../javascript/features/iconCache.js');
             expect(typeof iconCacheModule.getCacheStats).toBe('function');
         });
 
         test('resetCacheStats should be exported', async () => {
-            const iconCacheModule = await import('../javascript/features/iconCache.js');
+            const iconCacheModule = await import('../../javascript/features/iconCache.js');
             expect(typeof iconCacheModule.resetCacheStats).toBe('function');
         });
 
         test('preloadIcons should be exported', async () => {
-            const iconCacheModule = await import('../javascript/features/iconCache.js');
+            const iconCacheModule = await import('../../javascript/features/iconCache.js');
             expect(typeof iconCacheModule.preloadIcons).toBe('function');
         });
 
         test('batchLoadIcons should be exported', async () => {
-            const iconCacheModule = await import('../javascript/features/iconCache.js');
+            const iconCacheModule = await import('../../javascript/features/iconCache.js');
             expect(typeof iconCacheModule.batchLoadIcons).toBe('function');
         });
     });
 
     describe('Cache Statistics', () => {
         test('getCacheStats should return valid statistics', async () => {
-            const iconCacheModule = await import('../javascript/features/iconCache.js');
+            const iconCacheModule = await import('../../javascript/features/iconCache.js');
             const stats = iconCacheModule.getCacheStats();
 
             expect(stats).toHaveProperty('hits');
@@ -71,7 +71,7 @@ describe('Icon Cache', () => {
         });
 
         test('resetCacheStats should reset all statistics', async () => {
-            const iconCacheModule = await import('../javascript/features/iconCache.js');
+            const iconCacheModule = await import('../../javascript/features/iconCache.js');
             iconCacheModule.resetCacheStats();
             const stats = iconCacheModule.getCacheStats();
 
@@ -82,33 +82,33 @@ describe('Icon Cache', () => {
         });
 
         test('clearIconCache should be callable', async () => {
-            const iconCacheModule = await import('../javascript/features/iconCache.js');
+            const iconCacheModule = await import('../../javascript/features/iconCache.js');
             expect(() => iconCacheModule.clearIconCache()).not.toThrow();
         });
     });
 
     describe('loadIconWithCache', () => {
         test('should return null for null link', async () => {
-            const iconCacheModule = await import('../javascript/features/iconCache.js');
+            const iconCacheModule = await import('../../javascript/features/iconCache.js');
             const result = await iconCacheModule.loadIconWithCache(null);
             expect(result).toBeNull();
         });
 
         test('should return null for undefined link', async () => {
-            const iconCacheModule = await import('../javascript/features/iconCache.js');
+            const iconCacheModule = await import('../../javascript/features/iconCache.js');
             const result = await iconCacheModule.loadIconWithCache(undefined);
             expect(result).toBeNull();
         });
 
         test('should handle empty object link', async () => {
-            const iconCacheModule = await import('../javascript/features/iconCache.js');
+            const iconCacheModule = await import('../../javascript/features/iconCache.js');
             const result = await iconCacheModule.loadIconWithCache({});
             // Should generate a fallback since no custom icon and favicon will fail
             expect(result).toBeDefined();
         });
 
         test('should handle link with only name', async () => {
-            const iconCacheModule = await import('../javascript/features/iconCache.js');
+            const iconCacheModule = await import('../../javascript/features/iconCache.js');
             const result = await iconCacheModule.loadIconWithCache({
                 name: 'Test'
             });
@@ -116,7 +116,7 @@ describe('Icon Cache', () => {
         });
 
         test('should respect allowCustom option', async () => {
-            const iconCacheModule = await import('../javascript/features/iconCache.js');
+            const iconCacheModule = await import('../../javascript/features/iconCache.js');
             const link = {
                 name: 'Test',
                 url: 'https://example.com',
@@ -141,7 +141,7 @@ describe('Icon Cache', () => {
         });
 
         test('should respect allowGenerated option', async () => {
-            const iconCacheModule = await import('../javascript/features/iconCache.js');
+            const iconCacheModule = await import('../../javascript/features/iconCache.js');
 
             const result = await iconCacheModule.loadIconWithCache({
                 name: 'Test',
@@ -158,7 +158,7 @@ describe('Icon Cache', () => {
         // TODO: The allowGenerated option doesn't prevent fallback generation
         // This appears to be a bug in the iconCache.js implementation
         test('should return null when no sources allowed', async () => {
-            const iconCacheModule = await import('../javascript/features/iconCache.js');
+            const iconCacheModule = await import('../../javascript/features/iconCache.js');
 
             const result = await iconCacheModule.loadIconWithCache({
                 name: 'Test',
@@ -174,7 +174,7 @@ describe('Icon Cache', () => {
         });
 
         test('should handle data URL icons', async () => {
-            const iconCacheModule = await import('../javascript/features/iconCache.js');
+            const iconCacheModule = await import('../../javascript/features/iconCache.js');
 
             const result = await iconCacheModule.loadIconWithCache({
                 name: 'Test',
@@ -186,7 +186,7 @@ describe('Icon Cache', () => {
         });
 
         test('should handle links with same URL but different names', async () => {
-            const iconCacheModule = await import('../javascript/features/iconCache.js');
+            const iconCacheModule = await import('../../javascript/features/iconCache.js');
 
             const result1 = await iconCacheModule.loadIconWithCache({
                 name: 'Site A',
@@ -216,7 +216,7 @@ describe('Icon Cache', () => {
 
     describe('Options Handling', () => {
         test('should handle custom timeout option', async () => {
-            const iconCacheModule = await import('../javascript/features/iconCache.js');
+            const iconCacheModule = await import('../../javascript/features/iconCache.js');
 
             const result = await iconCacheModule.loadIconWithCache({
                 name: 'Test',
@@ -232,7 +232,7 @@ describe('Icon Cache', () => {
         });
 
         test('should handle respectCSP option', async () => {
-            const iconCacheModule = await import('../javascript/features/iconCache.js');
+            const iconCacheModule = await import('../../javascript/features/iconCache.js');
 
             const result = await iconCacheModule.loadIconWithCache({
                 name: 'Test',
@@ -250,14 +250,14 @@ describe('Icon Cache', () => {
 
     describe('Batch Operations', () => {
         test('batchLoadIcons should be callable with empty array', async () => {
-            const iconCacheModule = await import('../javascript/features/iconCache.js');
+            const iconCacheModule = await import('../../javascript/features/iconCache.js');
             const result = await iconCacheModule.batchLoadIcons([]);
 
             expect(result).toEqual([]);
         });
 
         test('batchLoadIcons should be callable with links', async () => {
-            const iconCacheModule = await import('../javascript/features/iconCache.js');
+            const iconCacheModule = await import('../../javascript/features/iconCache.js');
             const links = [
                 { name: 'Test1', url: 'https://example1.com' },
                 { name: 'Test2', url: 'https://example2.com' }
@@ -275,7 +275,7 @@ describe('Icon Cache', () => {
         });
 
         test('preloadIcons should be callable with links', async () => {
-            const iconCacheModule = await import('../javascript/features/iconCache.js');
+            const iconCacheModule = await import('../../javascript/features/iconCache.js');
             const links = [
                 { name: 'Test1', url: 'https://example1.com' },
                 { name: 'Test2', url: 'https://example2.com' }
@@ -288,7 +288,7 @@ describe('Icon Cache', () => {
 
     describe('Edge Cases', () => {
         test('should handle very long link name', async () => {
-            const iconCacheModule = await import('../javascript/features/iconCache.js');
+            const iconCacheModule = await import('../../javascript/features/iconCache.js');
 
             const result = await iconCacheModule.loadIconWithCache({
                 name: 'A'.repeat(500),
@@ -303,7 +303,7 @@ describe('Icon Cache', () => {
         });
 
         test('should handle special characters in link name', async () => {
-            const iconCacheModule = await import('../javascript/features/iconCache.js');
+            const iconCacheModule = await import('../../javascript/features/iconCache.js');
 
             const result = await iconCacheModule.loadIconWithCache({
                 name: 'Test-Site_123',
@@ -318,7 +318,7 @@ describe('Icon Cache', () => {
         });
 
         test('should handle Unicode characters in link name', async () => {
-            const iconCacheModule = await import('../javascript/features/iconCache.js');
+            const iconCacheModule = await import('../../javascript/features/iconCache.js');
 
             const result = await iconCacheModule.loadIconWithCache({
                 name: '日本語テスト',
@@ -333,7 +333,7 @@ describe('Icon Cache', () => {
         });
 
         test('should handle emoji in link name', async () => {
-            const iconCacheModule = await import('../javascript/features/iconCache.js');
+            const iconCacheModule = await import('../../javascript/features/iconCache.js');
 
             const result = await iconCacheModule.loadIconWithCache({
                 name: 'Hello 🌍',

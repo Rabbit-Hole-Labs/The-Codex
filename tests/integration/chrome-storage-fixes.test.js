@@ -38,7 +38,7 @@ describe('Storage Manager Functionality', () => {
       mockChromeStorage.local.get.mockResolvedValue({});
 
       // Import the actual storage manager
-      const { loadLinks } = await import('../javascript/core-systems/storageManager.js');
+      const { loadLinks } = await import('../../javascript/core-systems/storageManager.js');
 
       // Call the function
       const result = await loadLinks();
@@ -66,7 +66,7 @@ describe('Storage Manager Functionality', () => {
       });
 
       // Import the actual storage manager
-      const { loadLinks } = await import('../javascript/core-systems/storageManager.js');
+      const { loadLinks } = await import('../../javascript/core-systems/storageManager.js');
 
       // Call the function
       const result = await loadLinks();
@@ -83,7 +83,7 @@ describe('Storage Manager Functionality', () => {
       mockChromeStorage.sync.set.mockResolvedValue();
 
       // Import the actual storage manager
-      const { saveLinks } = await import('../javascript/core-systems/storageManager.js');
+      const { saveLinks } = await import('../../javascript/core-systems/storageManager.js');
 
       // Test with valid data
       const validLinks = [
@@ -101,7 +101,7 @@ describe('Storage Manager Functionality', () => {
 
     test('should reject invalid link data during save', async () => {
       // Import the actual storage manager
-      const { saveLinks } = await import('../javascript/core-systems/storageManager.js');
+      const { saveLinks } = await import('../../javascript/core-systems/storageManager.js');
 
       // Test with invalid data (not an array)
       const invalidLinks = { not: 'an array' };
@@ -119,7 +119,7 @@ describe('Storage Manager Functionality', () => {
       mockChromeStorage.sync.set.mockResolvedValue();
 
       // Import the actual storage manager
-      const { saveSettings } = await import('../javascript/core-systems/storageManager.js');
+      const { saveSettings } = await import('../../javascript/core-systems/storageManager.js');
 
       // Test with valid settings
       const validSettings = {
@@ -141,7 +141,7 @@ describe('Storage Manager Functionality', () => {
       mockChromeStorage.sync.set.mockResolvedValue();
 
       // Import the actual storage manager
-      const { saveSettings } = await import('../javascript/core-systems/storageManager.js');
+      const { saveSettings } = await import('../../javascript/core-systems/storageManager.js');
 
       // Test with mixed valid/invalid settings
       const mixedSettings = {
@@ -169,7 +169,7 @@ describe('Storage Manager Functionality', () => {
       mockChromeStorage.local.get.mockResolvedValue({});
 
       // Import the actual storage manager
-      const { loadCategories } = await import('../javascript/core-systems/storageManager.js');
+      const { loadCategories } = await import('../../javascript/core-systems/storageManager.js');
 
       // Call the function
       const result = await loadCategories();
@@ -188,7 +188,7 @@ describe('Storage Manager Functionality', () => {
       });
 
       // Import the actual storage manager
-      const { loadCategories } = await import('../javascript/core-systems/storageManager.js');
+      const { loadCategories } = await import('../../javascript/core-systems/storageManager.js');
 
       // Call the function
       const result = await loadCategories();
@@ -203,7 +203,7 @@ describe('Storage Manager Functionality', () => {
       mockChromeStorage.sync.set.mockResolvedValue();
 
       // Import the actual storage manager
-      const { saveCategories } = await import('../javascript/core-systems/storageManager.js');
+      const { saveCategories } = await import('../../javascript/core-systems/storageManager.js');
 
       // Test with valid data
       const validCategories = ['Default', 'Work', 'Personal'];
@@ -225,7 +225,7 @@ describe('Storage Manager Functionality', () => {
       mockChromeStorage.local.set.mockResolvedValue();
 
       // Import the actual storage manager
-      const { saveLinks } = await import('../javascript/core-systems/storageManager.js');
+      const { saveLinks } = await import('../../javascript/core-systems/storageManager.js');
 
       // Test with valid data
       const validLinks = [
@@ -248,7 +248,7 @@ describe('Storage Manager Functionality', () => {
       mockChromeStorage.local.set.mockRejectedValue(new Error('Local storage failed'));
 
       // Import the actual storage manager
-      const { saveLinks } = await import('../javascript/core-systems/storageManager.js');
+      const { saveLinks } = await import('../../javascript/core-systems/storageManager.js');
 
       // Test with valid data
       const validLinks = [

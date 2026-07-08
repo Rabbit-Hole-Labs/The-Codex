@@ -35,7 +35,7 @@ describe('Error Handler', () => {
 
     describe('CodexError Class', () => {
         test('should create CodexError with required properties', async () => {
-            const errorHandler = await import('../javascript/features/errorHandler.js');
+            const errorHandler = await import('../../javascript/features/errorHandler.js');
             CodexError = errorHandler.CodexError;
             ERROR_TYPES = errorHandler.ERROR_TYPES;
             ERROR_SEVERITY = errorHandler.ERROR_SEVERITY;
@@ -50,7 +50,7 @@ describe('Error Handler', () => {
         });
 
         test('should create CodexError with default values', async () => {
-            const errorHandler = await import('../javascript/features/errorHandler.js');
+            const errorHandler = await import('../../javascript/features/errorHandler.js');
             CodexError = errorHandler.CodexError;
 
             const error = new CodexError('Test error');
@@ -61,7 +61,7 @@ describe('Error Handler', () => {
         });
 
         test('should create CodexError with details', async () => {
-            const errorHandler = await import('../javascript/features/errorHandler.js');
+            const errorHandler = await import('../../javascript/features/errorHandler.js');
             CodexError = errorHandler.CodexError;
             ERROR_TYPES = errorHandler.ERROR_TYPES;
             ERROR_SEVERITY = errorHandler.ERROR_SEVERITY;
@@ -73,7 +73,7 @@ describe('Error Handler', () => {
         });
 
         test('should be an instance of Error', async () => {
-            const errorHandler = await import('../javascript/features/errorHandler.js');
+            const errorHandler = await import('../../javascript/features/errorHandler.js');
             CodexError = errorHandler.CodexError;
 
             const error = new CodexError('Test error');
@@ -84,7 +84,7 @@ describe('Error Handler', () => {
 
     describe('Error Normalization', () => {
         test('should normalize CodexError', async () => {
-            const errorHandler = await import('../javascript/features/errorHandler.js');
+            const errorHandler = await import('../../javascript/features/errorHandler.js');
             CodexError = errorHandler.CodexError;
             handleError = errorHandler.handleError;
             ERROR_TYPES = errorHandler.ERROR_TYPES;
@@ -98,7 +98,7 @@ describe('Error Handler', () => {
         });
 
         test('should normalize standard Error', async () => {
-            const errorHandler = await import('../javascript/features/errorHandler.js');
+            const errorHandler = await import('../../javascript/features/errorHandler.js');
             handleError = errorHandler.handleError;
 
             const standardError = new Error('Standard error');
@@ -109,7 +109,7 @@ describe('Error Handler', () => {
         });
 
         test('should normalize string error', async () => {
-            const errorHandler = await import('../javascript/features/errorHandler.js');
+            const errorHandler = await import('../../javascript/features/errorHandler.js');
             handleError = errorHandler.handleError;
 
             const stringError = 'String error message';
@@ -122,7 +122,7 @@ describe('Error Handler', () => {
 
     describe('Error Logging', () => {
         test('should log critical errors', async () => {
-            const errorHandler = await import('../javascript/features/errorHandler.js');
+            const errorHandler = await import('../../javascript/features/errorHandler.js');
             CodexError = errorHandler.CodexError;
             handleError = errorHandler.handleError;
             ERROR_TYPES = errorHandler.ERROR_TYPES;
@@ -138,7 +138,7 @@ describe('Error Handler', () => {
         });
 
         test('should log high severity errors', async () => {
-            const errorHandler = await import('../javascript/features/errorHandler.js');
+            const errorHandler = await import('../../javascript/features/errorHandler.js');
             CodexError = errorHandler.CodexError;
             handleError = errorHandler.handleError;
             ERROR_TYPES = errorHandler.ERROR_TYPES;
@@ -154,7 +154,7 @@ describe('Error Handler', () => {
         });
 
         test('should log medium severity errors as warnings', async () => {
-            const errorHandler = await import('../javascript/features/errorHandler.js');
+            const errorHandler = await import('../../javascript/features/errorHandler.js');
             CodexError = errorHandler.CodexError;
             handleError = errorHandler.handleError;
             ERROR_TYPES = errorHandler.ERROR_TYPES;
@@ -172,7 +172,7 @@ describe('Error Handler', () => {
 
     describe('Recovery Strategies', () => {
         test('should determine retry strategy for network errors', async () => {
-            const errorHandler = await import('../javascript/features/errorHandler.js');
+            const errorHandler = await import('../../javascript/features/errorHandler.js');
             CodexError = errorHandler.CodexError;
             handleError = errorHandler.handleError;
             ERROR_TYPES = errorHandler.ERROR_TYPES;
@@ -186,7 +186,7 @@ describe('Error Handler', () => {
         });
 
         test('should determine notify strategy for validation errors', async () => {
-            const errorHandler = await import('../javascript/features/errorHandler.js');
+            const errorHandler = await import('../../javascript/features/errorHandler.js');
             CodexError = errorHandler.CodexError;
             handleError = errorHandler.handleError;
             ERROR_TYPES = errorHandler.ERROR_TYPES;
@@ -202,7 +202,7 @@ describe('Error Handler', () => {
 
     describe('User Message Generation', () => {
         test('should generate user-friendly message for storage errors', async () => {
-            const errorHandler = await import('../javascript/features/errorHandler.js');
+            const errorHandler = await import('../../javascript/features/errorHandler.js');
             CodexError = errorHandler.CodexError;
             handleError = errorHandler.handleError;
             ERROR_TYPES = errorHandler.ERROR_TYPES;
@@ -215,7 +215,7 @@ describe('Error Handler', () => {
         });
 
         test('should generate user-friendly message for quota errors', async () => {
-            const errorHandler = await import('../javascript/features/errorHandler.js');
+            const errorHandler = await import('../../javascript/features/errorHandler.js');
             CodexError = errorHandler.CodexError;
             handleError = errorHandler.handleError;
             ERROR_TYPES = errorHandler.ERROR_TYPES;
@@ -228,7 +228,7 @@ describe('Error Handler', () => {
         });
 
         test('should use custom user message from details', async () => {
-            const errorHandler = await import('../javascript/features/errorHandler.js');
+            const errorHandler = await import('../../javascript/features/errorHandler.js');
             CodexError = errorHandler.CodexError;
             handleError = errorHandler.handleError;
 
@@ -244,7 +244,7 @@ describe('Error Handler', () => {
 
     describe('Error Log', () => {
         test('should add errors to log', async () => {
-            const errorHandler = await import('../javascript/features/errorHandler.js');
+            const errorHandler = await import('../../javascript/features/errorHandler.js');
             CodexError = errorHandler.CodexError;
             handleError = errorHandler.handleError;
             getErrorLog = errorHandler.getErrorLog;
@@ -263,7 +263,7 @@ describe('Error Handler', () => {
         });
 
         test('should limit error log size', async () => {
-            const errorHandler = await import('../javascript/features/errorHandler.js');
+            const errorHandler = await import('../../javascript/features/errorHandler.js');
             CodexError = errorHandler.CodexError;
             handleError = errorHandler.handleError;
             getErrorLog = errorHandler.getErrorLog;
@@ -283,7 +283,7 @@ describe('Error Handler', () => {
         });
 
         test('should clear error log', async () => {
-            const errorHandler = await import('../javascript/features/errorHandler.js');
+            const errorHandler = await import('../../javascript/features/errorHandler.js');
             CodexError = errorHandler.CodexError;
             handleError = errorHandler.handleError;
             getErrorLog = errorHandler.getErrorLog;
@@ -301,7 +301,7 @@ describe('Error Handler', () => {
         });
 
         test('should return limited number of errors', async () => {
-            const errorHandler = await import('../javascript/features/errorHandler.js');
+            const errorHandler = await import('../../javascript/features/errorHandler.js');
             CodexError = errorHandler.CodexError;
             handleError = errorHandler.handleError;
             getErrorLog = errorHandler.getErrorLog;
@@ -322,7 +322,7 @@ describe('Error Handler', () => {
 
     describe('Error Handlers', () => {
         test('should register error handler', async () => {
-            const errorHandler = await import('../javascript/features/errorHandler.js');
+            const errorHandler = await import('../../javascript/features/errorHandler.js');
             registerErrorHandler = errorHandler.registerErrorHandler;
 
             const handler = jest.fn();
@@ -332,7 +332,7 @@ describe('Error Handler', () => {
         });
 
         test('should call registered handler on matching error', async () => {
-            const errorHandler = await import('../javascript/features/errorHandler.js');
+            const errorHandler = await import('../../javascript/features/errorHandler.js');
             CodexError = errorHandler.CodexError;
             handleError = errorHandler.handleError;
             registerErrorHandler = errorHandler.registerErrorHandler;
@@ -347,7 +347,7 @@ describe('Error Handler', () => {
         });
 
         test('should not call handler for different error type', async () => {
-            const errorHandler = await import('../javascript/features/errorHandler.js');
+            const errorHandler = await import('../../javascript/features/errorHandler.js');
             CodexError = errorHandler.CodexError;
             handleError = errorHandler.handleError;
             registerErrorHandler = errorHandler.registerErrorHandler;
@@ -362,7 +362,7 @@ describe('Error Handler', () => {
         });
 
         test('should unregister handler', async () => {
-            const errorHandler = await import('../javascript/features/errorHandler.js');
+            const errorHandler = await import('../../javascript/features/errorHandler.js');
             CodexError = errorHandler.CodexError;
             handleError = errorHandler.handleError;
             registerErrorHandler = errorHandler.registerErrorHandler;
@@ -379,7 +379,7 @@ describe('Error Handler', () => {
         });
 
         test('should handle handler errors gracefully', async () => {
-            const errorHandler = await import('../javascript/features/errorHandler.js');
+            const errorHandler = await import('../../javascript/features/errorHandler.js');
             CodexError = errorHandler.CodexError;
             handleError = errorHandler.handleError;
             registerErrorHandler = errorHandler.registerErrorHandler;
@@ -399,7 +399,7 @@ describe('Error Handler', () => {
 
     describe('Safe Async Wrapper', () => {
         test('should wrap async function and handle errors', async () => {
-            const errorHandler = await import('../javascript/features/errorHandler.js');
+            const errorHandler = await import('../../javascript/features/errorHandler.js');
             safeAsync = errorHandler.safeAsync;
 
             const asyncFn = jest.fn().mockResolvedValue('success');
@@ -411,7 +411,7 @@ describe('Error Handler', () => {
         });
 
         test('should return fallback value on error', async () => {
-            const errorHandler = await import('../javascript/features/errorHandler.js');
+            const errorHandler = await import('../../javascript/features/errorHandler.js');
             safeAsync = errorHandler.safeAsync;
 
             const asyncFn = jest.fn().mockRejectedValue(new Error('Async error'));
@@ -422,7 +422,7 @@ describe('Error Handler', () => {
         });
 
         test('should pass arguments to wrapped function', async () => {
-            const errorHandler = await import('../javascript/features/errorHandler.js');
+            const errorHandler = await import('../../javascript/features/errorHandler.js');
             safeAsync = errorHandler.safeAsync;
 
             const asyncFn = jest.fn().mockResolvedValue('result');
@@ -436,7 +436,7 @@ describe('Error Handler', () => {
 
     describe('Safe Sync Wrapper', () => {
         test('should wrap sync function and handle errors', async () => {
-            const errorHandler = await import('../javascript/features/errorHandler.js');
+            const errorHandler = await import('../../javascript/features/errorHandler.js');
             safeSync = errorHandler.safeSync;
 
             const syncFn = jest.fn().mockReturnValue('success');
@@ -448,7 +448,7 @@ describe('Error Handler', () => {
         });
 
         test('should return fallback value on error', async () => {
-            const errorHandler = await import('../javascript/features/errorHandler.js');
+            const errorHandler = await import('../../javascript/features/errorHandler.js');
             safeSync = errorHandler.safeSync;
 
             const syncFn = jest.fn().mockImplementation(() => {
@@ -463,7 +463,7 @@ describe('Error Handler', () => {
 
     describe('Error Boundaries', () => {
         test('should create error boundary for operation', async () => {
-            const errorHandler = await import('../javascript/features/errorHandler.js');
+            const errorHandler = await import('../../javascript/features/errorHandler.js');
             createErrorBoundary = errorHandler.createErrorBoundary;
 
             const operation = jest.fn().mockResolvedValue('success');
@@ -476,7 +476,7 @@ describe('Error Handler', () => {
         });
 
         test('should return fallback on error', async () => {
-            const errorHandler = await import('../javascript/features/errorHandler.js');
+            const errorHandler = await import('../../javascript/features/errorHandler.js');
             createErrorBoundary = errorHandler.createErrorBoundary;
 
             const operation = jest.fn().mockRejectedValue(new Error('Operation error'));
@@ -489,7 +489,7 @@ describe('Error Handler', () => {
         });
 
         test('should call onError callback if provided', async () => {
-            const errorHandler = await import('../javascript/features/errorHandler.js');
+            const errorHandler = await import('../../javascript/features/errorHandler.js');
             createErrorBoundary = errorHandler.createErrorBoundary;
 
             const onError = jest.fn();

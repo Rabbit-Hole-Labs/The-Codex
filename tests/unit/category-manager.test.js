@@ -59,8 +59,8 @@ describe('Category Manager', () => {
 
     describe('populateCategories', () => {
         test('should populate categories from storage', async () => {
-            const storageModule = await import('../javascript/core-systems/storageManager.js');
-            const categoryModule = await import('../javascript/core-systems/categoryManager.js');
+            const storageModule = await import('../../javascript/core-systems/storageManager.js');
+            const categoryModule = await import('../../javascript/core-systems/categoryManager.js');
 
             const state = {
                 links: [
@@ -80,8 +80,8 @@ describe('Category Manager', () => {
         });
 
         test('should always include Default category', async () => {
-            const storageModule = await import('../javascript/core-systems/storageManager.js');
-            const categoryModule = await import('../javascript/core-systems/categoryManager.js');
+            const storageModule = await import('../../javascript/core-systems/storageManager.js');
+            const categoryModule = await import('../../javascript/core-systems/categoryManager.js');
 
             const state = {
                 links: [
@@ -101,8 +101,8 @@ describe('Category Manager', () => {
 
     describe('createCategory', () => {
         test('should create new category successfully', async () => {
-            const storageModule = await import('../javascript/core-systems/storageManager.js');
-            const categoryModule = await import('../javascript/core-systems/categoryManager.js');
+            const storageModule = await import('../../javascript/core-systems/storageManager.js');
+            const categoryModule = await import('../../javascript/core-systems/categoryManager.js');
 
             const state = {
                 links: [],
@@ -120,8 +120,8 @@ describe('Category Manager', () => {
         });
 
         test('should reject duplicate category name', async () => {
-            const storageModule = await import('../javascript/core-systems/storageManager.js');
-            const categoryModule = await import('../javascript/core-systems/categoryManager.js');
+            const storageModule = await import('../../javascript/core-systems/storageManager.js');
+            const categoryModule = await import('../../javascript/core-systems/categoryManager.js');
 
             const state = {
                 links: [],
@@ -138,7 +138,7 @@ describe('Category Manager', () => {
         });
 
         test('should reject empty category name', async () => {
-            const categoryModule = await import('../javascript/core-systems/categoryManager.js');
+            const categoryModule = await import('../../javascript/core-systems/categoryManager.js');
 
             const state = {
                 links: [],
@@ -154,8 +154,8 @@ describe('Category Manager', () => {
 
     describe('renameCategory', () => {
         test('should rename category successfully', async () => {
-            const storageModule = await import('../javascript/core-systems/storageManager.js');
-            const categoryModule = await import('../javascript/core-systems/categoryManager.js');
+            const storageModule = await import('../../javascript/core-systems/storageManager.js');
+            const categoryModule = await import('../../javascript/core-systems/categoryManager.js');
 
             const state = {
                 links: [],
@@ -173,8 +173,8 @@ describe('Category Manager', () => {
         });
 
         test('should reject renaming to existing category name', async () => {
-            const storageModule = await import('../javascript/core-systems/storageManager.js');
-            const categoryModule = await import('../javascript/core-systems/categoryManager.js');
+            const storageModule = await import('../../javascript/core-systems/storageManager.js');
+            const categoryModule = await import('../../javascript/core-systems/categoryManager.js');
 
             const state = {
                 links: [],
@@ -192,8 +192,8 @@ describe('Category Manager', () => {
 
     describe('deleteCategory', () => {
         test('should delete category and move links to Default', async () => {
-            const storageModule = await import('../javascript/core-systems/storageManager.js');
-            const categoryModule = await import('../javascript/core-systems/categoryManager.js');
+            const storageModule = await import('../../javascript/core-systems/storageManager.js');
+            const categoryModule = await import('../../javascript/core-systems/categoryManager.js');
 
             const state = {
                 links: [
@@ -218,7 +218,7 @@ describe('Category Manager', () => {
         });
 
         test('should not delete Default category', async () => {
-            const categoryModule = await import('../javascript/core-systems/categoryManager.js');
+            const categoryModule = await import('../../javascript/core-systems/categoryManager.js');
 
             const state = {
                 links: [],
@@ -234,8 +234,8 @@ describe('Category Manager', () => {
 
     describe('reorderCategories', () => {
         test('should reorder categories successfully', async () => {
-            const storageModule = await import('../javascript/core-systems/storageManager.js');
-            const categoryModule = await import('../javascript/core-systems/categoryManager.js');
+            const storageModule = await import('../../javascript/core-systems/storageManager.js');
+            const categoryModule = await import('../../javascript/core-systems/categoryManager.js');
 
             const state = {
                 links: [],
@@ -255,8 +255,8 @@ describe('Category Manager', () => {
         });
 
         test('should reject invalid order array', async () => {
-            const storageModule = await import('../javascript/core-systems/storageManager.js');
-            const categoryModule = await import('../javascript/core-systems/categoryManager.js');
+            const storageModule = await import('../../javascript/core-systems/storageManager.js');
+            const categoryModule = await import('../../javascript/core-systems/categoryManager.js');
 
             const state = {
                 links: [],
