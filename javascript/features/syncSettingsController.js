@@ -1,6 +1,7 @@
 // Sync Settings Page Controller
 import { syncManager } from '../core-systems/syncManager.js';
 import { dataVerification } from './dataVerification.js';
+import { getCapturedErrors } from './errorCapture.js';
 
 export class SyncSettingsController {
     constructor() {
@@ -346,6 +347,7 @@ export class SyncSettingsController {
                 networkStatus: navigator.onLine,
                 userAgent: navigator.userAgent,
                 syncLog: this.syncLog.slice(-50), // Last 50 log entries
+                capturedErrors: await getCapturedErrors(), // Runtime errors / CSP violations
                 chromeVersion: chrome?.runtime?.getManifest?.()?.version || 'unknown'
             };
 

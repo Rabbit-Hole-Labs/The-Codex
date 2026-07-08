@@ -2,6 +2,7 @@
 // - purifyHTML (from securityUtils.js) — for innerHTML sanitization
 // - optimizedRender (from domOptimizer.js) — for unified rendering pipeline
 // - preloadIcons, batchLoadIcons (from iconCache.js) — for icon preloading optimization
+import { initErrorCapture } from '../features/errorCapture.js';
 import { loadLinks, saveLinks, saveSettings } from '../core-systems/storageManager.js';
 import { debounce, sanitizeHTML, validateAndSanitizeUrl } from '../features/utils.js';
 import { getState, addStateChangeListener, safeUpdateState } from '../core-systems/stateManager.js';
@@ -12,6 +13,9 @@ import { loadIconWithCache, getCacheStats } from '../features/iconCache.js';
 import { syncStatusIndicator } from '../features/syncStatusIndicator.js';
 import '../features/consoleCommands.js';
 import { debug } from '../core-systems/debug.js';
+
+// Register global error capture as early as possible (newtab context).
+initErrorCapture('newtab');
 
 // State is managed exclusively through stateManager — no local state object.
 // Use getState() for reads, safeUpdateState() for writes.

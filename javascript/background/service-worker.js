@@ -1,6 +1,11 @@
 /**
  * Background Service Worker - Extension lifecycle and storage management
  */
+import { initErrorCapture } from '../features/errorCapture.js';
+
+// Register global error capture as early as possible (service-worker context).
+initErrorCapture('service-worker');
+
 chrome.runtime.onInstalled.addListener((details) => {
     if (details.reason === 'install') {
         initializeDefaults();
