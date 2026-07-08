@@ -88,7 +88,8 @@ javascript/
 - Tile sizes: `compact`, `small`, `medium`, `large`, `square`, `wide`, `tall`, `giant`
 
 ### Icon Loading
-- Progressive enhancement: custom > Clearbit logos > high-res favicons > text fallbacks
+- Progressive enhancement: custom (`data:` or selfh.st/jsDelivr only) > [selfh.st/icons](https://selfh.st/icons) match by app name (via jsDelivr) > Google favicon proxy (public sites) > generated text initials
+- Icons resolve to known hosts only (jsDelivr, selfh.st, Google), so the CSP needs no `img-src` wildcard; homelab/internal apps get logos by name without contacting the internal host
 - Use `loadIconWithCache()` for efficient loading
 
 ## Data Schemas
@@ -124,7 +125,7 @@ javascript/
 
 - **Manifest V3** with service worker background scripts ([manifest.json](manifest.json))
 - **Permissions**: storage, bookmarks, activeTab
-- **CSP**: `script-src 'self'; object-src 'self'; style-src 'self' https://fonts.googleapis.com https://cdnjs.cloudflare.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' https://cdn.jsdelivr.net https://clearbit.com https://www.google.com data: https:; connect-src 'self' https://clearbit.com;`
+- **CSP**: `script-src 'self'; object-src 'none'; base-uri 'none'; style-src 'self' https://fonts.googleapis.com https://cdnjs.cloudflare.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https://cdn.jsdelivr.net https://selfh.st https://www.google.com; connect-src 'self';` — no `img-src` wildcard: tile icons come from the [selfh.st/icons](https://selfh.st/icons) library (via jsDelivr) matched by app name, with the Google favicon proxy as fallback; custom icons must be `data:` URIs or selfh.st/jsDelivr URLs
 - **Overrides**: newtab ([index.html](index.html)), browser_action ([popup.html](popup.html))
 - **ES6 Modules**: Uses `"type": "module"` in [package.json](package.json); all imports must include `.js` extension
 - Storage strategy: sync (primary) with local (fallback)

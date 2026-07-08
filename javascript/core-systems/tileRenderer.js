@@ -16,11 +16,22 @@ import { sanitizeHTML, validateAndSanitizeUrl } from '../features/utils.js';
 export function getIconUrl(link) {
     if (link.icon && link.icon.trim() && link.icon !== 'default') {
         const icon = link.icon.trim();
-        // Restrict custom icons to http(s) and data:image URIs so a stored/
-        // imported link cannot point the <img> at an odd scheme (security
-        // review #60). This still allows self-hosted and base64 icons.
-        if (/^https?:\/\//i.test(icon) || /^data:image\//i.test(icon)) {
+        // Custom icons are limited to data:image URIs and https selfh.st/jsDelivr
+        // URLs, kept in lockstep with the manifest CSP img-src and iconCache's
+        // loadCustomIcon. Arbitrary external hosts are rejected so the CSP can
+        // drop the img-src wildcard; other sources resolve via loadIconWithCache.
+        if (/^data:image\//i.test(icon)) {
             return icon;
+        }
+        try {
+            const url = new URL(icon);
+            const host = url.hostname.toLowerCase();
+            if (url.protocol === 'https:' &&
+                (host === 'cdn.jsdelivr.net' || host === 'selfh.st' || host.endsWith('.selfh.st'))) {
+                return icon;
+            }
+        } catch {
+            // Not a valid URL — fall through to no icon.
         }
     }
     return '';
