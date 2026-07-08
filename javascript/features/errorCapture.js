@@ -18,11 +18,21 @@
 
 const STORAGE_KEY = 'codexErrorLog';
 const MAX_ENTRIES = 200;
+const MAX_MESSAGE_LENGTH = 1000;
+const MAX_STACK_LENGTH = 2000;
 
 let initialized = false;
 let currentContext = 'unknown';
 // Serialize storage writes within this context to avoid read/modify/write races.
 let writeChain = Promise.resolve();
+
+/** Bounds any value we're about to persist so a single pathological entry
+ *  (e.g. a `throw` of a huge string, or a CSP violation on a `data:` URI)
+ *  can't blow past the chrome.storage.local quota. */
+function truncate(value, max = MAX_MESSAGE_LENGTH) {
+    const str = typeof value === 'string' ? value : String(value ?? '');
+    return str.length > max ? `${str.slice(0, max)}…` : str;
+}
 
 /** Safe stringify for console arguments. */
 function formatArg(arg) {
@@ -95,9 +105,9 @@ export function initErrorCapture(context = 'page') {
             const err = event.error;
             record({
                 type: 'uncaught-error',
-                message: event.message || (err && err.message) || 'Uncaught error',
+                message: truncate(event.message || (err && err.message) || 'Uncaught error'),
                 source: event.filename ? `${event.filename}:${event.lineno || 0}:${event.colno || 0}` : '',
-                stack: err && err.stack ? String(err.stack).slice(0, 2000) : ''
+                stack: err && err.stack ? truncate(err.stack, MAX_STACK_LENGTH) : ''
             });
         });
 
@@ -105,8 +115,8 @@ export function initErrorCapture(context = 'page') {
             const reason = event.reason;
             record({
                 type: 'unhandled-rejection',
-                message: (reason && (reason.message || String(reason))) || 'Unhandled promise rejection',
-                stack: reason && reason.stack ? String(reason.stack).slice(0, 2000) : ''
+                message: truncate((reason && (reason.message || String(reason))) || 'Unhandled promise rejection'),
+                stack: reason && reason.stack ? truncate(reason.stack, MAX_STACK_LENGTH) : ''
             });
         });
     }
@@ -114,11 +124,12 @@ export function initErrorCapture(context = 'page') {
     // CSP violations only fire in a document context (not the service worker).
     if (typeof document !== 'undefined' && typeof document.addEventListener === 'function') {
         document.addEventListener('securitypolicyviolation', (event) => {
+            const blockedURI = truncate(event.blockedURI);
             record({
                 type: 'csp-violation',
-                message: `Blocked by CSP (${event.violatedDirective}): ${event.blockedURI}`,
+                message: truncate(`Blocked by CSP (${event.violatedDirective}): ${blockedURI}`),
                 directive: event.violatedDirective,
-                blockedURI: event.blockedURI,
+                blockedURI,
                 source: event.sourceFile ? `${event.sourceFile}:${event.lineNumber || 0}` : ''
             });
         });
@@ -131,7 +142,7 @@ export function initErrorCapture(context = 'page') {
         if (typeof original !== 'function' || original.__codexWrapped) return;
         const wrapped = function (...args) {
             try {
-                record({ type: `console.${level}`, message: args.map(formatArg).join(' ').slice(0, 1000) });
+                record({ type: `console.${level}`, message: truncate(args.map(formatArg).join(' ')) });
             } catch {
                 /* ignore */
             }
