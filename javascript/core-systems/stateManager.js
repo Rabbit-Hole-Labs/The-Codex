@@ -547,6 +547,11 @@ export function safeUpdateState(updates, options = {}) {
 // Persistent fields that should be synced to/from chrome.storage
 const PERSISTENT_FIELDS = ['theme', 'colorTheme', 'links', 'categories', 'defaultTileSize', 'view'];
 
+// Array fields that storageManager persists as JSON strings — they must be
+// stringified on write and parsed on read (and tolerated when already an
+// array, for values written by an older/other code path).
+const JSON_ENCODED_FIELDS = ['links', 'categories'];
+
 // Flag to prevent circular updates (our own write triggering onChanged)
 let isWritingToStorage = false;
 
@@ -561,8 +566,8 @@ if (typeof chrome !== 'undefined' && chrome.storage?.onChanged) {
         const updates = {};
         for (const [key, { newValue }] of Object.entries(changes)) {
             if (PERSISTENT_FIELDS.includes(key) && newValue !== undefined) {
-                // Handle links stored as JSON string
-                if (key === 'links' && typeof newValue === 'string') {
+                // Array fields (links, categories) may be stored as JSON strings.
+                if (JSON_ENCODED_FIELDS.includes(key) && typeof newValue === 'string') {
                     try { updates[key] = JSON.parse(newValue); } catch { /* skip corrupt */ }
                 } else {
                     updates[key] = newValue;
@@ -589,7 +594,7 @@ async function persistToStorage(updates) {
     const toStore = {};
     for (const key of PERSISTENT_FIELDS) {
         if (key in updates) {
-            toStore[key] = key === 'links' ? JSON.stringify(updates[key]) : updates[key];
+            toStore[key] = JSON_ENCODED_FIELDS.includes(key) ? JSON.stringify(updates[key]) : updates[key];
         }
     }
 
@@ -623,7 +628,7 @@ export async function initializeFromStorage() {
 
         for (const key of PERSISTENT_FIELDS) {
             if (data[key] !== undefined) {
-                if (key === 'links' && typeof data[key] === 'string') {
+                if (JSON_ENCODED_FIELDS.includes(key) && typeof data[key] === 'string') {
                     try { updates[key] = JSON.parse(data[key]); } catch { /* skip corrupt */ }
                 } else {
                     updates[key] = data[key];
