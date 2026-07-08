@@ -45,8 +45,26 @@ function formatArg(arg) {
     }
 }
 
+/** Normalize a URI for dedup: drop query + fragment so a repeatedly-blocked
+ *  URL that only varies by a cache-buster or per-request token still collapses
+ *  to one entry instead of flushing the ring buffer. */
+function normalizeUri(uri) {
+    if (!uri) return '';
+    try {
+        const u = new URL(uri);
+        return `${u.origin}${u.pathname}`;
+    } catch {
+        return String(uri).split('?')[0].split('#')[0];
+    }
+}
+
 /** Signature used to collapse repeated identical entries into one (with a count). */
 function signatureOf(entry) {
+    // CSP violations differing only by query/fragment should still collapse,
+    // so dedup on directive + normalized blocked URI rather than the full message.
+    if (entry.type === 'csp-violation') {
+        return ['csp-violation', entry.directive || '', normalizeUri(entry.blockedURI)].join('|');
+    }
     return [entry.type, entry.message, entry.source || '', entry.directive || ''].join('|');
 }
 
