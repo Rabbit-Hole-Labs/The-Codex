@@ -1,5 +1,5 @@
 import * as LinkManager from './linkManager.js';
-import { sanitizeHTML } from '../features/utils.js';
+import { escapeHtml, validateAndSanitizeUrl } from '../features/utils.js';
 import { debug, debugError } from './debug.js';
 
 export function getElements() {
@@ -69,8 +69,8 @@ function createLinkElement(link, index, state) {
             <input type="checkbox" class="link-checkbox" value="${index}">
         </div>
         <div class="link-details">
-            <span class="link-title">${sanitizeHTML(link.name)}</span>
-            <span class="link-category">(${sanitizeHTML(link.category || 'Default')})</span>
+            <span class="link-title">${escapeHtml(link.name)}</span>
+            <span class="link-category">(${escapeHtml(link.category || 'Default')})</span>
         </div>
         <div class="link-actions">
             <button class="visit-button">Visit</button>
@@ -82,7 +82,12 @@ function createLinkElement(link, index, state) {
     div.querySelector('.visit-button').addEventListener('click', (e) => {
         e.stopPropagation();
         e.preventDefault();
-        window.open(link.url, '_blank');
+        // Validate the scheme before opening (blocks javascript:/data:); use
+        // noopener so the opened tab cannot reach back via window.opener.
+        const safeUrl = validateAndSanitizeUrl(link.url);
+        if (safeUrl !== '#') {
+            window.open(safeUrl, '_blank', 'noopener');
+        }
     });
     div.querySelector('.edit-button').addEventListener('click', (e) => {
         e.stopPropagation();

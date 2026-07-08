@@ -3,6 +3,7 @@ import * as CategoryManager from '../core-systems/categoryManager.js';
 import * as UIManager from '../core-systems/uiManager.js';
 import * as StorageManager from '../core-systems/storageManager.js';
 import { getState, safeUpdateState } from '../core-systems/stateManager.js';
+import { escapeHtml } from '../features/utils.js';
 import { syncStatusIndicator } from '../features/syncStatusIndicator.js';
 import { syncSettingsController } from '../features/syncSettingsController.js';
 import '../features/consoleCommands.js';
@@ -750,7 +751,10 @@ function renderCategoryReorderList() {
         categoryCounts[cat] = (categoryCounts[cat] || 0) + 1;
     });
 
-    container.innerHTML = categories.map((category, index) => `
+    container.innerHTML = categories.map((rawCategory, index) => {
+        const category = escapeHtml(rawCategory);
+        const linkCount = categoryCounts[rawCategory] || 0;
+        return `
         <div class="category-reorder-item"
              data-category="${category}"
              draggable="true"
@@ -766,7 +770,7 @@ function renderCategoryReorderList() {
                 </svg>
             </div>
             <span class="category-name">${category}</span>
-            <span class="category-count">${categoryCounts[category] || 0} links</span>
+            <span class="category-count">${linkCount} links</span>
             <div class="reorder-actions">
                 <button type="button" class="reorder-btn move-up" data-category="${category}" ${index === 0 ? 'disabled' : ''}>
                     <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -780,7 +784,8 @@ function renderCategoryReorderList() {
                 </button>
             </div>
         </div>
-    `).join('');
+    `;
+    }).join('');
 
     // Clear pending order when re-rendering from storage
     pendingCategoryOrder = null;
@@ -875,7 +880,10 @@ function renderCategoryReorderListWithOrder(order) {
         categoryCounts[cat] = (categoryCounts[cat] || 0) + 1;
     });
 
-    container.innerHTML = order.map((category, index) => `
+    container.innerHTML = order.map((rawCategory, index) => {
+        const category = escapeHtml(rawCategory);
+        const linkCount = categoryCounts[rawCategory] || 0;
+        return `
         <div class="category-reorder-item"
              data-category="${category}"
              draggable="true"
@@ -891,7 +899,7 @@ function renderCategoryReorderListWithOrder(order) {
                 </svg>
             </div>
             <span class="category-name">${category}</span>
-            <span class="category-count">${categoryCounts[category] || 0} links</span>
+            <span class="category-count">${linkCount} links</span>
             <div class="reorder-actions">
                 <button type="button" class="reorder-btn move-up" data-category="${category}" ${index === 0 ? 'disabled' : ''}>
                     <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -905,7 +913,8 @@ function renderCategoryReorderListWithOrder(order) {
                 </button>
             </div>
         </div>
-    `).join('');
+    `;
+    }).join('');
 
     // Re-setup drag and drop
     setupCategoryDragDrop();

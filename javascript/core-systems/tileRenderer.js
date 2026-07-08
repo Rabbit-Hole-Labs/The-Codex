@@ -15,7 +15,13 @@ import { sanitizeHTML, validateAndSanitizeUrl } from '../features/utils.js';
  */
 export function getIconUrl(link) {
     if (link.icon && link.icon.trim() && link.icon !== 'default') {
-        return link.icon;
+        const icon = link.icon.trim();
+        // Restrict custom icons to http(s) and data:image URIs so a stored/
+        // imported link cannot point the <img> at an odd scheme (security
+        // review #60). This still allows self-hosted and base64 icons.
+        if (/^https?:\/\//i.test(icon) || /^data:image\//i.test(icon)) {
+            return icon;
+        }
     }
     return '';
 }

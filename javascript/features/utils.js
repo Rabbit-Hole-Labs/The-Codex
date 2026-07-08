@@ -40,6 +40,29 @@ export function extractTextContent(str) {
 export { extractTextContent as sanitizeHTML };
 
 /**
+ * Escape a string for safe interpolation into HTML text or double-quoted
+ * attribute contexts. Encodes the five characters that can break out of
+ * markup (& < > " ') so an untrusted value can never inject elements or
+ * attributes.
+ *
+ * Use this — NOT extractTextContent/sanitizeHTML — whenever an untrusted
+ * value is placed into an innerHTML template string. (extractTextContent
+ * DECODES entities, so it must only ever feed textContent, never innerHTML.)
+ *
+ * @param {*} value - The value to escape (coerced to string)
+ * @returns {string} HTML-escaped string
+ */
+export function escapeHtml(value) {
+    if (value === null || value === undefined) return '';
+    return String(value)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
+/**
  * Validates and sanitizes URLs to prevent security vulnerabilities
  * Blocks javascript:, data:, and other dangerous URL schemes
  * @param {string} url - The URL to validate

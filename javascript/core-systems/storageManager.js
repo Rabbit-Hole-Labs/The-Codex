@@ -1,6 +1,8 @@
 import { syncManager } from './syncManager.js';
 import { handleError, CodexError } from '../features/errorHandler.js';
 import errorHandler from '../features/errorHandler.js';
+import { validateAndSanitizeUrl } from '../features/utils.js';
+import { sanitizeUserInput } from '../features/securityUtils.js';
 const { ERROR_TYPES, ERROR_SEVERITY } = errorHandler;
 
 export async function loadLinks() {
@@ -650,11 +652,32 @@ export async function importLinks(state, file) {
             } catch (urlError) {
                 throw new Error(`Invalid link at index ${i}: Link has an invalid URL format`);
             }
+
+            // Sanitize untrusted fields before storing. An imported file is an
+            // untrusted boundary (security review #54): new URL() above accepts
+            // javascript:/data: schemes, so re-validate the URL and strip any
+            // markup from the display fields.
+            const safeUrl = validateAndSanitizeUrl(link.url);
+            if (safeUrl === '#') {
+                throw new Error(`Invalid link at index ${i}: URL uses an unsupported or unsafe scheme`);
+            }
+            link.url = safeUrl;
+            link.name = sanitizeUserInput(link.name, { maxLength: 100 });
+            link.category = sanitizeUserInput(link.category, { maxLength: 50 });
+            if (link.icon != null && link.icon !== 'default') {
+                const safeIcon = validateAndSanitizeUrl(link.icon);
+                link.icon = safeIcon === '#' ? null : safeIcon;
+            }
         }
 
         // Update state with imported data
         state.links = linksToImport;
-        state.categories = data.categories || ['Default'];
+        state.categories = (Array.isArray(data.categories) ? data.categories : ['Default'])
+            .map(category => sanitizeUserInput(String(category), { maxLength: 50 }))
+            .filter(category => category.length > 0);
+        if (state.categories.length === 0) {
+            state.categories = ['Default'];
+        }
         state.theme = data.theme || 'dark';
         state.view = data.view || 'grid';
         state.colorTheme = data.colorTheme || 'default';
@@ -694,12 +717,17 @@ export async function importBookmarks(state) {
         
         function extractBookmarks(nodes) {
             for (const node of nodes) {
-                if (node.url && !node.url.startsWith('javascript:')) {
-                    bookmarks.push({
-                        name: node.title || 'Untitled',
-                        url: node.url,
-                        category: 'Bookmarks'
-                    });
+                if (node.url) {
+                    // Validate the scheme (blocks javascript:/data:/file:/etc.)
+                    // and sanitize the title before importing (security review #54).
+                    const safeUrl = validateAndSanitizeUrl(node.url);
+                    if (safeUrl !== '#') {
+                        bookmarks.push({
+                            name: sanitizeUserInput(node.title || 'Untitled', { maxLength: 100 }),
+                            url: safeUrl,
+                            category: 'Bookmarks'
+                        });
+                    }
                 }
                 if (node.children) {
                     extractBookmarks(node.children);

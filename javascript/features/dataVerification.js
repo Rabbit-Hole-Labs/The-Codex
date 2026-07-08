@@ -1,4 +1,6 @@
 // Data Verification and Inspection Utility
+import { escapeHtml } from './utils.js';
+
 export class DataVerification {
     constructor() {
         this.modal = null;
@@ -465,7 +467,7 @@ export class DataVerification {
             <div class="data-summary">
                 <div class="data-summary-row">
                     <strong>Source:</strong>
-                    <span>${data.source}</span>
+                    <span>${escapeHtml(data.source)}</span>
                 </div>
                 <div class="data-summary-row">
                     <strong>Total Keys:</strong>
@@ -496,7 +498,7 @@ export class DataVerification {
             </div>
 
             <div class="data-content" id="data-content">
-${JSON.stringify(data.parsed, null, 2)}
+${escapeHtml(JSON.stringify(data.parsed, null, 2))}
             </div>
         `;
     }
@@ -548,11 +550,11 @@ ${JSON.stringify(data.parsed, null, 2)}
 • Modified: ${diff.links.modified.length}
 
 <strong>Category Differences:</strong>
-• Only Local: ${diff.categories.onlyLocal.join(', ') || 'None'}
-• Only Cloud: ${diff.categories.onlyCloud.join(', ') || 'None'}
+• Only Local: ${escapeHtml(diff.categories.onlyLocal.join(', ') || 'None')}
+• Only Cloud: ${escapeHtml(diff.categories.onlyCloud.join(', ') || 'None')}
 
 <strong>Metadata Status:</strong>
-${JSON.stringify(diff.metadata, null, 2)}
+${escapeHtml(JSON.stringify(diff.metadata, null, 2))}
             </div>
         `;
     }
@@ -582,24 +584,24 @@ ${JSON.stringify(diff.metadata, null, 2)}
             <div class="data-content">
 <strong>Local Data Validation:</strong>
 Errors: ${localVal.errors.length}
-${localVal.errors.map(err => `• ${err}`).join('\n')}
+${localVal.errors.map(err => `• ${escapeHtml(err)}`).join('\n')}
 
 Warnings: ${localVal.warnings.length}
-${localVal.warnings.map(warn => `• ${warn}`).join('\n')}
+${localVal.warnings.map(warn => `• ${escapeHtml(warn)}`).join('\n')}
 
 <strong>Cloud Data Validation:</strong>
 Errors: ${cloudVal.errors.length}
-${cloudVal.errors.map(err => `• ${err}`).join('\n')}
+${cloudVal.errors.map(err => `• ${escapeHtml(err)}`).join('\n')}
 
 Warnings: ${cloudVal.warnings.length}
-${cloudVal.warnings.map(warn => `• ${warn}`).join('\n')}
+${cloudVal.warnings.map(warn => `• ${escapeHtml(warn)}`).join('\n')}
 
 <strong>Cross-validation:</strong>
 Errors: ${crossVal.errors.length}
-${crossVal.errors.map(err => `• ${err}`).join('\n')}
+${crossVal.errors.map(err => `• ${escapeHtml(err)}`).join('\n')}
 
 Warnings: ${crossVal.warnings.length}
-${crossVal.warnings.map(warn => `• ${warn}`).join('\n')}
+${crossVal.warnings.map(warn => `• ${escapeHtml(warn)}`).join('\n')}
             </div>
         `;
     }
