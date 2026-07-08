@@ -259,20 +259,27 @@ export class SyncStatusIndicator {
         const quotaClass = status.quotaPercentage > 90 ? 'danger' :
                           status.quotaPercentage > 70 ? 'warning' : '';
 
+        // A version of 0 (or falsy) means that side has never been synced;
+        // don't render it as "In Sync" or as the Unix epoch (1969).
+        const neverSynced = !status.localVersion && !status.remoteVersion;
+        const statusText = neverSynced ? 'Not synced yet'
+            : (status.isInSync ? 'In Sync' : 'Out of Sync');
+        const fmtVersion = (v) => v ? new Date(v).toLocaleString() : 'Never';
+
         modal.innerHTML = `
             <h3>Sync Status</h3>
             <div class="sync-status-info">
                 <div class="sync-status-row">
                     <span class="sync-status-label">Status:</span>
-                    <span class="sync-status-value">${status.isInSync ? 'In Sync' : 'Out of Sync'}</span>
+                    <span class="sync-status-value">${statusText}</span>
                 </div>
                 <div class="sync-status-row">
                     <span class="sync-status-label">Local Version:</span>
-                    <span class="sync-status-value">${new Date(status.localVersion).toLocaleString()}</span>
+                    <span class="sync-status-value">${fmtVersion(status.localVersion)}</span>
                 </div>
                 <div class="sync-status-row">
                     <span class="sync-status-label">Cloud Version:</span>
-                    <span class="sync-status-value">${new Date(status.remoteVersion).toLocaleString()}</span>
+                    <span class="sync-status-value">${fmtVersion(status.remoteVersion)}</span>
                 </div>
                 <div class="sync-status-row">
                     <span class="sync-status-label">Storage Used:</span>
