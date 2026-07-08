@@ -1,3 +1,4 @@
+import { initErrorCapture } from '../features/errorCapture.js';
 import * as LinkManager from '../core-systems/linkManager.js';
 import * as CategoryManager from '../core-systems/categoryManager.js';
 import * as UIManager from '../core-systems/uiManager.js';
@@ -7,6 +8,9 @@ import { escapeHtml } from '../features/utils.js';
 import { syncStatusIndicator } from '../features/syncStatusIndicator.js';
 import { syncSettingsController } from '../features/syncSettingsController.js';
 import '../features/consoleCommands.js';
+
+// Register global error capture as early as possible (manage context).
+initErrorCapture('manage');
 
 // State is managed exclusively through stateManager — no local state object.
 // Use getState() for reads, safeUpdateState() for writes.

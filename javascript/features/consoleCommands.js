@@ -15,6 +15,7 @@ import { dataVerification } from './dataVerification.js';
 import { syncManager } from '../core-systems/syncManager.js';
 import { getCacheStats, clearIconCache, resetCacheStats, preloadIcons } from './iconCache.js';
 import { setDebugEnabled, isDebugEnabled } from '../core-systems/debug.js';
+import { getCapturedErrors, clearCapturedErrors, formatCapturedErrors } from './errorCapture.js';
 
 // Global console helper for The Codex
 const CodexConsole = {
@@ -224,6 +225,61 @@ const CodexConsole = {
         } catch (error) {
             console.error('Failed to export all data:', error);
             return null;
+        }
+    },
+
+    // Print captured runtime errors (uncaught, rejections, CSP violations,
+    // console.error/warn) — the same problems shown on the chrome://extensions
+    // errors screen, in a consistent, copy-pasteable form.
+    async errors() {
+        try {
+            const list = await getCapturedErrors();
+            console.log(formatCapturedErrors(list));
+            return list;
+        } catch (error) {
+            console.error('Failed to read captured errors:', error);
+            return [];
+        }
+    },
+
+    // Download the captured error log as JSON (for pasting into a bug report).
+    async exportErrors() {
+        try {
+            const list = await getCapturedErrors();
+            const payload = {
+                exportedAt: new Date().toISOString(),
+                userAgent: (typeof navigator !== 'undefined' && navigator.userAgent) || 'unknown',
+                extensionVersion: (typeof chrome !== 'undefined' && chrome.runtime?.getManifest)
+                    ? chrome.runtime.getManifest().version : 'unknown',
+                count: list.length,
+                errors: list
+            };
+            const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = `codex-errors-${Date.now()}.json`;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            URL.revokeObjectURL(url);
+            console.log(`Exported ${list.length} captured error(s)`);
+            return payload;
+        } catch (error) {
+            console.error('Failed to export captured errors:', error);
+            return null;
+        }
+    },
+
+    // Clear the captured error log.
+    async clearErrors() {
+        try {
+            await clearCapturedErrors();
+            console.log('Captured error log cleared');
+            return true;
+        } catch (error) {
+            console.error('Failed to clear captured errors:', error);
+            return false;
         }
     },
 
@@ -743,6 +799,11 @@ Real Extension Tests (CAN FAIL IF FIXES DON'T WORK):
 - CodexConsole.testAllRealFunctionality() - Run all real functionality tests
 - CodexConsole.testActualExtensionIssues() - Diagnostic for actual extension issues
 - CodexConsole.injectCorruptedData()      - Inject corrupted data for testing storage fixes
+
+Error Log (captured runtime errors, CSP violations, console.error/warn):
+- CodexConsole.errors()        - Print captured errors (paste-friendly)
+- CodexConsole.exportErrors()  - Download the error log as JSON
+- CodexConsole.clearErrors()   - Clear the captured error log
 
 Utilities:
 - CodexConsole.exportAll()     - Export all data and analysis

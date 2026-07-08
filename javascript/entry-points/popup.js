@@ -1,4 +1,8 @@
+import { initErrorCapture } from '../features/errorCapture.js';
 import { loadCategories, saveCategories, loadLinks, saveLinks } from '../core-systems/storageManager.js';
+
+// Register global error capture as early as possible (popup context).
+initErrorCapture('popup');
 
 document.addEventListener('DOMContentLoaded', function() {
     const addSiteForm = document.getElementById('addSiteForm');
