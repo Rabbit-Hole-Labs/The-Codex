@@ -54,9 +54,22 @@ describe('getIconUrl scheme restriction (#60)', () => {
         expect(getIconUrl({ icon: 'file:///etc/passwd' })).toBe('');
     });
 
-    it('keeps https icons', () => {
-        expect(getIconUrl({ icon: 'https://cdn.example.com/i.png' }))
-            .toBe('https://cdn.example.com/i.png');
+    it('rejects arbitrary https icon hosts', () => {
+        expect(getIconUrl({ icon: 'https://cdn.example.com/i.png' })).toBe('');
+    });
+
+    it('rejects http icons', () => {
+        expect(getIconUrl({ icon: 'http://cdn.jsdelivr.net/x.png' })).toBe('');
+    });
+
+    it('keeps jsDelivr (selfh.st) icons', () => {
+        const url = 'https://cdn.jsdelivr.net/gh/selfhst/icons/webp/jellyfin.webp';
+        expect(getIconUrl({ icon: url })).toBe(url);
+    });
+
+    it('keeps selfh.st icons', () => {
+        const url = 'https://selfh.st/icons/webp/radarr.webp';
+        expect(getIconUrl({ icon: url })).toBe(url);
     });
 
     it('keeps data:image icons (base64 custom icons)', () => {

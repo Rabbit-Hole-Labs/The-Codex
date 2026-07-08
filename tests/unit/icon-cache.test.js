@@ -127,6 +127,7 @@ describe('Icon Cache', () => {
             const result1 = await iconCacheModule.loadIconWithCache(link, {
                 allowCustom: true,
                 allowFavicon: false,
+                allowSelfhst: false,
                 allowGenerated: false
             });
 
@@ -134,6 +135,7 @@ describe('Icon Cache', () => {
             const result2 = await iconCacheModule.loadIconWithCache(link, {
                 allowCustom: false,
                 allowFavicon: false,
+                allowSelfhst: false,
                 allowGenerated: true
             });
 
@@ -149,6 +151,7 @@ describe('Icon Cache', () => {
             }, {
                 allowCustom: false,
                 allowFavicon: false,
+                allowSelfhst: false,
                 allowGenerated: true
             });
 
@@ -167,6 +170,7 @@ describe('Icon Cache', () => {
                 allowCustom: false,
                 preferCustom: false,
                 allowFavicon: false,
+                allowSelfhst: false,
                 allowGenerated: false
             });
 
@@ -194,6 +198,7 @@ describe('Icon Cache', () => {
             }, {
                 allowCustom: false,
                 allowFavicon: false,
+                allowSelfhst: false,
                 allowGenerated: true
             });
 
@@ -203,6 +208,7 @@ describe('Icon Cache', () => {
             }, {
                 allowCustom: false,
                 allowFavicon: false,
+                allowSelfhst: false,
                 allowGenerated: true
             });
 
@@ -224,6 +230,7 @@ describe('Icon Cache', () => {
             }, {
                 allowCustom: false,
                 allowFavicon: false,
+                allowSelfhst: false,
                 allowGenerated: true,
                 timeout: 100
             });
@@ -240,6 +247,7 @@ describe('Icon Cache', () => {
             }, {
                 allowCustom: false,
                 allowFavicon: false,
+                allowSelfhst: false,
                 allowGenerated: true,
                 respectCSP: true
             });
@@ -266,6 +274,7 @@ describe('Icon Cache', () => {
             const result = await iconCacheModule.batchLoadIcons(links, {
                 allowCustom: false,
                 allowFavicon: false,
+                allowSelfhst: false,
                 allowGenerated: true,
                 batchSize: 10,
                 delayBetweenBatches: 0
@@ -296,6 +305,7 @@ describe('Icon Cache', () => {
             }, {
                 allowCustom: false,
                 allowFavicon: false,
+                allowSelfhst: false,
                 allowGenerated: true
             });
 
@@ -311,6 +321,7 @@ describe('Icon Cache', () => {
             }, {
                 allowCustom: false,
                 allowFavicon: false,
+                allowSelfhst: false,
                 allowGenerated: true
             });
 
@@ -326,6 +337,7 @@ describe('Icon Cache', () => {
             }, {
                 allowCustom: false,
                 allowFavicon: false,
+                allowSelfhst: false,
                 allowGenerated: true
             });
 
@@ -341,6 +353,7 @@ describe('Icon Cache', () => {
             }, {
                 allowCustom: false,
                 allowFavicon: false,
+                allowSelfhst: false,
                 allowGenerated: true
             });
 

@@ -3,18 +3,6 @@
  * Provides intelligent icon loading, caching, fallback mechanisms, and performance optimization
  */
 
-// CSP-aware icon loading configuration
-const CSP_CONFIG = {
-    // Removed domain allowlist - extension needs to load favicons from any domain
-    // Manifest permissions control which domains are accessible
-    blockedSchemes: [], // Don't block HTTP - many sites only have HTTP favicons
-    allowLocalIPs: true, // Allow local IP addresses for home lab environments
-    allowDataUrls: true,
-    fallbackOnCSPBlock: true,
-    // Only block known dangerous protocols
-    dangerousProtocols: ['javascript:', 'vbscript:', 'file:']
-};
-
 // Icon cache storage
 let iconCache = new Map();
 let cacheStats = {
@@ -37,11 +25,24 @@ const CACHE_CONFIG = {
 
 // Icon sources priority
 const ICON_SOURCES = {
-    CUSTOM: 'custom', // User-uploaded icons
-    CLEARBIT: 'clearbit', // Clearbit logo API
-    FAVICON: 'favicon', // Site favicon
+    CUSTOM: 'custom', // User-provided data: URI or selfh.st/jsDelivr URL
+    SELFHST: 'selfhst', // selfh.st/icons library (self-hosted app logos)
+    GOOGLE: 'google', // Google favicon proxy (public sites)
     GENERATED: 'generated' // Generated from domain/name
 };
+
+// selfh.st/icons — a curated library of self-hosted app logos, served via
+// jsDelivr from the selfhst/icons GitHub repo. WebP covers every icon.
+// Icons resolve to a single known host (cdn.jsdelivr.net), which is why this
+// approach lets the CSP drop the img-src wildcard.
+const SELFHST_ICONS_BASE = 'https://cdn.jsdelivr.net/gh/selfhst/icons';
+
+// Hosts allowed for user-provided custom icons (besides data: URIs). Kept in
+// lockstep with the manifest CSP img-src.
+const ALLOWED_ICON_HOSTS = ['cdn.jsdelivr.net', 'selfh.st'];
+
+// Domain labels too generic to reliably identify an app on selfh.st.
+const GENERIC_DOMAIN_LABELS = new Set(['www', 'app', 'apps', 'home', 'dashboard', 'dash', 'portal', 'web', 'admin', 'my']);
 
 // Fallback icon generation
 const FALLBACK_COLORS = [
@@ -63,7 +64,7 @@ export async function loadIconWithCache(link, options = {}) {
 
     const {
         preferCustom = true,
-        allowClearbit = true,
+        allowSelfhst = true,
         allowFavicon = true,
         allowGenerated = true,
         timeout = CACHE_CONFIG.timeout,
@@ -74,7 +75,7 @@ export async function loadIconWithCache(link, options = {}) {
 
     // Get CSP-compliant options if respectCSP is enabled
     const compliantOptions = respectCSP ? getCSPCompliantOptions(options) : {
-        allowClearbit, allowFavicon, allowGenerated, timeout
+        allowSelfhst, allowFavicon, allowGenerated, timeout
     };
 
     try {
@@ -94,7 +95,7 @@ export async function loadIconWithCache(link, options = {}) {
         // Try to load icon from various sources
         let iconUrl = null;
 
-        // 1. Try custom icon if available
+        // 1. Try custom icon if available (data: URI or selfh.st/jsDelivr URL)
         if (preferCustom && link.icon) {
             iconUrl = await loadCustomIcon(link.icon, compliantOptions.timeout);
             if (iconUrl) {
@@ -103,16 +104,28 @@ export async function loadIconWithCache(link, options = {}) {
             }
         }
 
-        // 2. Try favicon (with CSP validation) - Skip Clearbit due to DNS resolution issues
-        if (compliantOptions.allowFavicon) {
-            iconUrl = await loadFaviconIconCSP(link.url, compliantOptions.timeout);
+        // 2. Match against the selfh.st/icons library (self-hosted app logos).
+        //    This is the primary source and works for internal/homelab apps
+        //    without ever contacting the internal host.
+        if (compliantOptions.allowSelfhst !== false) {
+            iconUrl = await loadSelfhstIcon(link, compliantOptions.timeout);
             if (iconUrl) {
-                await cacheIcon(cacheKey, iconUrl, ICON_SOURCES.FAVICON);
+                await cacheIcon(cacheKey, iconUrl, ICON_SOURCES.SELFHST);
                 return iconUrl;
             }
         }
 
-        // 4. Generate fallback icon
+        // 3. Fall back to the Google favicon proxy for public sites with no
+        //    selfh.st match. One known host; no per-site fetch, no wildcard.
+        if (compliantOptions.allowFavicon) {
+            iconUrl = await loadGoogleFaviconIcon(link.url, compliantOptions.timeout);
+            if (iconUrl) {
+                await cacheIcon(cacheKey, iconUrl, ICON_SOURCES.GOOGLE);
+                return iconUrl;
+            }
+        }
+
+        // 4. Generate a text-initials fallback icon
         if (compliantOptions.allowGenerated) {
             iconUrl = generateFallbackIcon(link);
             if (iconUrl) {
@@ -141,16 +154,26 @@ export async function loadIconWithCache(link, options = {}) {
  */
 async function loadCustomIcon(iconUrl, timeout) {
     try {
-        // Validate URL
-        const url = new URL(iconUrl);
+        const trimmed = String(iconUrl).trim();
 
-        // Check if it's a data URL (base64 image)
-        if (url.protocol === 'data:') {
-            return validateDataUrl(iconUrl) ? iconUrl : null;
+        // Data URIs (base64 images) — validated and size-limited.
+        if (/^data:/i.test(trimmed)) {
+            return validateDataUrl(trimmed) ? trimmed : null;
         }
 
-        // For HTTP(S) URLs, test if image loads
-        return await testImageLoad(iconUrl, timeout);
+        // Otherwise only https URLs on an allowed icon host (jsDelivr/selfh.st).
+        // Arbitrary external hosts are rejected so the CSP can drop the
+        // img-src wildcard; users wanting a bespoke icon can paste a data: URI.
+        const url = new URL(trimmed);
+        const host = url.hostname.toLowerCase();
+        const hostAllowed = url.protocol === 'https:' &&
+            ALLOWED_ICON_HOSTS.some(h => host === h || host.endsWith('.' + h));
+        if (!hostAllowed) {
+            console.warn('Custom icon rejected — only data: URIs and selfh.st/jsDelivr URLs are allowed:', host);
+            return null;
+        }
+
+        return await testImageLoad(trimmed, timeout);
 
     } catch (error) {
         console.warn('Invalid custom icon URL:', iconUrl, error);
@@ -159,87 +182,103 @@ async function loadCustomIcon(iconUrl, timeout) {
 }
 
 /**
- * Loads icon from Clearbit logo API
+ * Normalizes a string into a selfh.st icon slug (lowercase, hyphenated).
+ * @param {string} value - Source text (app name or domain label)
+ * @returns {string} - Slug, e.g. "Home Assistant" -> "home-assistant"
+ */
+export function toIconSlug(value) {
+    return String(value || '')
+        .toLowerCase()
+        .trim()
+        .replace(/['"’.]/g, '')  // drop apostrophes/quotes/dots inside words
+        .replace(/[^a-z0-9]+/g, '-')  // any other run of non-alphanumerics -> hyphen
+        .replace(/^-+|-+$/g, '');     // trim leading/trailing hyphens
+}
+
+/**
+ * Builds candidate selfh.st slugs for a link, most specific first.
+ * The tile name is the primary signal (users name tiles after the app);
+ * hostname labels are secondary and cover app-as-subdomain / app-as-domain.
+ * @param {Object} link - Link object
+ * @returns {string[]} - Ordered, de-duplicated candidate slugs
+ */
+export function selfhstCandidateSlugs(link) {
+    const candidates = [];
+    const push = (slug) => {
+        if (slug && slug.length >= 2 && !candidates.includes(slug)) {
+            candidates.push(slug);
+        }
+    };
+
+    push(toIconSlug(link.name));
+
+    try {
+        const host = extractDomain(link.url); // hostname without www
+        // Skip IP addresses — their octets never identify an app.
+        if (!/^\d{1,3}(\.\d{1,3}){3}$/.test(host)) {
+            const labels = host.split('.').filter(Boolean);
+            const usable = (label) => label && !GENERIC_DOMAIN_LABELS.has(label) && !/^\d+$/.test(label);
+            if (labels.length) {
+                if (usable(labels[0])) push(toIconSlug(labels[0]));
+                if (labels.length >= 2 && usable(labels[labels.length - 2])) {
+                    push(toIconSlug(labels[labels.length - 2]));
+                }
+            }
+        }
+    } catch {
+        // link.url isn't a parseable URL — name-based matching still applies.
+    }
+
+    return candidates;
+}
+
+/**
+ * Builds the jsDelivr URL for a selfh.st icon (WebP covers every icon).
+ * @param {string} slug - Icon slug
+ * @returns {string} - Full CDN URL
+ */
+export function selfhstIconUrl(slug) {
+    return `${SELFHST_ICONS_BASE}/webp/${slug}.webp`;
+}
+
+/**
+ * Matches a link to an icon in the selfh.st/icons library by probing candidate
+ * slugs; the first that resolves to a real icon wins. Works for internal/homelab
+ * apps by name without ever contacting the internal host.
+ * @param {Object} link - Link object
+ * @param {number} timeout - Timeout in milliseconds
+ * @returns {Promise<string|null>} - Icon URL or null
+ */
+async function loadSelfhstIcon(link, timeout) {
+    if (!link) return null;
+    const slugs = selfhstCandidateSlugs(link);
+    for (const slug of slugs) {
+        const result = await testImageLoad(selfhstIconUrl(slug), timeout);
+        if (result) return result;
+    }
+    return null;
+}
+
+/**
+ * Loads a favicon via Google's favicon proxy (public sites only). A single
+ * known host — no per-site fetch, so no img-src wildcard is required.
+ * Private/local hosts are skipped since Google's proxy cannot reach them.
  * @param {string} siteUrl - Site URL
  * @param {number} timeout - Timeout in milliseconds
  * @returns {Promise<string|null>} - Icon URL or null
  */
-async function loadClearbitIcon(siteUrl, timeout) {
+async function loadGoogleFaviconIcon(siteUrl, timeout) {
     try {
-        const domain = extractDomain(siteUrl);
-        if (!domain) return null;
-
-        // Skip Clearbit for local IP addresses (they can't be resolved)
-        if (isLocalIP(domain)) {
-            console.log(`Skipping Clearbit for local IP: ${domain}`);
+        let raw = String(siteUrl || '').trim();
+        if (!/^https?:\/\//i.test(raw)) raw = 'http://' + raw;
+        const url = new URL(raw);
+        if (isLocalIP(url.hostname)) {
             return null;
         }
-
-        // Skip Clearbit for complex subdomains (they often can't be resolved)
-        // Complex subdomains have 3 or more dots: e.g., us-east-2.console.aws.amazon.com
-        const dotCount = (domain.match(/\./g) || []).length;
-        if (dotCount >= 3) {
-            console.log(`Skipping Clearbit for complex subdomain: ${domain}`);
-            return null;
-        }
-
-        const clearbitUrl = `https://logo.clearbit.com/${domain}?size=128`;
-
-        return await testImageLoad(clearbitUrl, timeout);
-
+        const googleUrl = `https://www.google.com/s2/favicons?domain=${encodeURIComponent(url.hostname)}&sz=128`;
+        return await testImageLoad(googleUrl, timeout);
     } catch (error) {
-        console.warn('Failed to load Clearbit icon:', error);
-        return null;
-    }
-}
-
-/**
- * Loads favicon with CSP validation and multiple fallback attempts
- * @param {string} siteUrl - Site URL
- * @param {number} timeout - Timeout in milliseconds
- * @returns {Promise<string|null>} - Favicon URL or null
- */
-async function loadFaviconIconCSP(siteUrl, timeout) {
-    try {
-        const url = new URL(siteUrl);
-        const baseUrl = `${url.protocol}//${url.host}`;
-
-        // Try multiple favicon locations with CSP validation
-        const faviconUrls = [
-            `${baseUrl}/favicon.ico`,
-            `${baseUrl}/favicon.png`,
-            `${baseUrl}/apple-touch-icon.png`,
-            `${baseUrl}/apple-touch-icon-precomposed.png`
-        ];
-
-        // Add Google favicon service for HTTPS sites only
-        if (url.protocol === 'https:') {
-            const googleFaviconUrl = `https://www.google.com/s2/favicons?domain=${url.host}&sz=128`;
-            if (isCSPCompliant(googleFaviconUrl)) {
-                faviconUrls.push(googleFaviconUrl);
-            }
-        }
-
-        // Filter URLs by CSP compliance
-        const compliantUrls = faviconUrls.filter(url => isCSPCompliant(url));
-
-        if (compliantUrls.length === 0) {
-            console.warn('No CSP-compliant favicon URLs available');
-            return null;
-        }
-
-        // Try each compliant URL
-        for (const faviconUrl of compliantUrls) {
-            const result = await testImageLoad(faviconUrl, timeout / compliantUrls.length);
-            if (result) {
-                return result;
-            }
-        }
-
-        return null;
-
-    } catch (error) {
-        console.warn('Failed to load CSP-compliant favicon:', error);
+        console.warn('Failed to build Google favicon URL:', error);
         return null;
     }
 }
@@ -615,46 +654,6 @@ export function stopCacheCleanup() {
 }
 
 /**
- * Checks if a URL is allowed by CSP policies
- * @param {string} url - URL to check
- * @returns {boolean} - Whether URL is CSP compliant
- */
-function isCSPCompliant(url) {
-    try {
-        const urlObj = new URL(url);
-
-        // Check for dangerous protocols (XSS prevention)
-        if (CSP_CONFIG.dangerousProtocols.includes(urlObj.protocol)) {
-            console.warn(`CSP Block: Dangerous protocol ${urlObj.protocol} not allowed`);
-            return false;
-        }
-
-        // Check for data URLs
-        if (urlObj.protocol === 'data:') {
-            return CSP_CONFIG.allowDataUrls;
-        }
-
-        // Allow all HTTP/HTTPS URLs for favicon loading
-        // The manifest permissions control actual network access
-        if (urlObj.protocol === 'http:' || urlObj.protocol === 'https:') {
-            // Check for local IP addresses if needed
-            if (isLocalIP(urlObj.hostname) && !CSP_CONFIG.allowLocalIPs) {
-                console.warn(`CSP Block: Local IP ${urlObj.hostname} not allowed`);
-                return false;
-            }
-            return true;
-        }
-
-        // Allow other protocols (like chrome-extension://)
-        return true;
-
-    } catch (error) {
-        console.error('CSP validation error:', error);
-        return false;
-    }
-}
-
-/**
  * Checks if hostname is a local IP address
  * @param {string} hostname - Hostname to check
  * @returns {boolean} - Whether it's a local IP
@@ -688,8 +687,8 @@ function isLocalIP(hostname) {
 function getCSPCompliantOptions(options) {
     return {
         ...options,
-        allowClearbit: options.allowClearbit && isCSPCompliant('https://clearbit.com'),
-        allowFavicon: options.allowFavicon, // Favicon compliance is checked per-URL in loadFaviconIconCSP
+        allowSelfhst: options.allowSelfhst !== false,
+        allowFavicon: options.allowFavicon,
         timeout: Math.min(options.timeout || CACHE_CONFIG.timeout, 3000) // Shorter timeout for external resources
     };
 }
