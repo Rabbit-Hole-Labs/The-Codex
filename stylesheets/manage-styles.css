@@ -848,6 +848,16 @@ button:disabled {
   font-weight: var(--font-weight-semibold);
 }
 
+/* A lone action button sitting directly in a sync card (e.g. Refresh Status)
+   sizes to its label instead of stretching the full card width. Buttons that
+   live in the 2-col action grids keep filling their cell. */
+.sync-status-card > button,
+.sync-storage-card > button,
+.sync-diagnostics-card > button {
+  align-self: flex-start;
+  min-width: 160px;
+}
+
 /* Label/value info rows: spread label left, value right. */
 .sync-info,
 .diagnostics-info,
@@ -915,21 +925,20 @@ button:disabled {
   color: var(--on-surface-variant);
 }
 
-/* Action footers: deterministic grids instead of inline-flow wrapping,
-   pushed to the bottom of the card so footers align across a row. */
+/* Action footers: deterministic 2-col grids. Content top-aligns (no
+   margin-top:auto) so a button-only card doesn't open a gap under its title
+   when the grid stretches it to its row's height. */
 .sync-actions-grid,
 .verification-actions {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
   gap: var(--space-3);
-  margin-top: auto;
 }
 
 .diagnostic-actions {
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-3);
-  margin-top: auto;
 }
 
 .sync-actions-grid button,
@@ -1595,9 +1604,17 @@ p, span, div, label {
    (this selector had no rule, so the cards stacked full-width). */
 .sync-info-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  /* A uniform 2-column grid of equal-height cards — consistent, not ragged. */
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--space-6);
   margin-top: var(--space-6);
+  align-items: stretch;
+}
+
+@media (max-width: 820px) {
+  .sync-info-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 .settings-card {
@@ -2215,11 +2232,26 @@ form .btn-danger:hover,
 /* Category Management Styles */
 .category-management {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: var(--space-6);
-  /* Size each card to its own content instead of stretching the short cards
-     to match the tallest one (which left big empty gaps below their buttons). */
-  align-items: start;
+  /* Uniform, equal-height cards so the three actions read as one consistent
+     set rather than three differently-shaped boxes. */
+  align-items: stretch;
+}
+
+@media (max-width: 900px) {
+  .category-management {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Push the action button to the bottom of each card so the buttons line up
+   across all three cards even when the forms have different field counts. */
+.category-card .modern-form-compact {
+  height: 100%;
+}
+.category-card .modern-form-compact button {
+  margin-top: auto;
 }
 
 .category-card {
