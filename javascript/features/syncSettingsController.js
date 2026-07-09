@@ -143,7 +143,12 @@ export class SyncSettingsController {
             // sync has ever been recorded — don't render that as a green
             // "In Sync" (matches the newtab indicator's neverSynced treatment).
             if (this.elements.currentStatus) {
-                const neverSynced = !status.localVersion && !status.remoteVersion;
+                // Consistent with the header pill: a profile that has data in
+                // chrome.storage.sync (or has ever recorded a sync) is synced,
+                // even before versioned metadata exists. Only a truly empty,
+                // never-synced profile shows "Not synced yet".
+                const neverSynced = !status.lastSyncTime && !status.localVersion
+                    && !status.remoteVersion && !status.hasData;
                 if (neverSynced) {
                     this.elements.currentStatus.textContent = 'Not synced yet';
                     this.elements.currentStatus.style.color = '#ff9800';

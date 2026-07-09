@@ -1,6 +1,11 @@
 /* Sync Status Indicator Styles
  * Moved from dynamic <style> injection in syncStatusIndicator.js (T-030)
  * to enable removal of 'unsafe-inline' from style-src CSP.
+ *
+ * Colors use the shared theme variables (defined in styles.css and
+ * manage-styles.css) so the pill, menu, and modal adapt to light/dark
+ * instead of the old hardcoded rgba(255,255,255,…) / phantom-var values
+ * that only looked right on the dark theme.
  */
 
 .sync-status-wrapper {
@@ -16,14 +21,17 @@
     gap: 6px;
     padding: 6px 12px;
     border-radius: 20px;
-    background: rgba(255, 255, 255, 0.1);
+    background: var(--surface-elevated);
+    border: 1px solid var(--border-color);
+    color: var(--on-surface);
     cursor: pointer;
     transition: all 0.3s ease;
     font-size: 14px;
 }
 
 .sync-status:hover {
-    background: rgba(255, 255, 255, 0.15);
+    background: var(--surface-hover);
+    border-color: var(--border-hover);
 }
 
 .sync-icon {
@@ -33,14 +41,14 @@
     justify-content: center;
 }
 
-.sync-success .sync-icon { color: #4caf50; }
+.sync-success .sync-icon { color: var(--success-color, #10b981); }
 .sync-progress .sync-icon {
-    color: #2196f3;
+    color: var(--info-color, #06b6d4);
     animation: spin 1s linear infinite;
 }
-.sync-error .sync-icon { color: #f44336; }
-.sync-offline .sync-icon { color: #9e9e9e; }
-.sync-pending .sync-icon { color: #ff9800; }
+.sync-error .sync-icon { color: var(--error-color, #f43f5e); }
+.sync-offline .sync-icon { color: var(--on-surface-variant, #94a3b8); }
+.sync-pending .sync-icon { color: var(--warning-color, #f59e0b); }
 
 @keyframes spin {
     100% { transform: rotate(360deg); }
@@ -52,7 +60,9 @@
     right: 0;
     margin-top: 8px;
     padding: 16px;
-    background: var(--bg-secondary, #1e1e1e);
+    background: var(--surface-color);
+    border: 1px solid var(--border-color);
+    color: var(--on-surface);
     border-radius: 8px;
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
     min-width: 200px;
@@ -61,7 +71,7 @@
 
 .sync-last-time {
     font-size: 12px;
-    color: var(--text-secondary, #aaa);
+    color: var(--on-surface-variant);
     margin-bottom: 12px;
 }
 
@@ -73,7 +83,8 @@
 
 .sync-btn {
     background: transparent;
-    border: 1px solid rgba(255, 255, 255, 0.2);
+    border: 1px solid var(--border-color);
+    color: var(--on-surface);
     border-radius: 4px;
     padding: 4px 8px;
     cursor: pointer;
@@ -84,8 +95,8 @@
 }
 
 .sync-btn:hover {
-    background: rgba(255, 255, 255, 0.1);
-    border-color: rgba(255, 255, 255, 0.3);
+    background: var(--surface-hover);
+    border-color: var(--border-hover);
 }
 
 .sync-btn svg {
@@ -94,7 +105,7 @@
 
 .sync-menu {
     margin-top: 8px;
-    border-top: 1px solid rgba(255, 255, 255, 0.1);
+    border-top: 1px solid var(--border-color);
     padding-top: 8px;
 }
 
@@ -108,21 +119,21 @@
     cursor: pointer;
     transition: background 0.2s ease;
     font-size: 14px;
-    color: var(--text-primary, #fff);
+    color: var(--on-surface);
 }
 
 .sync-menu-item:hover {
-    background: rgba(255, 255, 255, 0.1);
+    background: var(--surface-hover);
 }
 
 .sync-menu-danger {
-    color: #f44336;
+    color: var(--error-color, #f43f5e);
 }
 
 .sync-menu hr {
     margin: 8px 0;
     border: none;
-    border-top: 1px solid rgba(255, 255, 255, 0.1);
+    border-top: 1px solid var(--border-color);
 }
 
 .sync-status-modal {
@@ -130,7 +141,9 @@
     top: 50%;
     left: 50%;
     transform: translate(-50%, -50%);
-    background: var(--bg-primary, #121212);
+    background: var(--surface-color);
+    border: 1px solid var(--border-color);
+    color: var(--on-surface);
     padding: 24px;
     border-radius: 8px;
     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
@@ -155,7 +168,7 @@
 }
 
 .sync-status-label {
-    color: var(--text-secondary, #aaa);
+    color: var(--on-surface-variant);
 }
 
 .sync-status-value {
@@ -165,7 +178,7 @@
 .sync-quota-bar {
     width: 100%;
     height: 8px;
-    background: rgba(255, 255, 255, 0.1);
+    background: var(--surface-hover);
     border-radius: 4px;
     overflow: hidden;
     margin-top: 4px;
@@ -173,14 +186,14 @@
 
 .sync-quota-fill {
     height: 100%;
-    background: #2196f3;
+    background: var(--info-color, #06b6d4);
     transition: width 0.3s ease;
 }
 
 .sync-quota-fill.warning {
-    background: #ff9800;
+    background: var(--warning-color, #f59e0b);
 }
 
 .sync-quota-fill.danger {
-    background: #f44336;
+    background: var(--error-color, #f43f5e);
 }
