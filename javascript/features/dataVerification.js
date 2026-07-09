@@ -420,7 +420,7 @@ export class DataVerification {
         }
 
         body.innerHTML = content;
-        modal.classList.add('show');
+        modal.classList.remove('hidden');
 
         // Setup controls
         this.setupModalControls();
@@ -432,12 +432,17 @@ export class DataVerification {
 
         const modal = document.createElement('div');
         modal.id = 'data-viewer-modal';
-        modal.className = 'data-viewer-modal';
+        // Reuse the app's shared modal shell (.modal/.modal-content/.close-button
+        // + .hidden toggle) so the viewer is a proper centered overlay with a
+        // backdrop, matching #editModal / #iconHelperModal. The inner
+        // .data-viewer-header / .data-viewer-body class names are kept so the
+        // existing querySelectors still resolve.
+        modal.className = 'modal hidden';
         modal.innerHTML = `
-            <div class="data-viewer-content">
+            <div class="modal-content data-viewer-content">
+                <button class="close-button">&times;</button>
                 <div class="data-viewer-header">
                     <h3>Data Viewer</h3>
-                    <button class="data-viewer-close">&times;</button>
                 </div>
                 <div class="data-viewer-body">
                     <!-- Content will be inserted here -->
@@ -448,13 +453,13 @@ export class DataVerification {
         document.body.appendChild(modal);
 
         // Close modal handlers
-        modal.querySelector('.data-viewer-close').addEventListener('click', () => {
-            modal.classList.remove('show');
+        modal.querySelector('.close-button').addEventListener('click', () => {
+            modal.classList.add('hidden');
         });
 
         modal.addEventListener('click', (e) => {
             if (e.target === modal) {
-                modal.classList.remove('show');
+                modal.classList.add('hidden');
             }
         });
     }

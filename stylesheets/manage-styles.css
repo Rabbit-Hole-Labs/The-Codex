@@ -818,6 +818,285 @@ button:disabled {
   margin-top: var(--space-4);
 }
 
+/* ===================================================================
+   Sync Settings & Diagnostics tab — structural layout for the cards
+   and their inner elements (previously only color-forced, never given
+   padding / radius / flex layout, which is why the tab looked cramped
+   and misaligned).
+   =================================================================== */
+
+/* Cards: match the polished .settings-card / .error-log-card treatment
+   and become flex columns so action rows can bottom-align. */
+.sync-status-card,
+.sync-storage-card,
+.sync-actions-card,
+.sync-diagnostics-card,
+.sync-data-verification-card {
+  border-radius: var(--radius-xl);
+  padding: var(--space-6);
+  box-shadow: var(--shadow-sm);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.sync-status-card h3,
+.sync-storage-card h3,
+.sync-actions-card h3,
+.sync-diagnostics-card h3,
+.sync-data-verification-card h3,
+.sync-log-card h3 {
+  margin: 0;
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-semibold);
+}
+
+/* Label/value info rows: spread label left, value right. */
+.sync-info,
+.diagnostics-info,
+.storage-info {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.sync-info-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-4);
+  font-size: var(--font-size-sm);
+}
+
+.sync-info-row .label {
+  color: var(--on-surface-variant);
+}
+
+.sync-info-row .value {
+  font-weight: var(--font-weight-medium);
+  text-align: right;
+}
+
+.sync-info-row .value.monospace,
+.value.monospace {
+  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  word-break: break-all;
+}
+
+/* Storage usage bar (was zero-height / invisible). */
+.storage-bar,
+.storage-bar-container {
+  display: block;
+}
+
+.storage-bar {
+  height: 8px;
+  background: var(--surface-elevated);
+  border-radius: var(--radius-full, 999px);
+  overflow: hidden;
+  margin: var(--space-2) 0;
+}
+
+.storage-fill {
+  display: block;
+  height: 100%;
+  background: var(--primary-color);
+  border-radius: var(--radius-full, 999px);
+  transition: width 0.3s ease;
+}
+
+.storage-fill.warning { background: #e0a800; }
+.storage-fill.danger { background: #dc3545; }
+
+.storage-text,
+.storage-details {
+  display: flex;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  font-size: var(--font-size-xs);
+  color: var(--on-surface-variant);
+}
+
+/* Action footers: deterministic grids instead of inline-flow wrapping,
+   pushed to the bottom of the card so footers align across a row. */
+.sync-actions-grid,
+.verification-actions {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: var(--space-3);
+  margin-top: auto;
+}
+
+.diagnostic-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  margin-top: auto;
+}
+
+.sync-actions-grid button,
+.verification-actions button,
+.diagnostic-actions button {
+  width: 100%;
+}
+
+.diagnostic-actions button {
+  flex: 1 1 45%;
+}
+
+/* Conflict-resolution control: give it breathing room + a full-width select. */
+.sync-strategy {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+
+.sync-strategy label {
+  font-size: var(--font-size-sm);
+  color: var(--on-surface-variant);
+  font-weight: var(--font-weight-medium);
+}
+
+.sync-strategy select {
+  width: 100%;
+}
+
+/* Full-width Sync Activity Log card — structural parity with .error-log-card. */
+.sync-log-card {
+  border-radius: var(--radius-xl);
+  padding: var(--space-6);
+  box-shadow: var(--shadow-sm);
+  margin-top: var(--space-6);
+}
+
+.sync-log {
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  background: var(--background-color);
+  max-height: 240px;
+  overflow-y: auto;
+  padding: var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: var(--space-4) 0;
+}
+
+.log-entry {
+  display: flex;
+  gap: var(--space-3);
+  font-size: var(--font-size-sm);
+}
+
+.log-entry.error .log-message { color: #dc3545; }
+.log-entry.warning .log-message { color: #e0a800; }
+.log-entry.success .log-message { color: #16a34a; }
+
+.log-time {
+  color: var(--on-surface-variant);
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.log-message {
+  color: var(--on-surface);
+  word-break: break-word;
+}
+
+/* ===================================================================
+   Data Viewer modal (View Cloud/Local Data, Compare, Validate).
+   Overlay/card/backdrop come from the shared .modal/.modal-content
+   shell; these are the viewer-specific content styles.
+   =================================================================== */
+#data-viewer-modal .modal-content {
+  max-width: 820px;
+  width: 90%;
+}
+
+.data-viewer-header {
+  border-bottom: 1px solid var(--border-color);
+  padding-bottom: var(--space-3);
+  margin-bottom: var(--space-4);
+}
+
+.data-viewer-header h3 {
+  margin: 0;
+}
+
+.data-viewer-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.data-summary {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.data-summary-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-4);
+  font-size: var(--font-size-sm);
+}
+
+.data-summary-row strong {
+  color: var(--on-surface-variant);
+  font-weight: var(--font-weight-medium);
+}
+
+.data-viewer-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+
+.data-content {
+  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  font-size: var(--font-size-xs);
+  line-height: 1.5;
+  color: var(--on-surface);
+  background: var(--background-color);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  padding: var(--space-4);
+  max-height: 45vh;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.data-content.formatted {
+  white-space: pre;
+  word-break: normal;
+}
+
+.data-comparison {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: var(--space-4);
+}
+
+.comparison-column {
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  padding: var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  font-size: var(--font-size-sm);
+}
+
+.comparison-column h4 {
+  margin: 0 0 var(--space-2);
+  font-size: var(--font-size-base);
+}
+
 .link-item.selected {
   border-color: var(--primary-color);
   background: var(--surface-elevated);
