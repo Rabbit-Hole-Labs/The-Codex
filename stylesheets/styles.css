@@ -1097,8 +1097,9 @@ body.dark.theme-dark-sapphire, body.light.theme-dark-sapphire { --title-glow-col
   transition: color 0.3s ease;
 }
 
-/* Short tiles can't fit two lines — clamp to one so the name never clips. */
-.link-tile.size-small .tile-content h3,
+/* Compact is a single 60px row (icon + name inline), so it can only ever
+   show one line. Every other size — including small — shows the full two
+   lines defined on .tile-content h3 above. */
 .link-tile.size-compact .tile-content h3 {
   -webkit-line-clamp: 1;
   line-clamp: 1;
@@ -1138,12 +1139,15 @@ body.dark.theme-dark-sapphire, body.light.theme-dark-sapphire { --title-glow-col
 }
 
 /* Custom Tile Sizes */
+/* Tall enough for a 28px icon + two 19.6px lines of name + padding (~107px);
+   132px medium stays distinct via its larger 40px icon and greater height. */
 .link-tile.size-small {
-  height: 90px;
+  height: 112px;
   padding: var(--space-4);
 }
 
-.link-tile.size-small .tile-icon {
+.link-tile.size-small .tile-icon,
+.link-tile.size-small .tile-placeholder {
   width: 28px;
   height: 28px;
 }
