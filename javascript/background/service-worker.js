@@ -2,6 +2,7 @@
  * Background Service Worker - Extension lifecycle and storage management
  */
 import { initErrorCapture } from '../features/errorCapture.js';
+import { parseStoredArray } from '../core-systems/storageFormat.js';
 
 // Register global error capture as early as possible (service-worker context).
 initErrorCapture('service-worker');
@@ -33,13 +34,15 @@ async function initializeDefaults() {
         }
         
         const linksData = await chrome.storage.sync.get(['links', 'categories']);
-        
+
+        // Store defaults in the same JSON-encoded form the app uses elsewhere
+        // (saveLinks / saveCategories), so the stored format stays uniform.
         if (!linksData.links) {
-            await chrome.storage.sync.set({ links: [] });
+            await chrome.storage.sync.set({ links: JSON.stringify([]) });
         }
-        
+
         if (!linksData.categories) {
-            await chrome.storage.sync.set({ categories: ['Default'] });
+            await chrome.storage.sync.set({ categories: JSON.stringify(['Default']) });
         }
     } catch (error) {
         console.error('[The Codex] Failed to initialize defaults:', error);
@@ -49,17 +52,24 @@ async function initializeDefaults() {
 async function verifyStorage() {
     try {
         const data = await chrome.storage.sync.get(['links', 'categories']);
-        
-        if (data.links && !Array.isArray(data.links)) {
-            console.warn('[The Codex] Storage corruption: links is not an array');
+
+        // links/categories are stored JSON-encoded, so a string that parses to
+        // an array is healthy — only warn on genuine corruption (e.g. an object,
+        // or a string that doesn't decode to an array).
+        if (data.links !== undefined && parseStoredArray(data.links) === null) {
+            console.warn('[The Codex] Storage corruption: links is not a valid array');
         }
-        
-        if (data.categories && !Array.isArray(data.categories)) {
-            console.warn('[The Codex] Storage corruption: categories is not an array');
+
+        const categories = parseStoredArray(data.categories);
+        if (data.categories !== undefined && categories === null) {
+            console.warn('[The Codex] Storage corruption: categories is not a valid array');
         }
-        
-        if (data.categories && Array.isArray(data.categories) && !data.categories.includes('Default')) {
-            await chrome.storage.sync.set({ categories: ['Default', ...data.categories] });
+
+        // Self-heal a missing Default category, preserving the stored encoding.
+        if (categories && !categories.includes('Default')) {
+            const healed = ['Default', ...categories];
+            const encoded = typeof data.categories === 'string' ? JSON.stringify(healed) : healed;
+            await chrome.storage.sync.set({ categories: encoded });
         }
     } catch (error) {
         console.error('[The Codex] Storage verification failed:', error);
