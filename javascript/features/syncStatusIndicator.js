@@ -45,10 +45,14 @@ export class SyncStatusIndicator {
             const status = await syncManager.getSyncStatus();
             this.updateLastSyncTime(status.lastSyncTime);
             if (navigator.onLine) {
-                // Keep the header pill consistent with the Sync Status panel:
-                // both versions falsy means nothing has ever synced. Previously
-                // the pill hard-defaulted to "Synced", contradicting the panel.
-                const neverSynced = !status.localVersion && !status.remoteVersion;
+                // "Synced" means we can show real sync state: either we've
+                // recorded a sync before (lastSyncTime), the versioned metadata
+                // is populated, or chrome.storage.sync actually holds links right
+                // now (data is present, so this profile IS in sync with the
+                // cloud). Only a truly empty, never-synced profile shows "Not
+                // synced". This keeps the pill consistent with the Sync panel.
+                const neverSynced = !status.lastSyncTime && !status.localVersion
+                    && !status.remoteVersion && !status.hasData;
                 this.updateStatus(neverSynced ? 'notsynced' : 'synced');
             }
         } catch {

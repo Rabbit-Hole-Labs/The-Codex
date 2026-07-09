@@ -14,6 +14,8 @@ export class SyncManager {
 
         // Initialize sync status
         this.initializeSyncStatus();
+        // Watch chrome.storage.sync so status reflects real autosync activity.
+        this.registerSyncActivityRecorder();
     }
 
     // Initialize sync status and listeners
@@ -24,6 +26,53 @@ export class SyncManager {
             this.notifyListeners('initialized', status.syncStatus || 'unknown');
         } catch (error) {
             debugError('Failed to initialize sync status:', error);
+        }
+    }
+
+    // Data keys that live in chrome.storage.sync and count as "synced" activity.
+    static get SYNCED_DATA_KEYS() {
+        return ['links', 'categories', 'theme', 'colorTheme', 'view', 'defaultTileSize'];
+    }
+
+    // Record real autosync activity by listening to chrome.storage.sync.
+    //
+    // chrome.storage.sync IS the cross-device transport: the browser propagates
+    // it automatically, and onChanged fires in every context — the one that
+    // wrote (a local edit) AND every device that receives the update. So a
+    // single sync-area listener captures both "we just pushed" and "a remote
+    // change just landed", which is exactly what the status pill should show.
+    //
+    // We deliberately do NOT call syncData()/reconcile here: saveLinks writes
+    // chrome.storage.sync as primary and only falls back to local, so local is
+    // usually stale — reconciling would resurrect deleted links. Recording is
+    // safe because it only writes local-only status keys (never sync), so it
+    // can't clobber data and can't loop (the listener ignores the local area).
+    registerSyncActivityRecorder() {
+        if (typeof chrome === 'undefined' || !chrome.storage?.onChanged) return;
+        chrome.storage.onChanged.addListener((changes, areaName) => {
+            if (areaName !== 'sync') return;
+            const touched = Object.keys(changes).some(k => SyncManager.SYNCED_DATA_KEYS.includes(k));
+            if (!touched) return;
+            this.recordSyncActivity(changes);
+        });
+    }
+
+    // Stamp the last-sync time and notify listeners that a sync just happened.
+    // Writes only chrome.storage.local (status keys), so it never clobbers
+    // synced data and never re-triggers the sync-area listener above.
+    async recordSyncActivity(changes = {}) {
+        try {
+            this.lastSyncTime = Date.now();
+            await chrome.storage.local.set({ lastSyncTime: this.lastSyncTime, syncStatus: 'synced' });
+
+            let itemsSynced;
+            const linksChange = changes.links;
+            if (linksChange && typeof linksChange.newValue === 'string') {
+                try { itemsSynced = JSON.parse(linksChange.newValue).length; } catch { /* leave undefined */ }
+            }
+            this.notifyListeners('syncComplete', { time: this.lastSyncTime, itemsSynced });
+        } catch (error) {
+            debugError('Failed to record sync activity:', error);
         }
     }
 
@@ -614,17 +663,36 @@ export class SyncManager {
     async getSyncStatus() {
         const metadata = await this.getSyncMetadata();
         const bytesInUse = await this.getSyncBytesInUse();
+        const hasData = await this.hasSyncedData();
 
         return {
             lastSyncTime: this.lastSyncTime,
             localVersion: metadata.local.version,
             remoteVersion: metadata.remote.version,
             isInSync: metadata.local.version === metadata.remote.version,
+            // Whether chrome.storage.sync currently holds links. Used by the UI
+            // to decide "Synced" vs "Not synced" even before versioned metadata
+            // exists (a profile restored from the cloud has data but version 0).
+            hasData,
             syncInProgress: this.syncInProgress,
             bytesInUse,
             quotaLimit: chrome.storage.sync.QUOTA_BYTES,
             quotaPercentage: (bytesInUse / chrome.storage.sync.QUOTA_BYTES) * 100
         };
+    }
+
+    // True when chrome.storage.sync currently holds a non-empty links array.
+    async hasSyncedData() {
+        try {
+            const { links } = await chrome.storage.sync.get('links');
+            if (Array.isArray(links)) return links.length > 0;
+            if (typeof links === 'string') {
+                try { return JSON.parse(links).length > 0; } catch { return false; }
+            }
+            return false;
+        } catch {
+            return false;
+        }
     }
 
     // Debounced sync for automatic syncing
