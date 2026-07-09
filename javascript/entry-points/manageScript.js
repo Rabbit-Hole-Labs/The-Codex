@@ -81,8 +81,8 @@ async function init() {
         elements.bulkMoveBtn.addEventListener('click', handleBulkMove);
         elements.bulkSizeBtn.addEventListener('click', handleBulkSizeChange);
         elements.createCategoryForm.addEventListener('submit', handleCreateCategory);
-        elements.editCategoryForm.addEventListener('submit', handleEditCategory);
-        elements.deleteCategoryForm.addEventListener('submit', handleDeleteCategory);
+        // Rename and delete are now inline per-row actions in the category list
+        // (wired in renderCategoryReorderList), not separate forms.
         elements.prevPageBtn.addEventListener('click', () => UIManager.changePage(getState(), -1));
         elements.nextPageBtn.addEventListener('click', () => UIManager.changePage(getState(), 1));
         elements.exportBtn.addEventListener('click', () => StorageManager.exportLinks(getState()));
@@ -154,51 +154,6 @@ async function handleCreateCategory(e) {
     } catch (error) {
         console.error('Error in handleCreateCategory:', error);
         UIManager.showMessage('Failed to create category. Please try again.', 'error');
-    }
-}
-
-async function handleEditCategory(e) {
-    e.preventDefault();
-    try {
-        const elements = UIManager.getElements();
-        const oldCategory = elements.editCategorySelect.value;
-        const newCategory = elements.editCategoryName.value.trim();
-
-        if (!oldCategory || !newCategory) {
-            UIManager.showMessage('Please select a category and enter a new name.', 'error');
-            return;
-        }
-
-        const success = await CategoryManager.renameCategory(getState(), oldCategory, newCategory);
-        if (success) {
-            e.target.reset();
-            renderCategoryReorderList();
-            UIManager.showMessage(`Category "${oldCategory}" renamed to "${newCategory}".`);
-        }
-    } catch (error) {
-        console.error('Error in handleEditCategory:', error);
-        UIManager.showMessage('Failed to edit category. Please try again.', 'error');
-    }
-}
-
-async function handleDeleteCategory(e) {
-    e.preventDefault();
-    try {
-        const categoryToDelete = UIManager.getElements().deleteCategorySelect.value;
-        if (!categoryToDelete) {
-            UIManager.showMessage('Please select a category to delete.', 'error');
-            return;
-        }
-
-        const success = await CategoryManager.deleteCategory(getState(), categoryToDelete);
-        if (success) {
-            e.target.reset();
-            renderCategoryReorderList();
-            UIManager.showMessage(`Category "${categoryToDelete}" deleted successfully.`);
-        }
-    } catch (error) {
-        console.error('Error in handleDeleteCategory:', error);
-        UIManager.showMessage('Failed to delete category. Please try again.', 'error');
     }
 }
 
@@ -741,8 +696,7 @@ function setLinksView(view) {
     }
 }
 
-// Category Reorder Functions
-let pendingCategoryOrder = null;
+// Category list drag state
 let draggedCategoryItem = null;
 
 function renderCategoryReorderList() {
@@ -756,60 +710,131 @@ function renderCategoryReorderList() {
     }
 
     // Count links per category
-    const categoryCounts = {};
+    const counts = {};
     getState().links.forEach(link => {
         const cat = link.category || 'Default';
-        categoryCounts[cat] = (categoryCounts[cat] || 0) + 1;
+        counts[cat] = (counts[cat] || 0) + 1;
     });
+
+    const svg = (paths) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${paths}</svg>`;
+    const grip = svg('<circle cx="9" cy="5" r="1"></circle><circle cx="9" cy="12" r="1"></circle><circle cx="9" cy="19" r="1"></circle><circle cx="15" cy="5" r="1"></circle><circle cx="15" cy="12" r="1"></circle><circle cx="15" cy="19" r="1"></circle>');
+    const up = svg('<polyline points="18 15 12 9 6 15"></polyline>');
+    const down = svg('<polyline points="6 9 12 15 18 9"></polyline>');
+    const pencil = svg('<path d="M12 20h9"></path><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"></path>');
+    const trash = svg('<polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>');
+    const last = categories.length - 1;
 
     container.innerHTML = categories.map((rawCategory, index) => {
         const category = escapeHtml(rawCategory);
-        const linkCount = categoryCounts[rawCategory] || 0;
+        const isDefault = rawCategory === 'Default';
+        const n = counts[rawCategory] || 0;
         return `
-        <div class="category-reorder-item"
-             data-category="${category}"
-             draggable="true"
-             data-index="${index}">
-            <div class="drag-handle">
-                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <circle cx="9" cy="5" r="1"></circle>
-                    <circle cx="9" cy="12" r="1"></circle>
-                    <circle cx="9" cy="19" r="1"></circle>
-                    <circle cx="15" cy="5" r="1"></circle>
-                    <circle cx="15" cy="12" r="1"></circle>
-                    <circle cx="15" cy="19" r="1"></circle>
-                </svg>
-            </div>
-            <span class="category-name">${category}</span>
-            <span class="category-count">${linkCount} links</span>
-            <div class="reorder-actions">
-                <button type="button" class="reorder-btn move-up" data-category="${category}" ${index === 0 ? 'disabled' : ''}>
-                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                        <polyline points="18 15 12 9 6 15"></polyline>
-                    </svg>
-                </button>
-                <button type="button" class="reorder-btn move-down" data-category="${category}" ${index === categories.length - 1 ? 'disabled' : ''}>
-                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                        <polyline points="6 9 12 15 18 9"></polyline>
-                    </svg>
-                </button>
-            </div>
-        </div>
-    `;
+        <li class="cat-row" data-category="${category}" data-index="${index}" draggable="true">
+            <span class="grip" title="Drag to reorder">${grip}</span>
+            <span class="cat-name" title="Click to rename">${category}${isDefault ? '<span class="default-badge">default</span>' : ''}</span>
+            <input type="text" class="mc-field cat-rename" value="${category}" hidden aria-label="Rename category">
+            <span class="cat-count">${n} ${n === 1 ? 'link' : 'links'}</span>
+            <span class="cat-acts">
+                <button type="button" class="mc-icon-btn act-up" title="Move up" aria-label="Move up" ${index === 0 ? 'disabled' : ''}>${up}</button>
+                <button type="button" class="mc-icon-btn act-down" title="Move down" aria-label="Move down" ${index === last ? 'disabled' : ''}>${down}</button>
+                <button type="button" class="mc-icon-btn act-rename" title="Rename" aria-label="Rename">${pencil}</button>
+                ${isDefault ? '' : `<button type="button" class="mc-icon-btn danger act-delete" title="Delete" aria-label="Delete">${trash}</button>`}
+            </span>
+        </li>`;
     }).join('');
 
-    // Clear pending order when re-rendering from storage
-    pendingCategoryOrder = null;
-
-    // Setup drag and drop
+    wireCategoryRows();
     setupCategoryDragDrop();
+}
 
-    // Setup arrow buttons
-    setupCategoryReorderButtons();
+// Per-row inline rename, delete, and immediate move on the category list.
+function wireCategoryRows() {
+    const container = document.getElementById('categoryReorderList');
+    if (!container) return;
+
+    container.querySelectorAll('.cat-row').forEach(row => {
+        const category = row.dataset.category;
+        const nameEl = row.querySelector('.cat-name');
+        const field = row.querySelector('.cat-rename');
+
+        const startRename = () => { nameEl.hidden = true; field.hidden = false; field.focus(); field.select(); };
+        const cancelRename = () => { field.hidden = true; nameEl.hidden = false; };
+        const commitRename = () => {
+            if (field.hidden) return;
+            const newName = field.value.trim();
+            field.hidden = true; nameEl.hidden = false;
+            if (newName && newName !== category) handleInlineRename(category, newName);
+        };
+
+        nameEl.addEventListener('click', startRename);
+        row.querySelector('.act-rename').addEventListener('click', startRename);
+        field.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') { e.preventDefault(); commitRename(); }
+            else if (e.key === 'Escape') { e.preventDefault(); cancelRename(); }
+        });
+        field.addEventListener('blur', commitRename);
+
+        row.querySelector('.act-up').addEventListener('click', () => moveCategoryImmediate(category, -1));
+        row.querySelector('.act-down').addEventListener('click', () => moveCategoryImmediate(category, 1));
+        const del = row.querySelector('.act-delete');
+        if (del) del.addEventListener('click', () => handleInlineDelete(category));
+    });
+}
+
+async function handleInlineRename(oldName, newName) {
+    try {
+        const success = await CategoryManager.renameCategory(getState(), oldName, newName);
+        if (success) {
+            await CategoryManager.populateCategories(getState());
+            UIManager.filterLinks(getState());
+            UIManager.renderLinks(getState());
+            UIManager.showMessage(`Renamed "${oldName}" to "${newName}".`);
+        }
+    } catch (error) {
+        console.error('Inline rename failed:', error);
+        UIManager.showMessage('Failed to rename category. Please try again.', 'error');
+    }
+    renderCategoryReorderList();
+}
+
+async function handleInlineDelete(category) {
+    if (category === 'Default') return;
+    if (!confirm(`Delete the "${category}" category? Its links will move to Default.`)) return;
+    try {
+        const success = await CategoryManager.deleteCategory(getState(), category);
+        if (success) {
+            await CategoryManager.populateCategories(getState());
+            UIManager.filterLinks(getState());
+            UIManager.renderLinks(getState());
+            renderCategoryReorderList();
+            UIManager.showMessage(`Deleted the "${category}" category.`);
+        }
+    } catch (error) {
+        console.error('Inline delete failed:', error);
+        UIManager.showMessage('Failed to delete category. Please try again.', 'error');
+    }
+}
+
+async function moveCategoryImmediate(category, delta) {
+    const order = [...getState().categories];
+    const i = order.indexOf(category);
+    const j = i + delta;
+    if (i === -1 || j < 0 || j >= order.length) return;
+    [order[i], order[j]] = [order[j], order[i]];
+    await persistCategoryOrder(order);
+}
+
+async function persistCategoryOrder(order) {
+    try {
+        await CategoryManager.reorderCategories(getState(), order);
+    } catch (error) {
+        console.error('Reorder failed:', error);
+    }
+    renderCategoryReorderList();
 }
 
 function setupCategoryDragDrop() {
-    const items = document.querySelectorAll('.category-reorder-item');
+    const items = document.querySelectorAll('#categoryReorderList .cat-row');
 
     items.forEach(item => {
         item.addEventListener('dragstart', handleCategoryDragStart);
@@ -830,7 +855,7 @@ function handleCategoryDragStart(e) {
 
 function handleCategoryDragEnd() {
     this.classList.remove('dragging');
-    document.querySelectorAll('.category-reorder-item').forEach(item => {
+    document.querySelectorAll('#categoryReorderList .cat-row').forEach(item => {
         item.classList.remove('drag-over');
     });
     draggedCategoryItem = null;
@@ -861,133 +886,19 @@ function handleCategoryDrop(e) {
     const fromCategory = e.dataTransfer.getData('text/plain');
     const toCategory = this.dataset.category;
 
-    // Get current order
-    const currentOrder = pendingCategoryOrder || [...getState().categories];
-    const fromIndex = currentOrder.indexOf(fromCategory);
-    const toIndex = currentOrder.indexOf(toCategory);
+    const order = [...getState().categories];
+    const fromIndex = order.indexOf(fromCategory);
+    const toIndex = order.indexOf(toCategory);
 
     if (fromIndex !== -1 && toIndex !== -1) {
-        // Remove from current position
-        currentOrder.splice(fromIndex, 1);
-        // Insert at new position
-        currentOrder.splice(toIndex, 0, fromCategory);
-
-        // Update pending order
-        pendingCategoryOrder = currentOrder;
-
-        // Re-render the list
-        renderCategoryReorderListWithOrder(currentOrder);
-    }
-}
-
-function renderCategoryReorderListWithOrder(order) {
-    const container = document.getElementById('categoryReorderList');
-    if (!container) return;
-
-    // Count links per category
-    const categoryCounts = {};
-    getState().links.forEach(link => {
-        const cat = link.category || 'Default';
-        categoryCounts[cat] = (categoryCounts[cat] || 0) + 1;
-    });
-
-    container.innerHTML = order.map((rawCategory, index) => {
-        const category = escapeHtml(rawCategory);
-        const linkCount = categoryCounts[rawCategory] || 0;
-        return `
-        <div class="category-reorder-item"
-             data-category="${category}"
-             draggable="true"
-             data-index="${index}">
-            <div class="drag-handle">
-                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <circle cx="9" cy="5" r="1"></circle>
-                    <circle cx="9" cy="12" r="1"></circle>
-                    <circle cx="9" cy="19" r="1"></circle>
-                    <circle cx="15" cy="5" r="1"></circle>
-                    <circle cx="15" cy="12" r="1"></circle>
-                    <circle cx="15" cy="19" r="1"></circle>
-                </svg>
-            </div>
-            <span class="category-name">${category}</span>
-            <span class="category-count">${linkCount} links</span>
-            <div class="reorder-actions">
-                <button type="button" class="reorder-btn move-up" data-category="${category}" ${index === 0 ? 'disabled' : ''}>
-                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                        <polyline points="18 15 12 9 6 15"></polyline>
-                    </svg>
-                </button>
-                <button type="button" class="reorder-btn move-down" data-category="${category}" ${index === order.length - 1 ? 'disabled' : ''}>
-                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                        <polyline points="6 9 12 15 18 9"></polyline>
-                    </svg>
-                </button>
-            </div>
-        </div>
-    `;
-    }).join('');
-
-    // Re-setup drag and drop
-    setupCategoryDragDrop();
-    setupCategoryReorderButtons();
-}
-
-function setupCategoryReorderButtons() {
-    const moveUpBtns = document.querySelectorAll('.reorder-btn.move-up');
-    const moveDownBtns = document.querySelectorAll('.reorder-btn.move-down');
-
-    moveUpBtns.forEach(btn => {
-        btn.addEventListener('click', async () => {
-            const category = btn.dataset.category;
-            const currentOrder = pendingCategoryOrder || [...getState().categories];
-            const index = currentOrder.indexOf(category);
-
-            if (index > 0) {
-                // Swap with previous
-                [currentOrder[index - 1], currentOrder[index]] = [currentOrder[index], currentOrder[index - 1]];
-                pendingCategoryOrder = currentOrder;
-                renderCategoryReorderListWithOrder(currentOrder);
-            }
-        });
-    });
-
-    moveDownBtns.forEach(btn => {
-        btn.addEventListener('click', async () => {
-            const category = btn.dataset.category;
-            const currentOrder = pendingCategoryOrder || [...getState().categories];
-            const index = currentOrder.indexOf(category);
-
-            if (index < currentOrder.length - 1) {
-                // Swap with next
-                [currentOrder[index], currentOrder[index + 1]] = [currentOrder[index + 1], currentOrder[index]];
-                pendingCategoryOrder = currentOrder;
-                renderCategoryReorderListWithOrder(currentOrder);
-            }
-        });
-    });
-}
-
-async function handleSaveCategoryOrder() {
-    const orderToSave = pendingCategoryOrder || getState().categories;
-
-    if (pendingCategoryOrder) {
-        const success = await CategoryManager.reorderCategories(getState(), orderToSave);
-        if (success) {
-            pendingCategoryOrder = null;
-            renderCategoryReorderList();
-        }
-    } else {
-        UIManager.showMessage('No changes to save.', 'info');
+        order.splice(fromIndex, 1);
+        order.splice(toIndex, 0, fromCategory);
+        persistCategoryOrder(order);
     }
 }
 
 function setupCategoryReorder() {
-    const saveBtn = document.getElementById('saveCategoryOrderBtn');
-    if (saveBtn) {
-        saveBtn.addEventListener('click', handleSaveCategoryOrder);
-    }
-
-    // Initial render
+    // Reorder, rename and delete are all handled inline in the list; just render.
     renderCategoryReorderList();
 }
 

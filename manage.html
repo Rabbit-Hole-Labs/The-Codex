@@ -8,6 +8,7 @@
     <link href="stylesheets/manage-styles.css" rel="stylesheet">
     <link href="stylesheets/sync-status.css" rel="stylesheet">
     <link href="stylesheets/manage-overrides.css" rel="stylesheet">
+    <link href="stylesheets/manage-compact.css" rel="stylesheet">
 </head>
 <body>
     <div class="container">
@@ -80,58 +81,17 @@
             </div>
 
             <div class="tab-content" id="manage-categories">
-                <h2>Manage Categories</h2>
+                <h2>Categories</h2>
+                <p class="mc-sub">Drag the handle or use the arrows to set the order they appear on your new tab. Click a name to rename.</p>
                 <div class="category-management">
-                    <div class="category-card">
-                        <h3>Create Category</h3>
-                        <form id="createCategoryForm" class="modern-form-compact">
-                            <div class="form-group">
-                                <label for="newCategoryName">Category Name</label>
-                                <input type="text" id="newCategoryName" placeholder="e.g., Work, Personal, Entertainment" required>
-                            </div>
-                            <button type="submit" class="btn-primary">Create Category</button>
-                        </form>
-                    </div>
-                    
-                    <div class="category-card">
-                        <h3>Rename Category</h3>
-                        <form id="editCategoryForm" class="modern-form-compact">
-                            <div class="form-group">
-                                <label for="editCategorySelect">Select Category</label>
-                                <select id="editCategorySelect">
-                                    <option value="">Choose a category to rename</option>
-                                </select>
-                            </div>
-                            <div class="form-group">
-                                <label for="editCategoryName">New Name</label>
-                                <input type="text" id="editCategoryName" placeholder="Enter new category name" required>
-                            </div>
-                            <button type="submit" class="btn-primary">Rename Category</button>
-                        </form>
-                    </div>
-                    
-                    <div class="category-card">
-                        <h3>Delete Category</h3>
-                        <form id="deleteCategoryForm" class="modern-form-compact">
-                            <div class="form-group">
-                                <label for="deleteCategorySelect">Select Category</label>
-                                <select id="deleteCategorySelect">
-                                    <option value="">Choose a category to delete</option>
-                                </select>
-                            </div>
-                            <p class="warning-text">Links in this category will be moved to Default</p>
-                            <button type="submit" class="btn-danger">Delete Category</button>
-                        </form>
-                    </div>
-
-                    <div class="category-card category-reorder-card">
-                        <h3>Reorder Categories</h3>
-                        <p class="helper-text">Drag categories to change their display order on the main page</p>
-                        <div id="categoryReorderList" class="category-reorder-list">
-                            <!-- Categories will be populated here -->
-                        </div>
-                        <button type="button" id="saveCategoryOrderBtn" class="btn-primary" style="margin-top: 12px;">Save Order</button>
-                    </div>
+                    <form id="createCategoryForm" class="cat-add-row">
+                        <input type="text" id="newCategoryName" class="mc-field" placeholder="New category name…" required>
+                        <button type="submit" class="mc-btn accent">Add</button>
+                    </form>
+                    <ul id="categoryReorderList" class="cat-list">
+                        <!-- Categories populated here -->
+                    </ul>
+                    <p class="mc-sub" style="margin-top:10px">Deleting a category moves its links to <strong>Default</strong>.</p>
                 </div>
             </div>
 
