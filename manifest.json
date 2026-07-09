@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "The Codex",
-  "version": "7.0.0.2",
+  "version": "7.0.0.3",
   "description": "Transform your new tab into a personalized dashboard with smart icons, multiple themes, and advanced sync.",
   "background": {
     "service_worker": "javascript/background/service-worker.js",
