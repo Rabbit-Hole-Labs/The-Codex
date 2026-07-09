@@ -1,7 +1,7 @@
 // Sync Settings Page Controller
 import { syncManager } from '../core-systems/syncManager.js';
 import { dataVerification } from './dataVerification.js';
-import { getCapturedErrors } from './errorCapture.js';
+import { getCapturedErrors, clearCapturedErrors, formatCapturedErrors } from './errorCapture.js';
 
 export class SyncSettingsController {
     constructor() {
@@ -16,6 +16,7 @@ export class SyncSettingsController {
         this.attachEventListeners();
         this.startPeriodicUpdates();
         this.updateSyncStatus();
+        this.updateErrorDisplay();
         this.addLogEntry('info', 'Sync settings page loaded');
     }
 
@@ -55,6 +56,12 @@ export class SyncSettingsController {
             syncLog: document.getElementById('sync-log'),
             clearLogBtn: document.getElementById('clear-log-btn'),
 
+            // Captured errors
+            errorLog: document.getElementById('error-log'),
+            refreshErrorsBtn: document.getElementById('refresh-errors-btn'),
+            copyErrorsBtn: document.getElementById('copy-errors-btn'),
+            clearErrorsBtn: document.getElementById('clear-errors-btn'),
+
             // Data verification
             viewCloudDataBtn: document.getElementById('view-cloud-data-btn'),
             viewLocalDataBtn: document.getElementById('view-local-data-btn'),
@@ -89,6 +96,11 @@ export class SyncSettingsController {
 
         // Log management
         this.elements.clearLogBtn?.addEventListener('click', () => this.clearLog());
+
+        // Captured errors panel
+        this.elements.refreshErrorsBtn?.addEventListener('click', () => this.updateErrorDisplay());
+        this.elements.copyErrorsBtn?.addEventListener('click', () => this.handleCopyErrors());
+        this.elements.clearErrorsBtn?.addEventListener('click', () => this.handleClearErrors());
 
         // Data verification
         this.elements.viewCloudDataBtn?.addEventListener('click', () => this.handleViewCloudData());
@@ -366,6 +378,142 @@ export class SyncSettingsController {
             this.addLogEntry('info', 'Diagnostics exported successfully');
         } catch (error) {
             this.addLogEntry('error', `Failed to export diagnostics: ${error.message}`);
+        }
+    }
+
+    // Render the captured runtime errors into the panel (safe DOM construction —
+    // messages/URLs are attacker-influenceable, so never use innerHTML here).
+    async updateErrorDisplay() {
+        const container = this.elements.errorLog;
+        if (!container) return;
+
+        let list = [];
+        try {
+            list = await getCapturedErrors();
+        } catch {
+            /* leave list empty on read failure */
+        }
+
+        container.textContent = '';
+
+        if (!list.length) {
+            const empty = document.createElement('div');
+            empty.className = 'error-log-empty';
+            empty.textContent = 'No errors captured. 🎉';
+            container.appendChild(empty);
+            if (this.elements.copyErrorsBtn) this.elements.copyErrorsBtn.disabled = true;
+            if (this.elements.clearErrorsBtn) this.elements.clearErrorsBtn.disabled = true;
+            return;
+        }
+
+        if (this.elements.copyErrorsBtn) this.elements.copyErrorsBtn.disabled = false;
+        if (this.elements.clearErrorsBtn) this.elements.clearErrorsBtn.disabled = false;
+
+        const fragment = document.createDocumentFragment();
+        list
+            .slice()
+            .sort((a, b) => (b.lastTs || b.ts || 0) - (a.lastTs || a.ts || 0)) // newest first
+            .forEach(entry => fragment.appendChild(this.buildErrorRow(entry)));
+        container.appendChild(fragment);
+    }
+
+    // Build one error row element.
+    buildErrorRow(entry) {
+        const row = document.createElement('div');
+        const kind = String(entry.type || 'error');
+        row.className = 'error-log-entry';
+        row.dataset.type = kind;
+
+        const head = document.createElement('div');
+        head.className = 'error-log-head';
+
+        const time = document.createElement('span');
+        time.className = 'error-log-time';
+        time.textContent = this.formatTime(entry.lastTs || entry.ts || 0);
+
+        const context = document.createElement('span');
+        context.className = 'error-log-badge';
+        context.textContent = entry.context || 'unknown';
+
+        const type = document.createElement('span');
+        type.className = 'error-log-type';
+        type.textContent = kind;
+
+        head.appendChild(time);
+        head.appendChild(context);
+        head.appendChild(type);
+
+        if (entry.count > 1) {
+            const count = document.createElement('span');
+            count.className = 'error-log-count';
+            count.textContent = `×${entry.count}`;
+            head.appendChild(count);
+        }
+
+        const message = document.createElement('div');
+        message.className = 'error-log-message';
+        message.textContent = entry.message || '';
+
+        row.appendChild(head);
+        row.appendChild(message);
+
+        if (entry.source) {
+            const source = document.createElement('div');
+            source.className = 'error-log-source';
+            source.textContent = entry.source;
+            row.appendChild(source);
+        }
+
+        return row;
+    }
+
+    // Copy the full captured log to the clipboard in the same paste-friendly
+    // format as CodexConsole.errors().
+    async handleCopyErrors() {
+        try {
+            const text = formatCapturedErrors(await getCapturedErrors());
+            const ok = await this.copyToClipboard(text);
+            this.addLogEntry(ok ? 'success' : 'error',
+                ok ? 'Captured errors copied to clipboard' : 'Could not copy errors to clipboard');
+        } catch (error) {
+            this.addLogEntry('error', `Failed to copy errors: ${error.message}`);
+        }
+    }
+
+    // Clear the captured error log (routed through the owner) and refresh the panel.
+    async handleClearErrors() {
+        try {
+            await clearCapturedErrors();
+            await this.updateErrorDisplay();
+            this.addLogEntry('info', 'Captured error log cleared');
+        } catch (error) {
+            this.addLogEntry('error', `Failed to clear errors: ${error.message}`);
+        }
+    }
+
+    // Clipboard helper: prefer the async Clipboard API, fall back to execCommand.
+    async copyToClipboard(text) {
+        if (navigator.clipboard?.writeText) {
+            try {
+                await navigator.clipboard.writeText(text);
+                return true;
+            } catch {
+                /* fall through to the legacy path */
+            }
+        }
+        try {
+            const textarea = document.createElement('textarea');
+            textarea.value = text;
+            textarea.style.position = 'fixed';
+            textarea.style.opacity = '0';
+            document.body.appendChild(textarea);
+            textarea.focus();
+            textarea.select();
+            const ok = document.execCommand('copy');
+            document.body.removeChild(textarea);
+            return ok;
+        } catch {
+            return false;
         }
     }
 

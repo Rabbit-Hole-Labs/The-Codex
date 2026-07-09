@@ -528,6 +528,19 @@
                     </div>
                     <button id="clear-log-btn" class="btn-secondary">Clear Log</button>
                 </div>
+
+                <div class="error-log-card">
+                    <h3>Captured Errors</h3>
+                    <p class="error-log-hint">Runtime errors, unhandled promise rejections, and CSP violations captured across every context (new tab, manage, popup, service worker). This is the same runtime data Chrome shows on its extensions &ldquo;Errors&rdquo; screen &mdash; which extensions can&rsquo;t read directly.</p>
+                    <div id="error-log" class="error-log" aria-live="polite">
+                        <div class="error-log-empty">No errors captured. 🎉</div>
+                    </div>
+                    <div class="error-log-actions">
+                        <button id="refresh-errors-btn" class="btn-secondary">Refresh</button>
+                        <button id="copy-errors-btn" class="btn-secondary">Copy All</button>
+                        <button id="clear-errors-btn" class="btn-danger">Clear</button>
+                    </div>
+                </div>
             </div>
         </main>
     </div>

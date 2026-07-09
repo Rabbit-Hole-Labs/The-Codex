@@ -3,13 +3,14 @@ import { handleError, CodexError } from '../features/errorHandler.js';
 import errorHandler from '../features/errorHandler.js';
 import { validateAndSanitizeUrl } from '../features/utils.js';
 import { sanitizeUserInput } from '../features/securityUtils.js';
+import { debug } from './debug.js';
 const { ERROR_TYPES, ERROR_SEVERITY } = errorHandler;
 
 export async function loadLinks() {
     try {
-        console.log('STORAGE_MANAGER: Starting to load links from storage');
+        debug('STORAGE_MANAGER: Starting to load links from storage');
         let data = await chrome.storage.sync.get(['links', 'theme', 'view', 'colorTheme', 'defaultTileSize', 'categories']);
-        console.log('STORAGE_MANAGER: Raw data loaded from sync storage', {
+        debug('STORAGE_MANAGER: Raw data loaded from sync storage', {
             hasLinks: !!data.links,
             linksType: data.links ? typeof data.links : 'undefined',
             linksLength: Array.isArray(data.links) ? data.links.length : (typeof data.links === 'string' ? data.links.length : 'N/A'),
@@ -17,9 +18,9 @@ export async function loadLinks() {
         });
 
         if (!data || Object.keys(data).length === 0) {
-            console.log('STORAGE_MANAGER: No data in sync storage, trying local storage');
+            debug('STORAGE_MANAGER: No data in sync storage, trying local storage');
             data = await chrome.storage.local.get(['links', 'theme', 'view', 'colorTheme', 'defaultTileSize', 'categories']);
-            console.log('STORAGE_MANAGER: Data loaded from local storage', {
+            debug('STORAGE_MANAGER: Data loaded from local storage', {
                 hasLinks: !!data.links,
                 linksType: data.links ? typeof data.links : 'undefined',
                 hasCategories: !!data.categories
@@ -30,7 +31,7 @@ export async function loadLinks() {
         let links = [];
         try {
             if (data.links) {
-                console.log('STORAGE_MANAGER: Processing links data', {
+                debug('STORAGE_MANAGER: Processing links data', {
                     dataType: typeof data.links,
                     isArray: Array.isArray(data.links)
                 });
@@ -46,11 +47,11 @@ export async function loadLinks() {
                 } else if (typeof data.links === 'string') {
                     // Only try to parse if it's a string
                     try {
-                        console.log('STORAGE_MANAGER: Attempting to parse links string');
+                        debug('STORAGE_MANAGER: Attempting to parse links string');
                         const parsedLinks = JSON.parse(data.links);
                         if (Array.isArray(parsedLinks)) {
                             links = parsedLinks;
-                            console.log('STORAGE_MANAGER: Successfully parsed links array', {
+                            debug('STORAGE_MANAGER: Successfully parsed links array', {
                                 linksCount: links.length
                             });
                         } else {
@@ -71,7 +72,7 @@ export async function loadLinks() {
                 } else if (Array.isArray(data.links)) {
                     // If it's already an array, use it directly
                     links = data.links;
-                    console.log('STORAGE_MANAGER: Links data is already an array', {
+                    debug('STORAGE_MANAGER: Links data is already an array', {
                         linksCount: links.length
                     });
                 } else {
@@ -82,7 +83,7 @@ export async function loadLinks() {
                     links = [];
                 }
             } else {
-                console.log('STORAGE_MANAGER: No links data found in storage');
+                debug('STORAGE_MANAGER: No links data found in storage');
             }
         } catch (validationError) {
             console.error('STORAGE_MANAGER: Storage validation error: unexpected error during links validation', {
@@ -120,7 +121,7 @@ export async function loadLinks() {
             categories = ['Default'];
         }
 
-        console.log('STORAGE_MANAGER: Final links data ready for return', {
+        debug('STORAGE_MANAGER: Final links data ready for return', {
             linksCount: links.length,
             categoriesCount: categories.length,
             hasInvalidLinks: links.some(link => !link || typeof link !== 'object')

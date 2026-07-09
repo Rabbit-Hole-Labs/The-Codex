@@ -1,4 +1,5 @@
 import { initErrorCapture } from '../features/errorCapture.js';
+import { debug } from '../core-systems/debug.js';
 import * as LinkManager from '../core-systems/linkManager.js';
 import * as CategoryManager from '../core-systems/categoryManager.js';
 import * as UIManager from '../core-systems/uiManager.js';
@@ -53,7 +54,7 @@ async function init() {
             loadedState.filteredLinks = loadedState.links || [];
         }
         safeUpdateState(loadedState, { validate: false, skipPersistence: true });
-        console.log('Initial state after loading:', getState());
+        debug('Initial state after loading:', getState());
 
         // Ensure we have the Default category
         const currentCategories = getState().categories;
@@ -118,7 +119,7 @@ async function handleLinkFormSubmit(e) {
             await CategoryManager.populateCategories(getState());
             UIManager.filterLinks(getState());
             UIManager.renderLinks(getState());
-            console.log('Link added, current state:', getState());
+            debug('Link added, current state:', getState());
         } else {
             UIManager.showMessage('Please fill in both name and URL.', 'error');
         }
@@ -451,7 +452,7 @@ async function setView(view) {
 async function setDefaultTileSize(size) {
     try {
         await chrome.storage.sync.set({ defaultTileSize: size });
-        console.log('Default tile size set to:', size);
+        debug('Default tile size set to:', size);
         // Show confirmation message
         UIManager.showMessage(`Default tile size changed to ${size}`);
     } catch (error) {
@@ -483,7 +484,7 @@ function applyTheme(theme, colorTheme) {
 
     // Apply to body
     document.body.className = classes;
-    console.log('Applied theme classes to management page:', classes);
+    debug('Applied theme classes to management page:', classes);
 }
 
 function setupTabs() {
@@ -675,7 +676,7 @@ function useIconSource(source) {
                 if (iconName) {
                     const iconUrl = `https://cdn.jsdelivr.net/gh/selfhst/icons/svg/${iconName}.svg`;
                     targetInput.value = iconUrl;
-                    console.log(`Generated icon URL for "${titleText}": ${iconUrl}`);
+                    debug(`Generated icon URL for "${titleText}": ${iconUrl}`);
                 } else {
                     targetInput.value = '';
                 }

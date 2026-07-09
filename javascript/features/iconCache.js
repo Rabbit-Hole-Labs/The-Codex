@@ -3,6 +3,8 @@
  * Provides intelligent icon loading, caching, fallback mechanisms, and performance optimization
  */
 
+import { debug } from '../core-systems/debug.js';
+
 // Icon cache storage
 let iconCache = new Map();
 let cacheStats = {
@@ -86,7 +88,7 @@ export async function loadIconWithCache(link, options = {}) {
         const cachedIcon = getCachedIcon(cacheKey);
         if (cachedIcon) {
             cacheStats.hits++;
-            console.log(`Icon cache hit for: ${link.name}`);
+            debug(`Icon cache hit for: ${link.name}`);
             return cachedIcon.url;
         }
 
@@ -496,7 +498,7 @@ async function cacheIcon(cacheKey, iconUrl, source) {
             timestamp: Date.now()
         });
 
-        console.log(`Cached icon from ${source}: ${iconUrl}`);
+        debug(`Cached icon from ${source}: ${iconUrl}`);
 
     } catch (error) {
         console.warn('Failed to cache icon:', error);
