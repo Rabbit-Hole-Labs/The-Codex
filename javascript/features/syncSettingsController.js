@@ -139,10 +139,18 @@ export class SyncSettingsController {
         try {
             const status = await syncManager.getSyncStatus();
 
-            // Update status info
+            // Update status info. A version of 0/falsy on both sides means no
+            // sync has ever been recorded — don't render that as a green
+            // "In Sync" (matches the newtab indicator's neverSynced treatment).
             if (this.elements.currentStatus) {
-                this.elements.currentStatus.textContent = status.isInSync ? 'In Sync' : 'Out of Sync';
-                this.elements.currentStatus.style.color = status.isInSync ? '#4caf50' : '#ff9800';
+                const neverSynced = !status.localVersion && !status.remoteVersion;
+                if (neverSynced) {
+                    this.elements.currentStatus.textContent = 'Not synced yet';
+                    this.elements.currentStatus.style.color = '#ff9800';
+                } else {
+                    this.elements.currentStatus.textContent = status.isInSync ? 'In Sync' : 'Out of Sync';
+                    this.elements.currentStatus.style.color = status.isInSync ? '#4caf50' : '#ff9800';
+                }
             }
 
             if (this.elements.lastSyncTime) {
