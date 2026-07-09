@@ -682,9 +682,8 @@ button:disabled {
   border-radius: var(--radius-xl);
   padding: var(--space-6);
   margin: var(--space-6) 0;
-  min-height: 400px;
-  max-height: 600px;
-  overflow-y: auto;
+  /* No inner scroll frame — the link list flows with the page so the whole
+     page scrolls as one, instead of trapping the list in a 600px box. */
 }
 
 .link-item {
@@ -727,8 +726,6 @@ button:disabled {
   border: 1px solid var(--border-color);
   border-radius: var(--radius-lg);
   background: var(--background-color);
-  max-height: 360px;
-  overflow-y: auto;
   padding: var(--space-3);
 }
 
@@ -975,8 +972,6 @@ button:disabled {
   border: 1px solid var(--border-color);
   border-radius: var(--radius-lg);
   background: var(--background-color);
-  max-height: 240px;
-  overflow-y: auto;
   padding: var(--space-3);
   display: flex;
   flex-direction: column;
@@ -1427,10 +1422,12 @@ input[type="submit"],
   font-family: inherit !important;
 }
 
-/* Force ALL form buttons to use proper theme colors */
-form button,
-form input[type="submit"],
-form input[type="button"] {
+/* Default styling for UNCLASSED form buttons only. The :not() guards keep this
+   blanket rule from clobbering .btn-primary/.btn-secondary/.btn-danger, so a
+   button's variant class always wins regardless of cascade order. */
+form button:not(.btn-primary):not(.btn-secondary):not(.btn-danger),
+form input[type="submit"]:not(.btn-primary):not(.btn-secondary):not(.btn-danger),
+form input[type="button"]:not(.btn-primary):not(.btn-secondary):not(.btn-danger) {
   background: var(--surface-elevated) !important;
   border: 1px solid var(--border-color) !important;
   color: var(--on-surface) !important;
@@ -1980,11 +1977,11 @@ input[type="submit"],
 .tab-content button,
 .category-card button,
 .links-management-panel button,
-.sync-actions-card button,
-.sync-diagnostics-card button,
-.sync-data-verification-card button,
-.sync-log-card button,
-form button {
+.sync-actions-card button:not(.btn-primary):not(.btn-secondary):not(.btn-danger),
+.sync-diagnostics-card button:not(.btn-primary):not(.btn-secondary):not(.btn-danger),
+.sync-data-verification-card button:not(.btn-primary):not(.btn-secondary):not(.btn-danger),
+.sync-log-card button:not(.btn-primary):not(.btn-secondary):not(.btn-danger),
+form button:not(.btn-primary):not(.btn-secondary):not(.btn-danger) {
   background: var(--surface-elevated) !important;
   border: 1px solid var(--border-color) !important;
   color: var(--on-surface) !important;
