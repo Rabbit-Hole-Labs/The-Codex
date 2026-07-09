@@ -4,7 +4,7 @@ import { debug, debugError } from './debug.js';
 
 const defaultCategory = 'Default';
 
-export async function populateCategories(state) {
+export async function populateCategories(state, { persist = true } = {}) {
     try {
         // Get fresh categories from storage to ensure we're up to date
         const savedCategories = await StorageManager.loadCategories();
@@ -15,7 +15,14 @@ export async function populateCategories(state) {
             categories.unshift(defaultCategory);
         }
         state.categories = Array.from(new Set([...state.categories, ...categories]));
-        await StorageManager.saveCategories(state.categories);
+        // persist:false is used on page LOAD. On a fresh install the account's
+        // synced categories may not have downloaded yet, so loadCategories()
+        // above returns empty and saving here would clobber the user's real
+        // categories on every device. Callers that follow a real mutation keep
+        // the default persist:true so the union is written durably.
+        if (persist) {
+            await StorageManager.saveCategories(state.categories);
+        }
         UIManager.populateCategoryDropdowns(state.categories);
         debug('Categories after population:', state.categories);
         return state.categories;

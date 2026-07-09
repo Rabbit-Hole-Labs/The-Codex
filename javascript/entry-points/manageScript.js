@@ -56,16 +56,22 @@ async function init() {
         safeUpdateState(loadedState, { validate: false, skipPersistence: true });
         debug('Initial state after loading:', getState());
 
-        // Ensure we have the Default category
+        // Ensure we have the Default category for THIS session (in-memory only).
+        // Do NOT persist here: on a fresh install the account's synced categories
+        // may not have downloaded yet, so persisting ['Default'] would clobber the
+        // user's real categories on every device. The service worker's
+        // verifyStorage() heals a missing Default durably and non-destructively
+        // (only when categories actually exist), and the next real category edit
+        // persists the healed list.
         const currentCategories = getState().categories;
         if (!Array.isArray(currentCategories) || !currentCategories.includes('Default')) {
             const cats = ['Default', ...(Array.isArray(currentCategories) ? currentCategories : [])];
             safeUpdateState({ categories: cats }, { validate: false, skipPersistence: true });
-            await StorageManager.saveCategories(getState().categories);
         }
 
         UIManager.renderLinks(getState());
-        await CategoryManager.populateCategories(getState());
+        // Load-time population must not persist — see populateCategories(persist).
+        await CategoryManager.populateCategories(getState(), { persist: false });
 
         // Event Listeners
         elements.linkForm.addEventListener('submit', handleLinkFormSubmit);
