@@ -121,6 +121,16 @@ export async function loadLinks() {
             categories = ['Default'];
         }
 
+        // Ensure every link has a stable id. The manage page resolves a rendered
+        // row back to its stored entry by id; without one it falls back to a
+        // brittle object-reference match that fails against JSON-cloned state
+        // snapshots (see linkManager.resolveLinkIndex). Ids persist on next save.
+        links.forEach((link, i) => {
+            if (link && typeof link === 'object' && link.id == null) {
+                link.id = `link_${Date.now()}_${i}_${Math.random().toString(36).slice(2, 8)}`;
+            }
+        });
+
         debug('STORAGE_MANAGER: Final links data ready for return', {
             linksCount: links.length,
             categoriesCount: categories.length,
