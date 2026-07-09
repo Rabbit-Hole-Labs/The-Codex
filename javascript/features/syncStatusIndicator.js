@@ -13,6 +13,7 @@ export class SyncStatusIndicator {
         // Status states
         this.states = {
             synced: { text: 'Synced', class: 'sync-success' },
+            notsynced: { text: 'Not synced', class: 'sync-pending' },
             syncing: { text: 'Syncing...', class: 'sync-progress' },
             error: { text: 'Sync Error', class: 'sync-error' },
             offline: { text: 'Offline', class: 'sync-offline' },
@@ -43,6 +44,13 @@ export class SyncStatusIndicator {
         try {
             const status = await syncManager.getSyncStatus();
             this.updateLastSyncTime(status.lastSyncTime);
+            if (navigator.onLine) {
+                // Keep the header pill consistent with the Sync Status panel:
+                // both versions falsy means nothing has ever synced. Previously
+                // the pill hard-defaulted to "Synced", contradicting the panel.
+                const neverSynced = !status.localVersion && !status.remoteVersion;
+                this.updateStatus(neverSynced ? 'notsynced' : 'synced');
+            }
         } catch {
             /* leave the placeholder on failure */
         }
@@ -144,8 +152,9 @@ export class SyncStatusIndicator {
             }
         }, { signal });
 
-        // Check online/offline status
-        window.addEventListener('online', () => this.updateStatus(), { signal });
+        // Check online/offline status. On reconnect, re-derive the real state
+        // (never-synced vs synced) rather than blindly showing "Synced".
+        window.addEventListener('online', () => this.renderInitialLastSync(), { signal });
         window.addEventListener('offline', () => this.updateStatus('offline'), { signal });
     }
 
