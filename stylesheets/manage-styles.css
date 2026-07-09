@@ -2217,6 +2217,9 @@ form .btn-danger:hover,
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
   gap: var(--space-6);
+  /* Size each card to its own content instead of stretching the short cards
+     to match the tallest one (which left big empty gaps below their buttons). */
+  align-items: start;
 }
 
 .category-card {
@@ -2237,10 +2240,15 @@ form .btn-danger:hover,
   display: flex;
   flex-direction: column;
   gap: var(--space-4);
+  align-items: stretch;
 }
 
+/* Inputs/selects fill the card width, but the action button sizes to its
+   label and left-aligns instead of stretching into a full-width bar. */
 .modern-form-compact button {
   margin-top: var(--space-4);
+  align-self: flex-start;
+  min-width: 160px;
 }
 
 .warning-text {
@@ -2293,6 +2301,13 @@ form .btn-danger:hover,
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
+}
+
+/* A lone bulk button (e.g. Delete Selected) sizes to its label instead of
+   stretching into a full-width bar, matching the Move/Apply buttons. */
+.bulk-action-group > button {
+  align-self: flex-start;
+  min-width: 160px;
 }
 
 .bulk-action-group label {
