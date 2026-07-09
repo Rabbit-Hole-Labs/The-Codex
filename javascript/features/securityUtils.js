@@ -502,6 +502,12 @@ export function validateLink(link) {
                         console.error(`VALIDATE_LINK: Icon URL too long: ${value.length} characters`);
                         return 'Icon URL cannot exceed 500 characters';
                     }
+                    // 'default' (and empty) is the documented sentinel for "no
+                    // custom icon" (see Link schema) — not a URL. Accept it so
+                    // adding/editing an iconless link doesn't fail validation.
+                    if (value === 'default' || value === '') {
+                        return true;
+                    }
                     try {
                         new URL(value);
                         console.log('VALIDATE_LINK: Icon URL validation passed');

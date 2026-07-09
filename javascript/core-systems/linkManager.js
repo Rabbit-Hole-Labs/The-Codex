@@ -2,6 +2,40 @@ import * as StorageManager from './storageManager.js';
 import { sanitizeUserInput, validateLink } from '../features/securityUtils.js';
 import { validateAndSanitizeUrl } from '../features/utils.js';
 
+/**
+ * Resolve a rendered link (an entry of state.filteredLinks) back to its index
+ * in state.links.
+ *
+ * state is a JSON-cloned snapshot (see stateManager.getState → JSON.parse/
+ * stringify), so state.links and state.filteredLinks no longer share object
+ * references even when they hold the "same" link. Matching purely by reference
+ * (link === target) therefore always fails, and every mutation below would
+ * splice/update nothing and silently re-save the unchanged list. Prefer a
+ * stable id, fall back to reference identity, then to a value match.
+ *
+ * @param {Array} links - state.links
+ * @param {Object} target - the link object from state.filteredLinks
+ * @returns {number} index into links, or -1
+ */
+function resolveLinkIndex(links, target) {
+    if (!target || !Array.isArray(links)) return -1;
+
+    if (target.id != null) {
+        const byId = links.findIndex(link => link && link.id === target.id);
+        if (byId !== -1) return byId;
+    }
+
+    const byRef = links.indexOf(target);
+    if (byRef !== -1) return byRef;
+
+    return links.findIndex(link => link
+        && link.name === target.name
+        && link.url === target.url
+        && link.category === target.category
+        && (link.size ?? null) === (target.size ?? null)
+        && (link.icon ?? null) === (target.icon ?? null));
+}
+
 export async function addLink(state, name, url, category, icon, size = 'medium') {
     try {
         // Validate and sanitize inputs
@@ -23,8 +57,9 @@ export async function addLink(state, name, url, category, icon, size = 'medium')
             throw new Error('Category is required and cannot be empty');
         }
 
-        // Create new link with sanitized data
+        // Create new link with sanitized data and a stable id.
         const newLink = {
+            id: `link_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
             name: sanitizedName,
             url: sanitizedUrl,
             category: sanitizedCategory,
@@ -59,7 +94,7 @@ export async function addLink(state, name, url, category, icon, size = 'medium')
 }
 
 export async function deleteLink(state, index) {
-    const actualIndex = state.links.findIndex(link => link === state.filteredLinks[index]);
+    const actualIndex = resolveLinkIndex(state.links, state.filteredLinks[index]);
     if (actualIndex !== -1) {
         state.links.splice(actualIndex, 1);
     }
@@ -74,7 +109,7 @@ export async function bulkDeleteLinks(state, indices) {
     // Collect the actual indices to delete
     const deletionPairs = [];
     sortedIndices.forEach(index => {
-        const actualIndex = state.links.findIndex(link => link === state.filteredLinks[index]);
+        const actualIndex = resolveLinkIndex(state.links, state.filteredLinks[index]);
         if (actualIndex !== -1) {
             deletionPairs.push({ filteredIndex: index, actualIndex });
         }
@@ -97,7 +132,7 @@ export async function bulkMoveLinks(state, indices, newCategory) {
     const sortedIndices = [...indices].sort((a, b) => b - a);
     
     for (const index of sortedIndices) {
-        const actualIndex = state.links.findIndex(link => link === state.filteredLinks[index]);
+        const actualIndex = resolveLinkIndex(state.links, state.filteredLinks[index]);
         if (actualIndex !== -1) {
             state.links[actualIndex].category = newCategory;
             state.filteredLinks[index].category = newCategory;
@@ -112,7 +147,7 @@ export async function bulkChangeSizeLinks(state, indices, newSize) {
     const sortedIndices = [...indices].sort((a, b) => b - a);
     
     for (const index of sortedIndices) {
-        const actualIndex = state.links.findIndex(link => link === state.filteredLinks[index]);
+        const actualIndex = resolveLinkIndex(state.links, state.filteredLinks[index]);
         if (actualIndex !== -1) {
             if (newSize === 'default') {
                 // Remove size property to use global default
@@ -130,7 +165,7 @@ export async function bulkChangeSizeLinks(state, indices, newSize) {
 }
 
 export async function editLink(state, index, name, url, category, icon, size = 'medium') {
-    const actualIndex = state.links.findIndex(link => link === state.filteredLinks[index]);
+    const actualIndex = resolveLinkIndex(state.links, state.filteredLinks[index]);
     if (actualIndex !== -1) {
         // Validate and sanitize inputs
         const sanitizedName = sanitizeUserInput(name, { maxLength: 100 });
@@ -138,14 +173,18 @@ export async function editLink(state, index, name, url, category, icon, size = '
         const sanitizedCategory = sanitizeUserInput(category, { maxLength: 50 });
         const sanitizedIcon = icon ? sanitizeUserInput(icon, { maxLength: 500 }) : 'default';
         
-        // Create updated link with sanitized data
+        // Create updated link with sanitized data, preserving the stable id.
         const updatedLink = {
             name: sanitizedName,
             url: sanitizedUrl,
             category: sanitizedCategory,
             icon: sanitizedIcon
         };
-        
+        const existingId = state.links[actualIndex] && state.links[actualIndex].id;
+        if (existingId != null) {
+            updatedLink.id = existingId;
+        }
+
         // Only set size if it's not 'default' - let it use global default
         if (size && size !== 'default') {
             updatedLink.size = size;
