@@ -3,7 +3,6 @@
   "name": "The Codex",
   "version": "7.0.0.2",
   "description": "Transform your new tab into a personalized dashboard with smart icons, multiple themes, and advanced sync.",
-  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAreJDkhQrU64OLkY7lJ2avEkHWtgfPDoEEdXFEgwGwfLeNtopuRoulzfgiay39CTNA9gCVPXASx6oRinb2vT1axVCJDoBeihSusiJN7s4TYJOjIJTphSpJuYRGksXsKcaMbbtSI/LUtgBzHGERDB4MlSqjPD4jW19CDvVa3B1aK7uXnr4+Kh8vo4ep0/zeUKw98wB3QhUVFTsMDEWZdN+7l5AEKKZu5Oub4e4b7c2ldfOgUxJlzjATsoQ18GW1vuk+kg6cfdrRQCcXiEWP8uUJna1rAizWoZa/rZj3ABu/dclaXOntvfEPnaalhAWF4dqeWaU/UXHJsORejgl3mwTcwIDAQAB",
   "background": {
     "service_worker": "javascript/background/service-worker.js",
     "type": "module"
