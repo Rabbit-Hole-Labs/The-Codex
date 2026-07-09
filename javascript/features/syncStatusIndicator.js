@@ -31,7 +31,21 @@ export class SyncStatusIndicator {
         this.createIndicator();
         this.attachEventListeners();
         this.updateStatus();
+        this.renderInitialLastSync();
         this.isInitialized = true;
+    }
+
+    // Populate the last-sync display from the persisted status on load, so it
+    // shows the real time immediately instead of leaving the 'Never' placeholder
+    // until the user clicks refresh. updateLastSyncTime() no-ops on a falsy
+    // timestamp, so a genuinely never-synced profile still correctly shows 'Never'.
+    async renderInitialLastSync() {
+        try {
+            const status = await syncManager.getSyncStatus();
+            this.updateLastSyncTime(status.lastSyncTime);
+        } catch {
+            /* leave the placeholder on failure */
+        }
     }
 
     // Create the indicator UI
@@ -154,6 +168,11 @@ export class SyncStatusIndicator {
             case 'syncComplete':
                 this.updateStatus('synced');
                 this.updateLastSyncTime(data.time);
+                break;
+            case 'initialized':
+                // syncManager finished its async status load after we attached
+                // listeners — refresh the last-sync display from the loaded value.
+                this.renderInitialLastSync();
                 break;
             case 'syncError':
                 this.updateStatus('error');
