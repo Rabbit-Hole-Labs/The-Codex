@@ -358,8 +358,14 @@ async function initializeState() {
             draggedIndex: stateUpdates.draggedIndex || null
         };
         
-        // Apply state updates safely
-        const updateResult = await safeUpdateState(cleanUpdates, { validate: true });
+        // Apply state updates safely. skipPersistence is critical here: this is
+        // a LOAD, not a user edit. On a fresh install the account's synced
+        // storage may not have downloaded yet, so loadLinks() returns empty
+        // app-defaults. Without skipPersistence, safeUpdateState would write
+        // those empty defaults straight back to chrome.storage.sync and — via
+        // sync's last-writer-wins — clobber the user's real links on every
+        // device. Loading must only populate in-memory state, never echo to sync.
+        const updateResult = await safeUpdateState(cleanUpdates, { validate: true, skipPersistence: true });
         
         if (!updateResult.success) {
             console.error('Failed to initialize state:', updateResult.error);
@@ -372,14 +378,14 @@ async function initializeState() {
                 defaultTileSize: stateUpdates.defaultTileSize
             });
             
-            // Fallback to safe defaults
+            // Fallback to safe defaults (in-memory only — never persist a load).
             const fallbackResult = await safeUpdateState({
                 theme: 'dark',
                 colorTheme: 'default',
                 view: 'grid',
                 defaultTileSize: 'medium',
                 links: []
-            }, { validate: true });
+            }, { validate: true, skipPersistence: true });
             
             if (!fallbackResult.success) {
                 console.error('Critical: Fallback initialization also failed');
@@ -395,14 +401,14 @@ async function initializeState() {
             name: error.name
         });
         
-        // Ultimate fallback
+        // Ultimate fallback (in-memory only — never persist a load).
         await safeUpdateState({
             theme: 'dark',
             colorTheme: 'default',
             view: 'grid',
             defaultTileSize: 'medium',
             links: []
-        }, { validate: true });
+        }, { validate: true, skipPersistence: true });
     }
 }
 

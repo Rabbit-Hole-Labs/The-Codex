@@ -7,47 +7,21 @@ import { parseStoredArray } from '../core-systems/storageFormat.js';
 // Register global error capture as early as possible (service-worker context).
 initErrorCapture('service-worker');
 
-chrome.runtime.onInstalled.addListener((details) => {
-    if (details.reason === 'install') {
-        initializeDefaults();
-    } else if (details.reason === 'update') {
-        verifyStorage();
-    }
+// On install, update, and startup we only VERIFY/self-heal existing storage —
+// we never seed defaults into chrome.storage.sync. On a fresh install the
+// account's synced data may not have downloaded yet, so a read returns empty
+// even for an existing user with links in the cloud. Writing "defaults"
+// (empty links/categories, a default theme) based on that empty read would,
+// via sync's last-writer-wins, clobber the user's real data on every device.
+// The app tolerates absent keys everywhere (loadLinks/initializeFromStorage
+// fall back to in-memory defaults), so seeding is unnecessary as well as unsafe.
+chrome.runtime.onInstalled.addListener(() => {
+    verifyStorage();
 });
 
 chrome.runtime.onStartup.addListener(() => {
     verifyStorage();
 });
-
-async function initializeDefaults() {
-    try {
-        const existing = await chrome.storage.sync.get(['theme', 'colorTheme', 'view', 'defaultTileSize']);
-        
-        const defaults = {};
-        if (!existing.theme) defaults.theme = 'dark';
-        if (!existing.colorTheme) defaults.colorTheme = 'default';
-        if (!existing.view) defaults.view = 'grid';
-        if (!existing.defaultTileSize) defaults.defaultTileSize = 'medium';
-        
-        if (Object.keys(defaults).length > 0) {
-            await chrome.storage.sync.set(defaults);
-        }
-        
-        const linksData = await chrome.storage.sync.get(['links', 'categories']);
-
-        // Store defaults in the same JSON-encoded form the app uses elsewhere
-        // (saveLinks / saveCategories), so the stored format stays uniform.
-        if (!linksData.links) {
-            await chrome.storage.sync.set({ links: JSON.stringify([]) });
-        }
-
-        if (!linksData.categories) {
-            await chrome.storage.sync.set({ categories: JSON.stringify(['Default']) });
-        }
-    } catch (error) {
-        console.error('[The Codex] Failed to initialize defaults:', error);
-    }
-}
 
 async function verifyStorage() {
     try {
