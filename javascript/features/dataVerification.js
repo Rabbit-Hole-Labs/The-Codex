@@ -409,6 +409,10 @@ export class DataVerification {
 
         header.textContent = title;
 
+        // Remember what's on screen so Toggle Format can actually re-render it.
+        this._viewer = { data, type };
+        this.isFormatted = false;
+
         let content = '';
 
         if (type === 'comparison') {
@@ -625,11 +629,24 @@ ${crossVal.warnings.map(warn => `• ${escapeHtml(warn)}`).join('\n')}
         }
     }
 
-    // Toggle data formatting
+    // Toggle data formatting: for the JSON data view, switch the payload between
+    // pretty-printed (indented) and compact (minified) so the button visibly
+    // does something; for other views, fall back to toggling line wrapping.
     toggleFormat() {
         const content = document.getElementById('data-content');
-        if (content) {
-            this.isFormatted = !this.isFormatted;
+        if (!content) return;
+        this.isFormatted = !this.isFormatted;
+
+        const parsed = this._viewer && this._viewer.type === 'json' && this._viewer.data
+            ? this._viewer.data.parsed
+            : undefined;
+
+        if (parsed !== undefined) {
+            // textContent (not innerHTML) — safe against injection in stored data.
+            content.textContent = this.isFormatted
+                ? JSON.stringify(parsed)
+                : JSON.stringify(parsed, null, 2);
+        } else {
             content.classList.toggle('formatted', this.isFormatted);
         }
     }
