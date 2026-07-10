@@ -238,8 +238,6 @@ export function showMessage(message, type = 'info') {
 }
 
 
-let modalJustOpened = false;
-
 export function setupModalListeners() {
     const elements = getElements();
 
@@ -250,55 +248,26 @@ export function setupModalListeners() {
         closeEditModal();
     });
 
-    // Click outside modal content to close
-    elements.editModal.addEventListener('click', (event) => {
-        // Prevent closing if modal was just opened
-        if (modalJustOpened) {
-            debug('Modal just opened, ignoring click');
-            modalJustOpened = false;
-            return;
-        }
-
-        const modalContent = elements.editModal.querySelector('.modal-content');
-
-        // Check if the click was inside the modal content
-        const isInsideContent = modalContent && modalContent.contains(event.target);
-
-        debug('Modal clicked:', {
-            target: event.target.className || event.target.tagName,
-            targetElement: event.target,
-            modalElement: elements.editModal,
-            modalContent: modalContent,
-            isDirectBackground: event.target === elements.editModal,
-            isInsideContent: isInsideContent
-        });
-
-        // Only close if clicking outside the modal content (i.e., on the backdrop)
-        if (!isInsideContent) {
-            debug('Closing modal - clicked outside content');
-            closeEditModal();
-        }
-    });
-
-    // Prevent modal content clicks from bubbling up
-    const modalContent = elements.editModal.querySelector('.modal-content');
-    if (modalContent) {
-        modalContent.addEventListener('click', (e) => {
-            debug('Clicked inside modal content - preventing close');
-            e.stopPropagation();
-        });
-    }
+    // Clicking the backdrop deliberately does NOT close the modal — an
+    // accidental click outside the dialog was dismissing it and silently
+    // discarding the user's edits. Closing is explicit: ×, Escape, or Save.
 
     // Form submission — operates on the state captured by openEditModal, not
     // the init-time snapshot passed to setupModalListeners.
     elements.editForm.addEventListener('submit', (e) => handleEditFormSubmit(e));
 
-    // Escape key to close modal
+    // Escape closes one layer at a time: when the icon picker is open on top
+    // of this modal, its own handler closes it and the edit modal stays.
     document.addEventListener('keydown', (e) => {
-        if (e.key === 'Escape' && !elements.editModal.classList.contains('hidden')) {
-            e.preventDefault();
-            closeEditModal();
+        if (e.key !== 'Escape' || elements.editModal.classList.contains('hidden')) {
+            return;
         }
+        const picker = document.getElementById('iconHelperModal');
+        if (picker && !picker.classList.contains('hidden')) {
+            return;
+        }
+        e.preventDefault();
+        closeEditModal();
     });
 }
 
@@ -329,19 +298,8 @@ function openEditModal(state, index) {
         elements.editSiteSize.value = link.size || 'default';
     }
 
-    // Set flag to prevent immediate closing due to event bubbling
-    modalJustOpened = true;
-    debug('Modal opened, setting flag to prevent immediate close');
-
-    // Remove hidden class and add show class
     elements.editModal.classList.remove('hidden');
     elements.editModal.style.display = 'flex';
-
-    // Reset the flag after a longer delay to ensure all events have settled
-    setTimeout(() => {
-        modalJustOpened = false;
-        debug('Modal flag reset, click-to-close now enabled');
-    }, 500);
 
     // Focus the first input
     setTimeout(() => {

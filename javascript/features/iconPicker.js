@@ -16,10 +16,12 @@ import {
     testImageLoad,
     validateIconValue
 } from './iconCache.js';
+import { getIconIndex, searchIndex } from './iconIndex.js';
 import { debug } from '../core-systems/debug.js';
 
 const PROBE_TIMEOUT = 4000;
 const SEARCH_DEBOUNCE = 350;
+const RESULT_LIMIT = 24;
 const DEFAULT_CUSTOM_NOTE = 'Allowed sources: selfh.st, jsDelivr, or a data: image URI. The preview must load before the icon can be used.';
 
 // Common self-hosted app nicknames/abbreviations → selfh.st slugs the naive
@@ -142,19 +144,26 @@ export function init(options = {}) {
         });
     });
 
-    const { modal, closeBtn, search, customUrl, useCustomBtn, noneBtn } = els();
+    const { closeBtn, search, customUrl, useCustomBtn, noneBtn } = els();
 
     if (closeBtn) closeBtn.addEventListener('click', close);
-    if (modal) {
-        modal.addEventListener('click', (e) => {
-            if (e.target === modal) close();
-        });
-    }
+
+    // Escape closes the picker only — the modal below (edit) checks picker
+    // visibility before reacting, so layers close one at a time. Backdrop
+    // clicks deliberately do NOT close: an accidental click outside the
+    // dialog was dismissing it and losing the search.
+    document.addEventListener('keydown', (e) => {
+        const { modal } = els();
+        if (e.key === 'Escape' && modal && !modal.classList.contains('hidden')) {
+            e.preventDefault();
+            close();
+        }
+    });
 
     if (search) {
         search.addEventListener('input', () => {
             clearTimeout(searchDebounceTimer);
-            searchDebounceTimer = setTimeout(() => runSearch(expandQuery(search.value)), SEARCH_DEBOUNCE);
+            searchDebounceTimer = setTimeout(() => runSearch(search.value), SEARCH_DEBOUNCE);
         });
     }
 
@@ -204,13 +213,9 @@ export function open(targetId = 'siteIcon') {
     modal.style.display = 'flex';
     if (search) search.focus();
 
-    // Seed with everything we can derive: the name-as-typed plus the
-    // hostname-derived candidates the runtime matcher would try.
-    const seeds = expandQuery(name);
-    selfhstCandidateSlugs({ name, url }).forEach(slug => {
-        if (!seeds.includes(slug)) seeds.push(slug);
-    });
-    runSearch(seeds);
+    // Seed the first search from the link's name plus the hostname-derived
+    // candidates the runtime matcher would try.
+    runSearch(name, selfhstCandidateSlugs({ name, url }));
 }
 
 export function close() {
@@ -236,35 +241,69 @@ function resetCustomSection() {
 }
 
 /**
- * Probes candidate slugs against the selfh.st library and renders only the
- * icons that actually loaded.
- * @param {string[]} slugs - Candidate slugs
+ * Builds the candidate slug list for a query: ranked substring matches from
+ * the catalog index when it's available, otherwise the probe-only expansion
+ * (exact slug + hyphenless variant + nickname aliases).
+ * @param {string} query - Raw search text
+ * @param {string[]} extraSeeds - Additional slugs to always try
+ * @returns {Promise<{candidates: string[], hasIndex: boolean}>}
  */
-async function runSearch(slugs) {
+async function collectCandidates(query, extraSeeds = []) {
+    const aliases = expandQuery(query);
+    const index = await getIconIndex();
+    const candidates = index
+        ? searchIndex(query, index, { limit: RESULT_LIMIT, aliases })
+        : [...aliases];
+    for (const seed of extraSeeds) {
+        if (seed && !candidates.includes(seed)) candidates.push(seed);
+    }
+    return { candidates, hasIndex: !!index };
+}
+
+function noResultText(hasIndex) {
+    return hasIndex
+        ? 'No matching icon in the selfh.st library. Try another name, or paste an image URL below.'
+        : 'No match. The icon catalog could not be loaded, so search needs the app\'s exact name (e.g. "vmware-esxi") — or paste an image URL below.';
+}
+
+/**
+ * Searches the library for a query and renders only icons that actually
+ * loaded from the CDN.
+ * @param {string} query - Raw search text
+ * @param {string[]} extraSeeds - Additional slugs to always try
+ */
+async function runSearch(query, extraSeeds = []) {
     const generation = ++searchGeneration;
     const { results } = els();
     if (!results) return;
 
     results.textContent = '';
-    if (!slugs.length) {
+    if (!expandQuery(query).length && !extraSeeds.length) {
         setStatus('Type an app or service name to search the icon library.');
         return;
     }
 
     setStatus('Searching the selfh.st icon library…');
-    const probes = await Promise.all(slugs.map(slug =>
+    const { candidates, hasIndex } = await collectCandidates(query, extraSeeds);
+    if (generation !== searchGeneration) return; // superseded by a newer search
+    if (!candidates.length) {
+        setStatus(noResultText(hasIndex));
+        return;
+    }
+
+    const probes = await Promise.all(candidates.map(slug =>
         testImageLoad(selfhstIconUrl(slug), PROBE_TIMEOUT)
             .then(url => (url ? { slug, url } : null))
     ));
-    if (generation !== searchGeneration) return; // superseded by a newer search
+    if (generation !== searchGeneration) return;
 
     const found = probes.filter(Boolean);
     results.textContent = '';
     found.forEach(({ slug, url }) => results.appendChild(buildResult(slug, url)));
     setStatus(found.length
         ? `${found.length} verified icon${found.length === 1 ? '' : 's'} found — click one to use it.`
-        : 'No match in the icon library. Try the app\'s official name, or paste an image URL below.');
-    debug(`Icon picker: ${found.length}/${slugs.length} candidates verified for [${slugs.join(', ')}]`);
+        : noResultText(hasIndex));
+    debug(`Icon picker: ${found.length}/${candidates.length} candidates verified for "${query}" (index: ${hasIndex})`);
 }
 
 function buildResult(slug, url) {
