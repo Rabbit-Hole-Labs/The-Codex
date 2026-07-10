@@ -212,17 +212,18 @@ h1 {
 }
 
 h2 {
-  font-size: var(--font-size-2xl);
+  font-size: 16px;
   font-weight: var(--font-weight-semibold);
   color: var(--on-surface);
-  margin-bottom: var(--space-6);
+  margin-bottom: var(--space-2);
+  letter-spacing: -0.01em;
 }
 
 h3 {
-  font-size: var(--font-size-xl);
+  font-size: var(--font-size-base);
   font-weight: var(--font-weight-semibold);
   color: var(--on-surface);
-  margin-bottom: var(--space-4);
+  margin-bottom: var(--space-3);
 }
 
 .home-link {
@@ -375,14 +376,14 @@ label {
 
 input, select, textarea {
   width: 100%;
-  padding: var(--space-3) var(--space-4);
-  border: 2px solid var(--border-color) !important;
-  border-radius: var(--radius-lg);
-  background: var(--background-color) !important;
-  color: var(--on-background) !important;
-  font-size: var(--font-size-base);
+  padding: 7px 10px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background: var(--background-color);
+  color: var(--on-background);
+  font-size: var(--font-size-sm);
   font-family: inherit;
-  transition: all 0.2s ease;
+  transition: border-color 0.15s ease;
 }
 
 input:focus, select:focus, textarea:focus {
@@ -1247,36 +1248,12 @@ select option {
   color: var(--on-surface) !important;
 }
 
-/* Ensure ALL buttons maintain theme colors */
-button:not(.btn-primary):not(.btn-secondary):not(.btn-danger):not(.icon-helper-btn):not(.icon-source-btn) {
-  background: var(--surface-elevated) !important;
-  border: 1px solid var(--border-color) !important;
-  color: var(--on-surface) !important;
-}
-
-/* Universal button reset - force ALL buttons to use theme colors */
-button, 
-input[type="button"], 
-input[type="submit"], 
-.tab-button,
-.mode-toggle,
-.view-toggle,
-.theme-preview-card {
-  background: var(--surface-elevated) !important;
-  border: 1px solid var(--border-color) !important;
-  color: var(--on-surface) !important;
-  font-family: inherit !important;
-}
-
-/* Default styling for UNCLASSED form buttons only. The :not() guards keep this
-   blanket rule from clobbering .btn-primary/.btn-secondary/.btn-danger, so a
-   button's variant class always wins regardless of cascade order. */
-form button:not(.btn-primary):not(.btn-secondary):not(.btn-danger),
-form input[type="submit"]:not(.btn-primary):not(.btn-secondary):not(.btn-danger),
-form input[type="button"]:not(.btn-primary):not(.btn-secondary):not(.btn-danger) {
-  background: var(--surface-elevated) !important;
-  border: 1px solid var(--border-color) !important;
-  color: var(--on-surface) !important;
+/* Buttons inherit the page font; visual styling comes from their own
+   classes (.mc-btn, .btn-primary/secondary/danger, .tab-button, etc.). */
+button,
+input[type="button"],
+input[type="submit"] {
+  font-family: inherit;
 }
 
 /* Primary buttons - MUST come after universal reset */
@@ -1815,24 +1792,9 @@ p, span, div, label {
   }
 }
 
-/* FINAL BUTTON COLOR OVERRIDES - MUST BE LAST */
-/* Force all buttons to respect theme regardless of any other styles */
-button,
-input[type="button"],
-input[type="submit"],
-.tab-content button,
-.category-card button,
-.links-management-panel button,
-.sync-actions-card button:not(.btn-primary):not(.btn-secondary):not(.btn-danger),
-.sync-diagnostics-card button:not(.btn-primary):not(.btn-secondary):not(.btn-danger),
-.sync-data-verification-card button:not(.btn-primary):not(.btn-secondary):not(.btn-danger),
-.sync-log-card button:not(.btn-primary):not(.btn-secondary):not(.btn-danger),
-form button:not(.btn-primary):not(.btn-secondary):not(.btn-danger) {
-  background: var(--surface-elevated) !important;
-  border: 1px solid var(--border-color) !important;
-  color: var(--on-surface) !important;
-  box-shadow: none !important;
-}
+/* Class-based button colors (the blanket armor that used to box every button
+   — tabs and .mc-btns included — has been removed; controls now render from
+   their own classes). */
 
 /* Primary button overrides */
 button.btn-primary,
@@ -1864,16 +1826,6 @@ form .btn-danger,
   color: white !important;
 }
 
-/* Hover state overrides */
-button:hover,
-input[type="button"]:hover,
-input[type="submit"]:hover,
-.tab-content button:hover,
-form button:hover {
-  background: var(--surface-hover) !important;
-  border: 1px solid var(--border-hover) !important;
-  color: var(--on-surface) !important;
-}
 
 button.btn-primary:hover,
 .btn-primary:hover,
