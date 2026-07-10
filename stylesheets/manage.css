@@ -1166,6 +1166,12 @@ textarea {
   }
 }
 
+/* While any modal is open, lock the page behind it — otherwise Home/End/
+   PageDown scrolled the background page underneath the dialog. */
+body:has(.modal:not(.hidden)) {
+  overflow: hidden;
+}
+
 /* Icon Picker Modal — search-first with a grid of VERIFIED previews; every
    icon shown already loaded from the CDN, so picking one can't save a 404. */
 .modal-content.icon-picker {
