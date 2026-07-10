@@ -8,6 +8,7 @@ import { getState, safeUpdateState } from '../core-systems/stateManager.js';
 import { escapeHtml } from '../features/utils.js';
 import { syncStatusIndicator } from '../features/syncStatusIndicator.js';
 import { syncSettingsController } from '../features/syncSettingsController.js';
+import * as IconPicker from '../features/iconPicker.js';
 import '../features/consoleCommands.js';
 
 // Register global error capture as early as possible (manage context).
@@ -86,9 +87,9 @@ async function init() {
         elements.importFile.addEventListener('change', handleImport);
         elements.importBookmarksBtn.addEventListener('click', handleImportBookmarks);
 
-        UIManager.setupModalListeners(getState());
+        UIManager.setupModalListeners();
         setupTabs();
-        setupIconHelperListeners();
+        setupIconPicker();
         setupLinksViewToggle();
         setupCategoryReorder();
 
@@ -127,7 +128,9 @@ async function handleLinkFormSubmit(e) {
         }
     } catch (error) {
         console.error('Error in handleLinkFormSubmit:', error);
-        UIManager.showMessage('Failed to add link. Please try again.', 'error');
+        // Surface the actual reason (e.g. icon-source validation) instead of a
+        // generic failure — otherwise a rejected save looks like a random bug.
+        UIManager.showMessage(error?.message || 'Failed to add link. Please try again.', 'error');
     }
 }
 
@@ -441,192 +444,21 @@ function setupTabs() {
     });
 }
 
-// Icon Helper Functions
-let currentIconTarget = 'siteIcon';
-
-function setupIconHelperListeners() {
-    // Set up event listeners for icon helper buttons
-    const iconHelperBtns = document.querySelectorAll('.icon-helper-btn');
-    iconHelperBtns.forEach(btn => {
-        btn.addEventListener('click', (e) => {
-            e.preventDefault();
-            const targetId = btn.getAttribute('data-target') || 'siteIcon';
-            showIconHelper(targetId);
-        });
+// Icon Picker — search the selfh.st library with verified previews; only
+// icons that actually loaded can be chosen (see features/iconPicker.js).
+function setupIconPicker() {
+    IconPicker.init({
+        getContext: (targetId) => {
+            const nameInput = document.getElementById(targetId === 'editSiteIcon' ? 'editSiteName' : 'siteName');
+            const urlInput = document.getElementById(targetId === 'editSiteIcon' ? 'editSiteUrl' : 'siteUrl');
+            return {
+                name: nameInput ? nameInput.value : '',
+                url: urlInput ? urlInput.value : ''
+            };
+        }
     });
-
-    // Set up event listeners for icon source buttons
-    const iconSourceBtns = document.querySelectorAll('.icon-source-btn');
-    iconSourceBtns.forEach(btn => {
-        btn.addEventListener('click', (e) => {
-            e.preventDefault();
-            const source = btn.getAttribute('data-source');
-            useIconSource(source);
-        });
-    });
-
-    // Set up event listener for custom icon button
-    const useCustomBtn = document.getElementById('useCustomIconBtn');
-    if (useCustomBtn) {
-        useCustomBtn.addEventListener('click', (e) => {
-            e.preventDefault();
-            useCustomIcon();
-        });
-    }
-
-    // Set up event listener for close button
-    const closeBtn = document.getElementById('iconHelperClose');
-    if (closeBtn) {
-        closeBtn.addEventListener('click', (e) => {
-            e.preventDefault();
-            closeIconHelper();
-        });
-    }
-
-    // Set up event listener to close modal when clicking outside
-    const modal = document.getElementById('iconHelperModal');
-    if (modal) {
-        modal.addEventListener('click', (e) => {
-            if (e.target === modal) {
-                closeIconHelper();
-            }
-        });
-    }
-}
-
-function showIconHelper(targetId = 'siteIcon') {
-    currentIconTarget = targetId;
-    const modal = document.getElementById('iconHelperModal');
-    if (modal) {
-        // Get the title/name and URL of the item being edited
-        const titleText = getTitleForIconHelper(targetId);
-        const urlText = getUrlForIconHelper(targetId);
-
-        // Update the modal title to show which item we're selecting an icon for
-        const modalTitle = modal.querySelector('h2');
-        const contextElement = document.getElementById('iconHelperContext');
-
-        if (modalTitle && titleText) {
-            modalTitle.textContent = `Select Icon for: ${titleText}`;
-        } else if (modalTitle) {
-            modalTitle.textContent = 'Icon Helper';
-        }
-
-        // Show additional context information (safe DOM construction — no innerHTML with user input)
-        if (contextElement) {
-            contextElement.textContent = '';
-            if (titleText && urlText) {
-                const serviceLabel = document.createElement('strong');
-                serviceLabel.textContent = 'Service:';
-                const urlLabel = document.createElement('strong');
-                urlLabel.textContent = 'URL:';
-                contextElement.appendChild(serviceLabel);
-                contextElement.appendChild(document.createTextNode(` ${titleText}`));
-                contextElement.appendChild(document.createElement('br'));
-                contextElement.appendChild(urlLabel);
-                contextElement.appendChild(document.createTextNode(` ${urlText}`));
-                contextElement.style.display = 'block';
-            } else if (titleText) {
-                const serviceLabel = document.createElement('strong');
-                serviceLabel.textContent = 'Service:';
-                contextElement.appendChild(serviceLabel);
-                contextElement.appendChild(document.createTextNode(` ${titleText}`));
-                contextElement.style.display = 'block';
-            } else {
-                contextElement.style.display = 'none';
-            }
-        }
-
-        modal.classList.remove('hidden');
-        modal.style.display = 'flex';
-    }
-}
-
-function getTitleForIconHelper(targetId) {
-    if (targetId === 'siteIcon') {
-        // For the main add form, get the site name input value
-        const siteNameInput = document.getElementById('siteName');
-        return siteNameInput ? siteNameInput.value.trim() : null;
-    } else if (targetId === 'editSiteIcon') {
-        // For the edit form, get the edit site name input value
-        const editSiteNameInput = document.getElementById('editSiteName');
-        return editSiteNameInput ? editSiteNameInput.value.trim() : null;
-    }
-    return null;
-}
-
-function getUrlForIconHelper(targetId) {
-    if (targetId === 'siteIcon') {
-        // For the main add form, get the site URL input value
-        const siteUrlInput = document.getElementById('siteUrl');
-        return siteUrlInput ? siteUrlInput.value.trim() : null;
-    } else if (targetId === 'editSiteIcon') {
-        // For the edit form, get the edit site URL input value
-        const editSiteUrlInput = document.getElementById('editSiteUrl');
-        return editSiteUrlInput ? editSiteUrlInput.value.trim() : null;
-    }
-    return null;
-}
-
-function closeIconHelper() {
-    const modal = document.getElementById('iconHelperModal');
-    if (modal) {
-        modal.classList.add('hidden');
-        modal.style.display = 'none';
-        // Clear the custom URL input
-        const customUrlInput = document.getElementById('customIconUrl');
-        if (customUrlInput) {
-            customUrlInput.value = '';
-        }
-    }
-}
-
-function cleanTitleForIcon(title) {
-    if (!title || !title.trim()) {
-        return null;
-    }
-
-    // Convert title to lowercase and clean it for icon filename
-    return title.toLowerCase()
-        .trim()
-        .replace(/[^\w\s-]/g, '') // Remove special characters except hyphens and spaces
-        .replace(/\s+/g, '-') // Replace spaces with hyphens
-        .replace(/--+/g, '-') // Replace multiple hyphens with single hyphen
-        .replace(/^-+|-+$/g, ''); // Remove leading/trailing hyphens
-}
-
-function useIconSource(source) {
-    const targetInput = document.getElementById(currentIconTarget);
-    if (targetInput) {
-        if (source === 'selfh') {
-            // Generate icon URL from title
-            const titleText = getTitleForIconHelper(currentIconTarget);
-            if (titleText) {
-                const iconName = cleanTitleForIcon(titleText);
-                if (iconName) {
-                    const iconUrl = `https://cdn.jsdelivr.net/gh/selfhst/icons/svg/${iconName}.svg`;
-                    targetInput.value = iconUrl;
-                    debug(`Generated icon URL for "${titleText}": ${iconUrl}`);
-                } else {
-                    targetInput.value = '';
-                }
-            } else {
-                targetInput.value = '';
-            }
-        } else if (source === 'clear') {
-            targetInput.value = '';
-        }
-        closeIconHelper();
-    }
-}
-
-function useCustomIcon() {
-    const customUrl = document.getElementById('customIconUrl');
-    const targetInput = document.getElementById(currentIconTarget);
-    if (customUrl && targetInput && customUrl.value) {
-        targetInput.value = customUrl.value;
-        closeIconHelper();
-    }
+    IconPicker.attachPreview('siteIcon', 'siteIconPreview');
+    IconPicker.attachPreview('editSiteIcon', 'editSiteIconPreview');
 }
 
 // Links View Toggle Functions

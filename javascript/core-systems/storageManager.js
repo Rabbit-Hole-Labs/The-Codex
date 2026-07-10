@@ -3,6 +3,7 @@ import { handleError, CodexError } from '../features/errorHandler.js';
 import errorHandler from '../features/errorHandler.js';
 import { validateAndSanitizeUrl } from '../features/utils.js';
 import { sanitizeUserInput } from '../features/securityUtils.js';
+import { validateIconValue } from '../features/iconCache.js';
 import { debug } from './debug.js';
 const { ERROR_TYPES, ERROR_SEVERITY } = errorHandler;
 
@@ -671,8 +672,12 @@ export async function importLinks(state, file) {
             link.name = sanitizeUserInput(link.name, { maxLength: 100 });
             link.category = sanitizeUserInput(link.category, { maxLength: 50 });
             if (link.icon != null && link.icon !== 'default') {
-                const safeIcon = validateAndSanitizeUrl(link.icon);
-                link.icon = safeIcon === '#' ? null : safeIcon;
+                // Imported icons must pass the same source rules as the forms
+                // (selfh.st/jsDelivr https or data: image). Coerce failures to
+                // 'default' (automatic icon) instead of failing the whole
+                // import — old exports commonly carry dead favicon URLs.
+                const iconCheck = validateIconValue(link.icon);
+                link.icon = iconCheck.valid ? iconCheck.value : 'default';
             }
         }
 

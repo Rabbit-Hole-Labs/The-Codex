@@ -240,7 +240,7 @@ export function showMessage(message, type = 'info') {
 
 let modalJustOpened = false;
 
-export function setupModalListeners(state) {
+export function setupModalListeners() {
     const elements = getElements();
 
     // Close button
@@ -289,8 +289,9 @@ export function setupModalListeners(state) {
         });
     }
 
-    // Form submission
-    elements.editForm.addEventListener('submit', (e) => handleEditFormSubmit(e, state));
+    // Form submission — operates on the state captured by openEditModal, not
+    // the init-time snapshot passed to setupModalListeners.
+    elements.editForm.addEventListener('submit', (e) => handleEditFormSubmit(e));
 
     // Escape key to close modal
     document.addEventListener('keydown', (e) => {
@@ -301,16 +302,28 @@ export function setupModalListeners(state) {
     });
 }
 
+// The state snapshot and row index the edit modal is operating on. These must
+// be captured at open time: getState() returns a fresh JSON clone per call,
+// so stashing editIndex on one clone (openEditModal) and reading it from
+// another (the init-time clone captured by setupModalListeners) left
+// state.editIndex undefined at submit — Save silently edited nothing.
+let editModalState = null;
+let editModalIndex = -1;
+
 function openEditModal(state, index) {
     const elements = getElements();
-    state.editIndex = index;
-    const link = state.filteredLinks[state.editIndex];
+    editModalState = state;
+    editModalIndex = index;
+    const link = state.filteredLinks[index];
 
     debug('Opening edit modal for link:', link);
 
     elements.editSiteName.value = link.name;
     elements.editSiteUrl.value = link.url;
     elements.editSiteIcon.value = link.icon || '';
+    // Programmatic value changes don't fire 'input' — nudge the live icon
+    // preview chip so it reflects the link being edited.
+    elements.editSiteIcon.dispatchEvent(new Event('input', { bubbles: true }));
     elements.editSiteCategory.value = link.category || 'Default';
     if (elements.editSiteSize) {
         elements.editSiteSize.value = link.size || 'default';
@@ -348,8 +361,13 @@ function closeEditModal() {
     elements.editForm.reset();
 }
 
-async function handleEditFormSubmit(e, state) {
+async function handleEditFormSubmit(e) {
     e.preventDefault();
+    const state = editModalState;
+    if (!state || editModalIndex < 0) {
+        closeEditModal();
+        return;
+    }
     const elements = getElements();
     const name = elements.editSiteName.value;
     const url = elements.editSiteUrl.value;
@@ -357,9 +375,17 @@ async function handleEditFormSubmit(e, state) {
     const category = elements.editSiteCategory.value;
     const size = elements.editSiteSize?.value || 'default';
     try { new URL(url); } catch { showMessage('Invalid URL.', 'error'); return; }
-    await LinkManager.editLink(state, state.editIndex, name, url, category, icon, size);
+    try {
+        await LinkManager.editLink(state, editModalIndex, name, url, category, icon, size);
+    } catch (error) {
+        // Keep the modal open and show the actual reason (e.g. icon-source
+        // validation) — previously a rejected save failed silently.
+        showMessage(error?.message || 'Failed to save changes.', 'error');
+        return;
+    }
     closeEditModal();
     renderLinks(state);
+    showMessage('Link updated.');
 }
 
 export function deleteLink(state, index) {

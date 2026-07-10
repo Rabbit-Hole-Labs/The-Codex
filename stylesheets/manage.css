@@ -1166,91 +1166,160 @@ textarea {
   }
 }
 
-/* Icon Helper Modal Styles */
-/* Context line is a plain muted subtitle, not a boxed field. Hide it entirely
-   when there's no context text (was showing an empty bordered box). */
-.icon-helper-info {
-  margin: -4px 0 var(--space-4);
-}
-.icon-helper-info:has(.helper-context:empty) {
-  display: none;
+/* Icon Picker Modal — search-first with a grid of VERIFIED previews; every
+   icon shown already loaded from the CDN, so picking one can't save a 404. */
+.modal-content.icon-picker {
+  width: min(560px, 92vw);
 }
 
+/* Context line: which link the icon is for. Hidden when empty. */
 .helper-context {
-  margin: 0;
+  margin: -4px 0 var(--space-4);
   font-size: var(--font-size-sm);
   line-height: 1.4;
   color: var(--on-surface-variant);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.helper-context:empty {
+  display: none;
 }
 
-.helper-context strong {
-  color: var(--on-surface);
-  font-weight: var(--font-weight-medium);
-}
-
-.icon-helper-content {
+.picker-search .mc-field {
   width: 100%;
+  height: 34px;
 }
 
-/* Compact, muted section labels (were 18px medium — too heavy for a modal) */
-.icon-options h3 {
+.picker-status {
+  margin: var(--space-2) 0 var(--space-3);
+  min-height: 1.2em;
+  font-size: 12px;
+  color: var(--on-surface-variant);
+}
+
+.icon-results {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(88px, 1fr));
+  gap: var(--space-2);
+  max-height: 240px;
+  overflow-y: auto;
+}
+.icon-results:empty {
+  display: none;
+}
+
+.icon-result {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 10px 6px 8px;
+  background: var(--surface-elevated);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-control);
+  cursor: pointer;
+  color: var(--on-surface-variant);
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.icon-result:hover {
+  border-color: var(--primary-color);
+  background: var(--surface-color);
+}
+
+.icon-result img {
+  width: 36px;
+  height: 36px;
+  object-fit: contain;
+}
+
+.icon-result .icon-slug {
+  max-width: 100%;
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.picker-footer {
+  margin-top: var(--space-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.picker-footer h3 {
   color: var(--on-surface-variant);
   font-size: 12px;
   font-weight: var(--font-weight-semibold);
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  margin: var(--space-5) 0 var(--space-3) 0;
+  margin: 0 0 var(--space-1);
 }
 
-.icon-options h3:first-child {
-  margin-top: 0;
-}
-
-.icon-source-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: var(--space-3);
-  margin-bottom: var(--space-2);
-}
-
-.icon-source-btn {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  padding: var(--space-4);
-  background: var(--surface-color) !important;
-  border: 1px solid var(--border-color) !important;
-  border-radius: 8px;
-  cursor: pointer;
-  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
-  text-align: center;
-  gap: var(--space-2);
-  color: var(--on-surface) !important;
-}
-
-.icon-source-btn:hover {
-  background: var(--surface-elevated) !important;
-  border-color: var(--primary-color) !important;
-  color: var(--primary-color) !important;
-}
-
-.source-name {
-  font-weight: var(--font-weight-medium);
-  color: var(--on-surface);
-  font-size: var(--font-size-base);
-}
-
-.source-desc {
-  font-size: var(--font-size-sm);
+.picker-note {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.4;
   color: var(--on-surface-variant);
 }
 
-/* Custom URL: input + button on one row, both flat. */
+.picker-note.error {
+  color: var(--error-color);
+}
+
+.picker-none-btn {
+  align-self: flex-start;
+  margin-top: var(--space-2);
+}
+
+/* Live icon preview chip (picker custom URL + Add/Edit icon fields).
+   Shows the actual image when it loads; a red "!" state when the value is
+   invalid or dead. */
+.icon-preview {
+  flex: none;
+  width: 34px;
+  height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-control);
+  background: var(--surface-elevated);
+  overflow: hidden;
+}
+
+/* display:inline-flex would otherwise override the hidden attribute */
+.icon-preview[hidden] {
+  display: none;
+}
+
+.icon-preview img {
+  width: 22px;
+  height: 22px;
+  object-fit: contain;
+}
+
+.icon-preview.invalid {
+  border-color: var(--error-color);
+}
+
+.icon-preview.invalid::before {
+  content: '!';
+  color: var(--error-color);
+  font-weight: var(--font-weight-semibold);
+}
+
+.icon-preview.invalid img {
+  display: none;
+}
+
+/* Custom URL: preview + input + button on one row, all flat. */
 .custom-icon-section {
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  margin-bottom: var(--space-2);
 }
 
 .custom-icon-section input {
@@ -1356,33 +1425,6 @@ textarea {
 .action-row .mc-field {
   width: auto;
   min-width: 150px;
-}
-
-.icon-examples {
-  margin-top: var(--space-4);
-}
-
-.url-examples {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-  margin-top: var(--space-2);
-}
-
-/* Long template URLs wrap inside the box instead of overflowing the modal. */
-.url-examples code {
-  display: block;
-  background: var(--surface-elevated);
-  padding: 6px 9px;
-  border-radius: var(--radius-control);
-  font-size: 11.5px;
-  line-height: 1.4;
-  color: var(--on-surface-variant);
-  border: 1px solid var(--border-color);
-  font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
-  white-space: normal;
-  overflow-wrap: anywhere;
-  word-break: break-all;
 }
 
 .icon-input-group {

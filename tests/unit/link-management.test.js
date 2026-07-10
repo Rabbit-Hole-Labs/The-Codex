@@ -65,13 +65,13 @@ describe('Link Management Functionality', () => {
       // Create a mock state with both links and filteredLinks
       const state = { links: [], filteredLinks: [] };
       
-      // Add a valid link
+      // Add a valid link (icon must be on an allowed host — selfh.st/jsDelivr)
       const result = await addLink(
         state,
         'Test Link',
         'https://example.com',
         'Test Category',
-        'https://example.com/favicon.ico'
+        'https://cdn.jsdelivr.net/gh/selfhst/icons/webp/plex.webp'
       );
 
       // Verify the link was added correctly
@@ -104,6 +104,25 @@ describe('Link Management Functionality', () => {
           'https://example.com/favicon.ico'
         )
       ).rejects.toThrow('Invalid or unsafe URL provided');
+    });
+
+    // Regression: any icon string used to be persisted verbatim and then
+    // silently refused at render time ("saved but broken" icons). Disallowed
+    // hosts must now be rejected at save time with a clear reason.
+    test('should reject icons on hosts the CSP cannot render', async () => {
+      const { addLink } = await import('../../javascript/core-systems/linkManager.js');
+      const state = { links: [], filteredLinks: [] };
+
+      await expect(
+        addLink(
+          state,
+          'Test Link',
+          'https://example.com',
+          'Test Category',
+          'https://example.com/favicon.ico'
+        )
+      ).rejects.toThrow(/selfh\.st or jsDelivr/);
+      expect(state.links.length).toBe(0);
     });
 
     test('should reject links with missing required fields', async () => {
@@ -221,14 +240,14 @@ describe('Link Management Functionality', () => {
         filteredLinks: [link1]
       };
       
-      // Edit the link
+      // Edit the link (icon must be on an allowed host — selfh.st/jsDelivr)
       await editLink(
         state,
         0,
         'New Name',
         'https://new.com',
         'New Category',
-        'https://new.com/favicon.ico'
+        'https://cdn.jsdelivr.net/gh/selfhst/icons/webp/jellyfin.webp'
       );
 
       // Verify the link was edited
