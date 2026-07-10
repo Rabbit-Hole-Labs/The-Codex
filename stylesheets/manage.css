@@ -1286,9 +1286,10 @@ p, span, div, label {
 /* Settings Page Styles */
 .settings-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
-  gap: var(--space-6);
-  margin-top: var(--space-6);
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: var(--space-4);
+  margin-top: var(--space-4);
+  align-items: start; /* cards size to their own content, no stretched empty boxes */
 }
 
 /* Sync Settings diagnostics: lay the cards out in a grid like .settings-grid
@@ -1303,23 +1304,28 @@ p, span, div, label {
 .settings-card {
   background: var(--surface-color);
   border: 1px solid var(--border-color);
-  border-radius: var(--radius-xl);
-  padding: var(--space-6);
-  box-shadow: var(--shadow-sm);
+  border-radius: 10px;
+  padding: 16px;
 }
 
 .settings-card h3 {
   color: var(--on-surface);
-  font-size: var(--font-size-lg);
+  font-size: 13px;
   font-weight: var(--font-weight-semibold);
-  margin: 0 0 var(--space-5) 0;
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  margin: 0 0 var(--space-4) 0;
   display: flex;
   align-items: center;
   gap: var(--space-2);
 }
 
 .setting-group {
-  margin-bottom: var(--space-5);
+  margin-bottom: var(--space-4);
+}
+
+.setting-group:last-child {
+  margin-bottom: 0;
 }
 
 .setting-group label {
