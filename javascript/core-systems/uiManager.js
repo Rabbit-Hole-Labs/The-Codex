@@ -70,7 +70,7 @@ function createLinkElement(link, index, state) {
         </div>
         <div class="link-details">
             <span class="link-title">${escapeHtml(link.name)}</span>
-            <span class="link-category">(${escapeHtml(link.category || 'Default')})</span>
+            <span class="link-category">${escapeHtml(link.category || 'Default')}</span>
         </div>
         <div class="link-actions">
             <button class="visit-button">Visit</button>

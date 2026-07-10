@@ -99,7 +99,7 @@
                         <div class="filter-row">
                             <div class="form-group">
                                 <label for="filterCategory">Filter by Category</label>
-                                <select id="filterCategory">
+                                <select id="filterCategory" class="mc-field">
                                     <option value="all">All Categories</option>
                                 </select>
                             </div>
@@ -141,17 +141,17 @@
                             <div class="bulk-action-group">
                                 <label>Move Selected</label>
                                 <div class="action-row">
-                                    <select id="moveCategory">
+                                    <select id="moveCategory" class="mc-field">
                                         <option value="">Choose category</option>
                                     </select>
-                                    <button id="bulkMoveBtn" class="btn-secondary">Move</button>
+                                    <button id="bulkMoveBtn" class="mc-btn">Move</button>
                                 </div>
                             </div>
                             
                             <div class="bulk-action-group">
                                 <label>Change Size</label>
                                 <div class="action-row">
-                                    <select id="bulkSizeChange">
+                                    <select id="bulkSizeChange" class="mc-field">
                                         <option value="">Choose size</option>
                                         <option value="default">Default</option>
                                         <option value="small">Small</option>
@@ -159,13 +159,13 @@
                                         <option value="large">Large</option>
                                         <option value="wide">Wide</option>
                                     </select>
-                                    <button id="bulkSizeBtn" class="btn-secondary">Apply</button>
+                                    <button id="bulkSizeBtn" class="mc-btn">Apply</button>
                                 </div>
                             </div>
                             
                             <div class="bulk-action-group">
                                 <label>Delete Selected</label>
-                                <button id="bulkDeleteBtn" class="btn-danger">Delete Selected</button>
+                                <button id="bulkDeleteBtn" class="mc-btn danger">Delete Selected</button>
                             </div>
                         </div>
                     </div>
@@ -174,9 +174,9 @@
                 <div id="linksContainer" class="links-container"></div>
                 
                 <div id="paginationControls" class="pagination">
-                    <button id="prevPage" class="btn-secondary">Previous</button>
+                    <button id="prevPage" class="mc-btn">Previous</button>
                     <span id="pageInfo" class="page-info">Page 1 of 1</span>
-                    <button id="nextPage" class="btn-secondary">Next</button>
+                    <button id="nextPage" class="mc-btn">Next</button>
                 </div>
             </div>
 

@@ -140,6 +140,39 @@
   background: var(--primary-color) !important; color: #fff !important; border-color: var(--primary-color) !important;
 }
 
+/* ---- Manage Links: dense list rows (markup rendered by uiManager) ---- */
+#linksContainer.links-container {
+  padding: 0; background: var(--surface-color); border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg, 12px); overflow: hidden; margin: var(--space-6) 0;
+}
+#linksContainer .link-item {
+  display: flex; align-items: center; gap: 12px; padding: 8px 12px;
+  background: transparent; border: none; border-bottom: 1px solid var(--border-color);
+  border-radius: 0; margin: 0; box-shadow: none;
+}
+#linksContainer .link-item:last-child { border-bottom: none; }
+#linksContainer .link-item:hover { background: var(--surface-elevated); }
+#linksContainer .link-checkbox-container { flex: none; display: flex; align-items: center; }
+#linksContainer .link-details { flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; }
+#linksContainer .link-title { font-weight: 550; font-size: 13.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#linksContainer .link-category {
+  font-size: 11px; color: var(--on-surface-variant); background: var(--surface-elevated);
+  border: 1px solid var(--border-color); border-radius: 999px; padding: 1px 9px; white-space: nowrap;
+}
+#linksContainer .link-actions { display: flex; gap: 6px; flex: none; }
+#linksContainer .link-actions button {
+  background: transparent !important; border: 1px solid var(--border-color) !important;
+  color: var(--on-surface-variant) !important; padding: 4px 11px !important; font-size: 12.5px !important;
+  border-radius: 7px !important; box-shadow: none !important;
+}
+#linksContainer .link-actions button:hover { background: var(--surface-hover) !important; color: var(--on-surface) !important; }
+#linksContainer .link-actions .delete-button:hover { color: var(--error-color) !important; border-color: var(--error-color) !important; }
+
+/* Compact filter + bulk toolbar */
+#manage-links .links-management-panel { padding: var(--space-5); }
+#manage-links .filter-row { align-items: center; }
+#manage-links .bulk-actions-section h3 { font-size: 13px; }
+
 /* ---- shared: compact log ---- */
 .mc-log { border: 1px solid var(--border-color); border-radius: var(--radius-lg, 12px); background: var(--surface-color); padding: 4px 0; }
 .mc-log .e { display: flex; gap: 12px; padding: 5px 14px; font-size: 12.5px; }
