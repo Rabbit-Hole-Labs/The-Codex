@@ -51,7 +51,10 @@ async function init() {
             loadedState.categories = ['Default'];
         }
         if (loadedState.filteredLinks && !Array.isArray(loadedState.filteredLinks)) {
-            loadedState.filteredLinks = loadedState.links || [];
+            // Copy, don't alias: filteredLinks must be a distinct array from
+            // links so a later single delete doesn't splice one shared array
+            // twice. (getState() also deep-clones, but keep the invariant here.)
+            loadedState.filteredLinks = [...(loadedState.links || [])];
         }
         safeUpdateState(loadedState, { validate: false, skipPersistence: true });
         debug('Initial state after loading:', getState());
