@@ -100,6 +100,40 @@ describe('uiManager', () => {
             expect(document.getElementById('linksContainer').children.length).toBe(5);
         });
 
+        // Regression: checkboxes on page 2+ must carry the GLOBAL filteredLinks
+        // index (start + offset), not a page-relative 0..N. Previously they
+        // reset to 0 each page, so bulk-delete on a later page hit the first
+        // page's links and the "last set" could never be deleted.
+        test('link checkboxes carry the global filtered index on later pages', () => {
+            const links = createLinks(25);
+            const state = makeState({ links, filteredLinks: links, linksPerPage: 10, currentPage: 3 });
+            UIManager.renderLinks(state);
+            const values = Array.from(document.querySelectorAll('.link-checkbox'))
+                .map(cb => parseInt(cb.value, 10));
+            expect(values).toEqual([20, 21, 22, 23, 24]);
+        });
+
+        test('getSelectedIndices with "Select all" spans every page, not just the visible one', () => {
+            const links = createLinks(25);
+            const state = makeState({ links, filteredLinks: links, linksPerPage: 10, currentPage: 3 });
+            UIManager.renderLinks(state);
+            document.getElementById('selectAllCheckbox').checked = true;
+            const indices = UIManager.getSelectedIndices(state);
+            expect(indices).toHaveLength(25);
+            expect(indices).toEqual(Array.from({ length: 25 }, (_, i) => i));
+        });
+
+        test('getSelectedIndices without "Select all" returns the checked rows by global index', () => {
+            const links = createLinks(25);
+            const state = makeState({ links, filteredLinks: links, linksPerPage: 10, currentPage: 3 });
+            UIManager.renderLinks(state);
+            document.getElementById('selectAllCheckbox').checked = false;
+            const boxes = document.querySelectorAll('.link-checkbox');
+            boxes[0].checked = true; // global 20
+            boxes[2].checked = true; // global 22
+            expect(UIManager.getSelectedIndices(state).sort((a, b) => a - b)).toEqual([20, 22]);
+        });
+
         test('updatePaginationControls shows correct page info', () => {
             const state = makeState({ filteredLinks: createLinks(50), linksPerPage: 10, currentPage: 3 });
             UIManager.updatePaginationControls(state);
