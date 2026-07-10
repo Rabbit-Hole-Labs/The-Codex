@@ -1,11 +1,9 @@
-/* 
- * The Codex - Bold Creative Design
- * 
- * Design Philosophy: Vibrant, experimental, attention-grabbing
- * Color Palette: Bold gradients, contrasting colors
- * Typography: Mix of fonts, creative text treatments
- * Components: 3D elements, animations, glassmorphism
- * Focus: Memorable user experience and visual impact
+/*
+ * The Codex - New Tab
+ *
+ * Design: flat, calm, dark/light only. Opaque surfaces, thin borders,
+ * a single muted accent used sparingly. No glass, gradients, glow, or
+ * sparkle-hover motion.
  */
 
 @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&display=swap');
@@ -50,21 +48,6 @@
   --warning-hover: #d97706;
   --info-color: #06b6d4;
   
-  /* Flat solids (gradients retired) */
-  --gradient-primary: var(--primary-color);
-  --gradient-accent: var(--accent-color);
-  --gradient-hero: var(--primary-color);
-  --gradient-card: var(--surface-color);
-  --gradient-glow: none;
-
-  /* Ambient background veil retired */
-  --bg-gradient-1: transparent;
-  --bg-gradient-2: transparent;
-  --bg-gradient-3: transparent;
-
-  /* Title glow retired */
-  --title-glow-color: transparent;
-  
   /* Typography - Creative Mix */
   --font-family-display: 'Space Grotesk', sans-serif;
   --font-family-sans: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
@@ -105,12 +88,6 @@
   --shadow-md: 0 2px 6px rgba(0, 0, 0, 0.35);
   --shadow-lg: 0 4px 14px rgba(0, 0, 0, 0.4);
   --shadow-xl: 0 8px 24px rgba(0, 0, 0, 0.45);
-  --shadow-glow-primary: none;
-  --shadow-glow-accent: none;
-
-  --glass-blur: none;
-  --glass-bg: var(--surface-color);
-  --glass-border: var(--border-color);
 }
 
 /* Soft, non-stark light mode (light-gray page, white cards) */
@@ -135,17 +112,6 @@ body.light {
   --tile-background: #ffffff;
   --tile-hover-background: #eef0f4;
   --category-background: transparent;
-
-  --glass-bg: #ffffff;
-  --glass-border: #d7dbe2;
-
-  --shadow-glow-primary: none;
-  --shadow-glow-accent: none;
-
-  --bg-gradient-1: transparent;
-  --bg-gradient-2: transparent;
-  --bg-gradient-3: transparent;
-  --title-glow-color: transparent;
 }
 
 /* Base body styles */
@@ -188,21 +154,6 @@ body {
   overflow-x: hidden;
 }
 
-/* Animated Background - Static Gradient */
-body::before {
-  content: '';
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background:
-    radial-gradient(circle at 20% 30%, var(--bg-gradient-1) 0%, transparent 40%),
-    radial-gradient(circle at 80% 70%, var(--bg-gradient-2) 0%, transparent 40%),
-    radial-gradient(circle at 50% 50%, var(--bg-gradient-3) 0%, transparent 50%);
-  z-index: -1;
-  pointer-events: none;
-}
 
 /* App Container */
 .app-container {
@@ -243,19 +194,15 @@ body::before {
   justify-self: start;
 }
 
-/* Creative Typography with Gradient */
+/* Flat solid title */
 h1 {
   font-family: var(--font-family-display);
   font-size: var(--font-size-4xl);
   font-weight: var(--font-weight-bold);
-  background: var(--gradient-hero);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
+  color: var(--on-surface);
   margin: 0;
   letter-spacing: -0.02em;
   position: relative;
-  filter: drop-shadow(0 0 20px var(--title-glow-color));
 }
 
 
@@ -293,23 +240,19 @@ h1 {
 #searchInput {
   width: 100%;
   padding: var(--space-4) var(--space-4) var(--space-4) 3rem;
-  border: 1px solid var(--glass-border);
-  border-radius: var(--radius-full);
-  background: var(--glass-bg);
-  backdrop-filter: var(--glass-blur);
-  -webkit-backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background: var(--surface-color);
   color: var(--on-background);
   font-size: var(--font-size-base);
   font-family: inherit;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  box-shadow: var(--shadow-md);
+  transition: border-color 0.15s ease;
 }
 
 #searchInput:focus {
   border-color: var(--primary-color);
-  box-shadow: var(--shadow-glow-primary), var(--shadow-md);
+  box-shadow: 0 0 0 3px var(--primary-light);
   outline: none;
-  transform: scale(1.02);
 }
 
 #searchInput::placeholder {
@@ -324,43 +267,25 @@ h1 {
   gap: var(--space-3);
 }
 
-/* Gradient Buttons */
+/* Flat header link/button */
 .manage-link {
   display: flex;
   align-items: center;
   gap: var(--space-2);
   padding: var(--space-3) var(--space-5);
-  color: white;
+  color: var(--on-surface);
   text-decoration: none;
-  border-radius: var(--radius-full);
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  background: var(--gradient-primary);
-  border: none;
+  border-radius: var(--radius-md);
+  transition: background 0.15s ease, border-color 0.15s ease;
+  background: var(--surface-elevated);
+  border: 1px solid var(--border-color);
   font-size: var(--font-size-sm);
   font-weight: var(--font-weight-semibold);
-  box-shadow: var(--shadow-md), var(--shadow-glow-primary);
-  position: relative;
-  overflow: hidden;
-}
-
-.manage-link::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: -100%;
-  width: 100%;
-  height: 100%;
-  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3), transparent);
-  transition: left 0.5s ease;
-}
-
-.manage-link:hover::before {
-  left: 100%;
 }
 
 .manage-link:hover {
-  transform: translateY(-2px) scale(1.02);
-  box-shadow: var(--shadow-lg), var(--shadow-glow-primary);
+  background: var(--surface-hover);
+  border-color: var(--border-hover);
 }
 
 .manage-link svg {
@@ -375,88 +300,22 @@ h1 {
   display: inline-block;
 }
 
-.theme-dropdown {
-  position: absolute;
-  top: calc(100% + var(--space-3));
-  right: 0;
-  background: var(--glass-bg);
-  backdrop-filter: var(--glass-blur);
-  -webkit-backdrop-filter: var(--glass-blur);
-  border: 1px solid var(--glass-border);
-  border-radius: var(--radius-xl);
-  padding: var(--space-2);
-  min-width: 160px;
-  box-shadow: var(--shadow-xl);
-  opacity: 0;
-  visibility: hidden;
-  transform: translateY(-10px) scale(0.95);
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  z-index: 1000;
-}
-
-.theme-dropdown.show {
-  opacity: 1;
-  visibility: visible;
-  transform: translateY(0) scale(1);
-}
-
-.theme-option {
-  width: 100%;
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  padding: var(--space-3);
-  border: none;
-  background: transparent;
-  color: var(--on-surface);
-  border-radius: var(--radius-lg);
-  cursor: pointer;
-  transition: all 0.2s ease;
-  font-size: var(--font-size-sm);
-  font-weight: var(--font-weight-medium);
-}
-
-.theme-option:hover {
-  background: var(--surface-hover);
-}
-
-.theme-option.active {
-  background: var(--primary-light);
-  color: var(--primary-color);
-}
-
-.theme-preview {
-  display: flex;
-  gap: 3px;
-}
-
-.theme-preview span {
-  width: 14px;
-  height: 14px;
-  border-radius: var(--radius-sm);
-}
-
 .header-controls button {
-  background: var(--glass-bg);
-  backdrop-filter: var(--glass-blur);
-  -webkit-backdrop-filter: var(--glass-blur);
-  border: 1px solid var(--glass-border);
-  border-radius: var(--radius-lg);
+  background: var(--surface-elevated);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
   padding: var(--space-3);
   cursor: pointer;
   color: var(--on-surface);
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: background 0.15s ease, border-color 0.15s ease;
   display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow: var(--shadow-sm);
 }
 
 .header-controls button:hover {
   background: var(--surface-hover);
-  border-color: var(--primary-color);
-  transform: translateY(-2px);
-  box-shadow: var(--shadow-md), var(--shadow-glow-primary);
+  border-color: var(--border-hover);
 }
 
 .header-controls button svg {
@@ -470,35 +329,14 @@ h1 {
   padding-bottom: var(--space-10);
 }
 
-/* Category Sections with Glassmorphism */
+/* Flat category sections (no panel fill / glow / lift) */
 .category-section {
   background: var(--category-background);
-  backdrop-filter: var(--glass-blur);
-  -webkit-backdrop-filter: var(--glass-blur);
-  border: 1px solid var(--glass-border);
-  border-radius: var(--radius-2xl);
-  padding: var(--space-8);
+  border: none;
+  border-radius: var(--radius-lg);
+  padding: var(--space-4) 0;
   margin-bottom: var(--space-6);
   position: relative;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  box-shadow: var(--shadow-md);
-}
-
-.category-section::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: var(--gradient-card);
-  border-radius: inherit;
-  opacity: 0;
-  transition: opacity 0.3s ease;
-  z-index: -1;
-}
-
-.category-section:hover {
-  border-color: var(--primary-color);
-  box-shadow: var(--shadow-lg), var(--shadow-glow-primary);
-  transform: translateY(-4px);
 }
 
 .category-section:hover::before {
@@ -509,11 +347,8 @@ h1 {
   font-family: var(--font-family-display);
   font-size: var(--font-size-xl);
   font-weight: var(--font-weight-bold);
-  background: var(--gradient-primary);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-  margin-bottom: var(--space-6);
+  color: var(--on-surface);
+  margin-bottom: var(--space-4);
   display: flex;
   align-items: center;
   gap: var(--space-3);
@@ -523,19 +358,9 @@ h1 {
   content: '';
   width: 4px;
   height: 1.5rem;
-  background: var(--gradient-primary);
+  background: var(--primary-color);
   border-radius: var(--radius-full);
   flex-shrink: 0;
-  animation: pulseGlow 2s ease-in-out infinite;
-}
-
-@keyframes pulseGlow {
-  0%, 100% {
-    box-shadow: 0 0 10px var(--primary-color);
-  }
-  50% {
-    box-shadow: 0 0 20px var(--primary-color), 0 0 40px var(--primary-color);
-  }
 }
 
 /* Links Grid with Masonry Feel */
@@ -550,17 +375,15 @@ h1 {
   gap: var(--space-3);
 }
 
-/* 3D Link Tiles with Glassmorphism */
+/* Flat link tiles (no glass / 3D / glow) */
 .link-tile {
   background: var(--tile-background);
-  backdrop-filter: var(--glass-blur);
-  -webkit-backdrop-filter: var(--glass-blur);
-  border: 1px solid var(--glass-border);
-  border-radius: var(--radius-xl);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
   padding: var(--space-5);
   text-decoration: none;
   color: var(--on-surface);
-  transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: background 0.15s ease, border-color 0.15s ease;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -569,40 +392,16 @@ h1 {
   text-align: center;
   position: relative;
   overflow: hidden;
-  box-shadow: var(--shadow-md);
-  transform-style: preserve-3d;
-  perspective: 1000px;
-}
-
-.link-tile::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: var(--gradient-primary);
-  opacity: 0;
-  transition: opacity 0.4s ease;
-  z-index: -1;
 }
 
 .link-tile:hover {
   background: var(--tile-hover-background);
-  border-color: var(--primary-color);
-  transform: translateY(-8px) rotateX(2deg) rotateY(-2deg);
-  box-shadow: var(--shadow-xl), var(--shadow-glow-primary);
-}
-
-.link-tile:hover::before {
-  opacity: 0.1;
+  border-color: var(--border-hover);
 }
 
 .link-tile:focus-visible {
   border-color: var(--primary-color);
-  box-shadow: var(--shadow-glow-primary), 0 0 0 3px var(--primary-light);
-}
-
-.link-tile.has-background-icon h3 {
-  color: white;
-  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 0 0 3px var(--primary-light);
 }
 
 /* Tile Content */
@@ -624,35 +423,17 @@ h1 {
   height: 40px;
   object-fit: contain;
   border-radius: var(--radius-md);
-  transition: transform 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-  filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.3));
-}
-
-.link-tile:hover .tile-icon {
-  transform: scale(1.1) translateY(-4px);
 }
 
 .tile-placeholder {
   width: 40px;
   height: 40px;
   border-radius: var(--radius-md);
-  background: var(--gradient-primary);
+  background: var(--surface-elevated);
+  color: var(--on-surface-variant);
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: transform 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-.tile-placeholder::before {
-  content: '';
-  width: 20px;
-  height: 20px;
-  border: 2px solid rgba(255, 255, 255, 0.5);
-  border-radius: 4px;
-}
-
-.link-tile:hover .tile-placeholder {
-  transform: scale(1.1) translateY(-4px);
 }
 
 .tile-content h3 {
@@ -681,7 +462,7 @@ h1 {
 }
 
 .link-tile:hover .tile-content h3 {
-  color: var(--primary-hover);
+  color: var(--on-surface);
 }
 
 /* List View */
@@ -814,19 +595,16 @@ h1 {
 
 .link-tile.dragging {
   opacity: 0.5;
-  transform: scale(0.95) rotate(2deg);
 }
 
 body .link-tile.drag-over {
   border-color: var(--accent-color);
-  box-shadow: var(--shadow-glow-accent);
-  transform: scale(1.05);
 }
 
 .links-grid.grid-drag-over {
   background: var(--primary-light);
   border: 2px dashed var(--primary-color);
-  border-radius: var(--radius-xl);
+  border-radius: var(--radius-lg);
 }
 
 .links-grid.grid-drag-over::before {
@@ -839,10 +617,10 @@ body .link-tile.drag-over {
   font-family: var(--font-family-display);
   font-size: var(--font-size-lg);
   font-weight: var(--font-weight-bold);
-  background: var(--glass-bg);
-  backdrop-filter: var(--glass-blur);
+  background: var(--surface-elevated);
+  border: 1px solid var(--border-color);
   padding: var(--space-3) var(--space-6);
-  border-radius: var(--radius-full);
+  border-radius: var(--radius-md);
 }
 
 /* No Results */
@@ -851,13 +629,11 @@ body .link-tile.drag-over {
   color: var(--on-surface-variant);
   padding: var(--space-12);
   font-size: var(--font-size-lg);
-  background: var(--glass-bg);
-  backdrop-filter: var(--glass-blur);
-  -webkit-backdrop-filter: var(--glass-blur);
-  border: 1px solid var(--glass-border);
-  border-radius: var(--radius-2xl);
+  background: var(--surface-color);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
   margin: var(--space-8) 0;
-  box-shadow: var(--shadow-lg);
+  box-shadow: var(--shadow-sm);
 }
 
 .no-results a {
@@ -888,21 +664,6 @@ body .link-tile.drag-over {
   }
 }
 
-.loading::after {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: -100%;
-  width: 100%;
-  height: 100%;
-  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.1), transparent);
-  animation: shimmer 1.5s infinite;
-}
-
-@keyframes shimmer {
-  100% { left: 100%; }
-}
-
 /* Reduced Motion */
 @media (prefers-reduced-motion: reduce) {
   *,
@@ -921,7 +682,6 @@ body .link-tile.drag-over {
 @media (prefers-contrast: high) {
   :root {
     --border-color: currentColor;
-    --glass-blur: none;
   }
   
   .link-tile {
@@ -1012,70 +772,3 @@ body .link-tile.drag-over {
   }
 }
 
-/* ============================================================
-   Flat, calm interactions (retire the glassmorphism motion).
-   No lift / tilt / scale / glow on hover — solid surfaces only.
-   The category-heading accent bar (.category-section h2::before)
-   is intentionally NOT touched.
-   ============================================================ */
-.link-tile { perspective: none !important; transform-style: flat !important; }
-.link-tile:hover,
-.link-tile:hover .tile-icon,
-.link-tile:hover .tile-placeholder,
-.link-tile:hover .tile-content h3,
-.category-section:hover,
-.manage-link:hover,
-.header-controls button:hover {
-  transform: none !important;
-}
-.link-tile::before,
-.link-tile:hover::before,
-.category-section::before,
-.category-section:hover::before,
-.manage-link::before,
-.manage-link:hover::before,
-.tile-placeholder::before {
-  content: none !important;
-  display: none !important;
-}
-.link-tile:hover {
-  background: var(--tile-hover-background) !important;
-  border-color: var(--border-hover) !important;
-  box-shadow: none !important;
-}
-.category-section:hover { box-shadow: none !important; }
-
-/* ============================================================
-   Less purple: neutral text and fills; the accent appears only
-   in small marks (category bar, focus ring, active states).
-   ============================================================ */
-/* Hero title + category headings: solid neutral text, no accent fill */
-h1,
-.category-section h2 {
-  background: none !important;
-  -webkit-background-clip: border-box !important;
-  background-clip: border-box !important;
-  -webkit-text-fill-color: currentColor !important;
-  color: var(--on-surface) !important;
-}
-/* Icon placeholder squares: neutral, not a solid accent block */
-.tile-placeholder {
-  background: var(--surface-elevated) !important;
-  color: var(--on-surface-variant) !important;
-}
-/* Settings link + header buttons: neutral, not an accent fill */
-.header-controls button,
-.manage-link {
-  background: var(--surface-elevated) !important;
-  color: var(--on-surface) !important;
-  border: 1px solid var(--border-color) !important;
-}
-.header-controls button:hover,
-.manage-link:hover {
-  background: var(--surface-hover) !important;
-  border-color: var(--border-hover) !important;
-  color: var(--on-surface) !important;
-}
-.manage-link::before { content: none !important; display: none !important; }
-/* Tile title stays neutral on hover (no purple flip) */
-.link-tile:hover .tile-content h3 { color: var(--on-surface) !important; }
