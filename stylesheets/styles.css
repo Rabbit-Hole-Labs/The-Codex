@@ -101,13 +101,6 @@ h1 {
 }
 
 
-.tagline {
-  color: var(--on-surface-variant);
-  font-size: var(--font-size-xs);
-  margin: 2px 0 0 0;
-  font-weight: var(--font-weight-normal);
-}
-
 /* Search */
 .search-section {
   justify-self: center;
@@ -645,10 +638,6 @@ body .link-tile.drag-over {
 @media (max-width: 480px) {
   .app-container {
     padding: 0 var(--space-3);
-  }
-
-  .tagline {
-    display: none;
   }
 
   .manage-link span {
