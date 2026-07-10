@@ -107,7 +107,15 @@ function createLinkElement(link, index, state) {
 export function filterLinks(state) {
     const elements = getElements();
     const selectedCategory = elements.filterCategory.value;
-    state.filteredLinks = selectedCategory === 'all' ? state.links : state.links.filter(link => link.category === selectedCategory);
+    // filteredLinks must always be a DISTINCT array from links. The 'all' case
+    // used to assign `state.links` directly, aliasing the two arrays; a later
+    // single delete then spliced both state.links and state.filteredLinks — the
+    // same object — twice, removing two links instead of one (data loss). The
+    // filter() branch already returns a fresh array; spread the 'all' branch so
+    // it does too.
+    state.filteredLinks = selectedCategory === 'all'
+        ? [...state.links]
+        : state.links.filter(link => link.category === selectedCategory);
     state.currentPage = 1;
     debug('Filtered links:', state.filteredLinks);
     renderLinks(state);

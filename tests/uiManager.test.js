@@ -180,6 +180,29 @@ describe('uiManager', () => {
             expect(state.filteredLinks.length).toBe(3);
         });
 
+        // Regression: with the "All Categories" filter, filteredLinks must be a
+        // DISTINCT array from links. Aliasing them caused a single delete (which
+        // splices both) to remove two links — a data-loss bug triggered after any
+        // bulk action or after selecting "All Categories" (both call filterLinks).
+        test('filterLinks("all") does not alias filteredLinks to links', () => {
+            const links = createLinks(5, 'Work');
+            const state = makeState({ links, filteredLinks: links });
+            document.getElementById('filterCategory').value = 'all';
+
+            UIManager.filterLinks(state);
+
+            // Same contents...
+            expect(state.filteredLinks.map(l => l.id)).toEqual(links.map(l => l.id));
+            // ...but NOT the same array object.
+            expect(state.filteredLinks).not.toBe(state.links);
+
+            // Proof the two are decoupled: removing one row from filteredLinks
+            // must not also remove it from links.
+            state.filteredLinks.splice(0, 1);
+            expect(state.links.length).toBe(5);
+            expect(state.filteredLinks.length).toBe(4);
+        });
+
         test('renderLinks handles empty links', () => {
             const state = makeState({ links: [], filteredLinks: [] });
             expect(() => UIManager.renderLinks(state)).not.toThrow();
