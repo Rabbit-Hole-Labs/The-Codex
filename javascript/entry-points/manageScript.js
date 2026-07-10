@@ -19,16 +19,9 @@ initErrorCapture('manage');
 // Early theme application function
 async function applyInitialTheme() {
     try {
-        const data = await chrome.storage.sync.get(['theme', 'colorTheme']);
-        const theme = data.theme || 'dark';
-        const colorTheme = data.colorTheme || 'default';
-
-        let classes = theme;
-        if (colorTheme !== 'default') {
-            classes += ` ${colorTheme}`;
-        }
-
-        document.body.className = classes;
+        const data = await chrome.storage.sync.get(['theme']);
+        // Only dark/light — color themes were retired.
+        document.body.className = data.theme === 'light' ? 'light' : 'dark';
     } catch (error) {
         console.error('Error applying initial theme:', error);
         document.body.className = 'dark'; // Fallback
@@ -285,9 +278,8 @@ function setupSettingsTab() {
 
 async function loadCurrentSettings() {
     try {
-        const data = await chrome.storage.sync.get(['theme', 'colorTheme', 'view', 'defaultTileSize']);
+        const data = await chrome.storage.sync.get(['theme', 'view', 'defaultTileSize']);
         const theme = data.theme || 'dark';
-        const colorTheme = data.colorTheme || 'default';
         const view = data.view || 'grid';
         const defaultTileSize = data.defaultTileSize || 'medium';
 
@@ -300,14 +292,11 @@ async function loadCurrentSettings() {
             defaultTileSizeSelect.value = defaultTileSize;
         }
 
-        // Update theme preview cards
-        updateThemePreviewCards(colorTheme);
-
         // Update view toggle
         updateViewToggle(view);
 
-        // Apply current theme to management page
-        applyTheme(theme, colorTheme);
+        // Apply current theme (dark/light) to management page
+        applyTheme(theme);
 
     } catch (error) {
         console.error('Error loading current settings:', error);
@@ -316,19 +305,9 @@ async function loadCurrentSettings() {
 
 function setupThemeControls() {
     // Base-theme segmented control (Dark / Light) — each option sets the mode.
+    // Color themes were retired; this is the only theme control now.
     document.querySelectorAll('#modeToggle .view-option[data-mode]').forEach(opt => {
         opt.addEventListener('click', () => setMode(opt.dataset.mode));
-    });
-
-    // Color theme select - removed (using cards only)
-
-    // Theme preview cards
-    const themeCards = document.querySelectorAll('.theme-preview-card');
-    themeCards.forEach(card => {
-        card.addEventListener('click', () => {
-            const theme = card.dataset.theme;
-            setColorTheme(theme);
-        });
     });
 }
 
@@ -359,9 +338,7 @@ async function setMode(mode) {
     try {
         await chrome.storage.sync.set({ theme: mode });
         updateModeToggle(mode);
-        const colorData = await chrome.storage.sync.get(['colorTheme']);
-        const colorTheme = colorData.colorTheme || 'default';
-        applyTheme(mode, colorTheme);
+        applyTheme(mode);
     } catch (error) {
         console.error('Error setting mode:', error);
     }
@@ -371,23 +348,6 @@ function updateModeToggle(mode) {
     document.querySelectorAll('#modeToggle .view-option[data-mode]').forEach(opt => {
         opt.classList.toggle('active', opt.dataset.mode === mode);
     });
-}
-
-async function setColorTheme(theme) {
-    try {
-        await chrome.storage.sync.set({ colorTheme: theme });
-
-        // Update preview cards
-        updateThemePreviewCards(theme);
-
-        // Apply theme
-        const themeData = await chrome.storage.sync.get(['theme']);
-        const currentMode = themeData.theme || 'dark';
-        applyTheme(currentMode, theme);
-
-    } catch (error) {
-        console.error('Error setting color theme:', error);
-    }
 }
 
 async function setView(view) {
@@ -411,13 +371,6 @@ async function setDefaultTileSize(size) {
     }
 }
 
-function updateThemePreviewCards(activeTheme) {
-    const cards = document.querySelectorAll('.theme-preview-card');
-    cards.forEach(card => {
-        card.classList.toggle('active', card.dataset.theme === activeTheme);
-    });
-}
-
 function updateViewToggle(activeView) {
     const viewOptions = document.querySelectorAll('.view-option');
     viewOptions.forEach(option => {
@@ -425,16 +378,10 @@ function updateViewToggle(activeView) {
     });
 }
 
-function applyTheme(theme, colorTheme) {
-    // Build class string
-    let classes = theme;
-    if (colorTheme !== 'default') {
-        classes += ` ${colorTheme}`;
-    }
-
-    // Apply to body
-    document.body.className = classes;
-    debug('Applied theme classes to management page:', classes);
+function applyTheme(theme) {
+    // Only dark/light — color themes were retired.
+    document.body.className = theme === 'light' ? 'light' : 'dark';
+    debug('Applied theme class to management page:', document.body.className);
 }
 
 function setupTabs() {

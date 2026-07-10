@@ -1,13 +1,21 @@
+/* ============================================================
+   The Codex — manage page styles (single consolidated sheet)
+   Flat, dark/light only. Built from the former manage-styles +
+   manage-overrides + manage-compact. sync-status.css stays
+   separate (shared with the new-tab page).
+   ============================================================ */
+
+/* ===== base + tokens + legacy components (flattened) ===== */
 /* The Codex - Bold Creative Management Page Styles */
 
 :root,
 body.dark,
 body {
-  /* Vibrant Gradient Base */
+  /* Flat opaque surfaces (no translucent glass washes) */
   --background-color: #0f0f1a;
-  --surface-color: rgba(255, 255, 255, 0.03);
-  --surface-elevated: rgba(255, 255, 255, 0.06);
-  --surface-hover: rgba(255, 255, 255, 0.08);
+  --surface-color: #17172a;
+  --surface-elevated: #20203a;
+  --surface-hover: #2a2a48;
   
   /* Bold Accent Colors */
   --primary-color: #8b5cf6;
@@ -26,8 +34,8 @@ body {
   --on-surface-variant: #94a3b8;
   --on-surface-muted: #64748b;
   --outline-color: var(--primary-color);
-  --border-color: rgba(255, 255, 255, 0.1);
-  --border-hover: rgba(255, 255, 255, 0.2);
+  --border-color: #2c2c46;
+  --border-hover: #3d3d5c;
   
   /* Semantic Colors */
   --danger-color: #f43f5e;
@@ -41,14 +49,14 @@ body {
   --info-color: #06b6d4;
   --info-hover: #0891b2;
   
-  /* Bold Gradients */
-  --gradient-primary: linear-gradient(135deg, #8b5cf6 0%, #06b6d4 100%);
-  --gradient-hero: linear-gradient(135deg, #8b5cf6 0%, #ec4899 50%, #f43f5e 100%);
-  --gradient-accent: linear-gradient(135deg, #f43f5e 0%, #fb923c 100%);
-  --gradient-danger: linear-gradient(135deg, #f43f5e 0%, #f97316 100%);
-  --gradient-success: linear-gradient(135deg, #10b981 0%, #06b6d4 100%);
-  --gradient-surface: linear-gradient(135deg, rgba(255, 255, 255, 0.03), rgba(255, 255, 255, 0.06));
-  --gradient-background: radial-gradient(ellipse at 20% 30%, rgba(139, 92, 246, 0.12) 0%, transparent 40%), radial-gradient(ellipse at 80% 70%, rgba(6, 182, 212, 0.12) 0%, transparent 40%);
+  /* Flat solids (gradients retired) */
+  --gradient-primary: var(--primary-color);
+  --gradient-hero: var(--primary-color);
+  --gradient-accent: var(--accent-color);
+  --gradient-danger: var(--danger-color);
+  --gradient-success: var(--success-color);
+  --gradient-surface: var(--surface-elevated);
+  --gradient-background: none;
   
   /* Typography - Creative Mix */
   --font-family-display: 'Space Grotesk', sans-serif;
@@ -85,26 +93,21 @@ body {
   --space-10: 2.5rem;
   --space-12: 3rem;
   
-  /* Dramatic Shadows with Glow */
-  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.3);
-  --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.4);
-  --shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.5);
-  --shadow-xl: 0 16px 64px rgba(0, 0, 0, 0.6);
-  --shadow-glow-primary: 0 0 40px rgba(139, 92, 246, 0.4);
-  --shadow-glow-accent: 0 0 40px rgba(244, 63, 94, 0.4);
-  
-  /* Glassmorphism */
-  --glass-blur: blur(20px);
-  --glass-bg: rgba(255, 255, 255, 0.05);
-  --glass-border: rgba(255, 255, 255, 0.1);
+  /* Flat, restrained shadows (no glow) */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 2px 6px rgba(0, 0, 0, 0.35);
+  --shadow-lg: 0 4px 14px rgba(0, 0, 0, 0.4);
+  --shadow-xl: 0 8px 24px rgba(0, 0, 0, 0.45);
+  --shadow-glow-primary: none;
+  --shadow-glow-accent: none;
 }
 
 body.light {
-  /* Enhanced Light Theme */
-  --background-color: #ffffff;
-  --surface-color: #f8fafc;
-  --surface-elevated: #f1f5f9;
-  --surface-hover: #e2e8f0;
+  /* Soft, non-stark light theme (page is light-gray, cards are white) */
+  --background-color: #eef0f4;
+  --surface-color: #ffffff;
+  --surface-elevated: #f4f6f9;
+  --surface-hover: #e9edf2;
   --primary-color: #2563eb;
   --primary-hover: #1d4ed8;
   --primary-light: #dbeafe;
@@ -130,152 +133,10 @@ body.light {
   --info-color: #0891b2;
   --info-hover: #0e7490;
   
-  /* Light Theme Gradients */
-  --gradient-primary: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
-  --gradient-accent: linear-gradient(135deg, var(--accent-color), var(--warning-color));
-  --gradient-danger: linear-gradient(135deg, var(--error-color), #f97316);
-  --gradient-success: linear-gradient(135deg, var(--success-color), var(--info-color));
-  --gradient-surface: linear-gradient(135deg, var(--surface-color), var(--surface-elevated));
-  --gradient-background: radial-gradient(ellipse at top, rgba(37, 99, 235, 0.03) 0%, transparent 70%), radial-gradient(ellipse at bottom right, rgba(5, 150, 105, 0.03) 0%, transparent 70%);
+  --gradient-surface: var(--surface-elevated);
+  --gradient-background: none;
 }
 
-/* Color Theme Variants - Matching JavaScript Theme Names */
-body.dark.ocean, body.light.ocean { --primary-color: #06b6d4 !important; --primary-hover: #0891b2 !important; --gradient-primary: linear-gradient(135deg, #06b6d4 0%, #10b981 100%) !important; --shadow-glow-primary: 0 0 40px rgba(6, 182, 212, 0.4) !important; }
-body.dark.cosmic, body.light.cosmic { --primary-color: #8b5cf6 !important; --primary-hover: #7c3aed !important; --gradient-primary: linear-gradient(135deg, #8b5cf6 0%, #06b6d4 100%) !important; --shadow-glow-primary: 0 0 40px rgba(139, 92, 246, 0.4) !important; }
-body.dark.sunset, body.light.sunset { --primary-color: #f97316 !important; --primary-hover: #ea580c !important; --gradient-primary: linear-gradient(135deg, #f97316 0%, #ef4444 100%) !important; --shadow-glow-primary: 0 0 40px rgba(249, 115, 22, 0.4) !important; }
-body.dark.forest, body.light.forest { --primary-color: #10b981 !important; --primary-hover: #059669 !important; --gradient-primary: linear-gradient(135deg, #10b981 0%, #22c55e 100%) !important; --shadow-glow-primary: 0 0 40px rgba(16, 185, 129, 0.4) !important; }
-body.dark.fire, body.light.fire { --primary-color: #ef4444 !important; --primary-hover: #dc2626 !important; --gradient-primary: linear-gradient(135deg, #ef4444 0%, #f97316 100%) !important; --shadow-glow-primary: 0 0 40px rgba(239, 68, 68, 0.4) !important; }
-body.dark.aurora, body.light.aurora { --primary-color: #ec4899 !important; --primary-hover: #db2777 !important; --gradient-primary: linear-gradient(135deg, #ec4899 0%, #8b5cf6 100%) !important; --shadow-glow-primary: 0 0 40px rgba(236, 72, 153, 0.4) !important; }
-
-/* Additional Theme Variants - Higher Specificity */
-body.dark.theme-purple,
-body.light.theme-purple {
-  --primary-color: #a855f7 !important;
-  --primary-hover: #9333ea !important;
-  --gradient-primary: linear-gradient(135deg, #a855f7 0%, #ec4899 100%) !important;
-  --gradient-hero: linear-gradient(135deg, #a855f7 0%, #ec4899 50%, #f43f5e 100%) !important;
-}
-
-body.dark.theme-pink,
-body.light.theme-pink {
-  --primary-color: #ec4899 !important;
-  --primary-hover: #db2777 !important;
-  --gradient-primary: linear-gradient(135deg, #ec4899 0%, #f59e0b 100%) !important;
-  --gradient-hero: linear-gradient(135deg, #ec4899 0%, #f59e0b 50%, #f43f5e 100%) !important;
-}
-
-body.dark.theme-green,
-body.light.theme-green {
-  --primary-color: #10b981 !important;
-  --primary-hover: #059669 !important;
-  --gradient-primary: linear-gradient(135deg, #10b981 0%, #3b82f6 100%) !important;
-  --gradient-hero: linear-gradient(135deg, #10b981 0%, #3b82f6 50%, #8b5cf6 100%) !important;
-}
-
-body.dark.theme-orange,
-body.light.theme-orange {
-  --primary-color: #f97316 !important;
-  --primary-hover: #ea580c !important;
-  --gradient-primary: linear-gradient(135deg, #f97316 0%, #ef4444 100%) !important;
-  --gradient-hero: linear-gradient(135deg, #f97316 0%, #ef4444 50%, #ec4899 100%) !important;
-}
-
-body.dark.theme-teal,
-body.light.theme-teal {
-  --primary-color: #14b8a6 !important;
-  --primary-hover: #0d9488 !important;
-  --gradient-primary: linear-gradient(135deg, #14b8a6 0%, #8b5cf6 100%) !important;
-  --gradient-hero: linear-gradient(135deg, #14b8a6 0%, #8b5cf6 50%, #ec4899 100%) !important;
-}
-
-/* Dark-specific theme variants - with light mode support */
-body.dark.theme-dark-orange {
-  --primary-color: #fb923c !important;
-  --primary-hover: #f97316 !important;
-  --gradient-primary: linear-gradient(135deg, #fb923c 0%, #fbbf24 100%) !important;
-  --gradient-hero: linear-gradient(135deg, #fb923c 0%, #fbbf24 50%, #ef4444 100%) !important;
-  --background-color: #0c0a09 !important;
-  --surface-color: #1c1917 !important;
-  --surface-elevated: #292524 !important;
-}
-body.light.theme-dark-orange {
-  --primary-color: #fb923c !important;
-  --primary-hover: #f97316 !important;
-  --gradient-primary: linear-gradient(135deg, #fb923c 0%, #fbbf24 100%) !important;
-  --gradient-hero: linear-gradient(135deg, #fb923c 0%, #fbbf24 50%, #ef4444 100%) !important;
-}
-
-body.dark.theme-dark-purple {
-  --primary-color: #a855f7 !important;
-  --primary-hover: #9333ea !important;
-  --gradient-primary: linear-gradient(135deg, #a855f7 0%, #ec4899 100%) !important;
-  --gradient-hero: linear-gradient(135deg, #a855f7 0%, #ec4899 50%, #f43f5e 100%) !important;
-  --background-color: #0f0c14 !important;
-  --surface-color: #1e1527 !important;
-  --surface-elevated: #2d1f3a !important;
-}
-body.light.theme-dark-purple {
-  --primary-color: #a855f7 !important;
-  --primary-hover: #9333ea !important;
-  --gradient-primary: linear-gradient(135deg, #a855f7 0%, #ec4899 100%) !important;
-  --gradient-hero: linear-gradient(135deg, #a855f7 0%, #ec4899 50%, #f43f5e 100%) !important;
-}
-
-body.dark.theme-dark-emerald {
-  --primary-color: #10b981 !important;
-  --primary-hover: #059669 !important;
-  --gradient-primary: linear-gradient(135deg, #10b981 0%, #06b6d4 100%) !important;
-  --gradient-hero: linear-gradient(135deg, #10b981 0%, #06b6d4 50%, #8b5cf6 100%) !important;
-  --background-color: #0a0f0d !important;
-  --surface-color: #14251e !important;
-  --surface-elevated: #1f3830 !important;
-}
-body.light.theme-dark-emerald {
-  --primary-color: #10b981 !important;
-  --primary-hover: #059669 !important;
-  --gradient-primary: linear-gradient(135deg, #10b981 0%, #06b6d4 100%) !important;
-  --gradient-hero: linear-gradient(135deg, #10b981 0%, #06b6d4 50%, #8b5cf6 100%) !important;
-}
-
-body.dark.theme-dark-crimson {
-  --primary-color: #ef4444 !important;
-  --primary-hover: #dc2626 !important;
-  --gradient-primary: linear-gradient(135deg, #ef4444 0%, #f97316 100%) !important;
-  --gradient-hero: linear-gradient(135deg, #ef4444 0%, #f97316 50%, #fbbf24 100%) !important;
-  --background-color: #0f0808 !important;
-  --surface-color: #1f1515 !important;
-  --surface-elevated: #2f2020 !important;
-}
-body.light.theme-dark-crimson {
-  --primary-color: #ef4444 !important;
-  --primary-hover: #dc2626 !important;
-  --gradient-primary: linear-gradient(135deg, #ef4444 0%, #f97316 100%) !important;
-  --gradient-hero: linear-gradient(135deg, #ef4444 0%, #f97316 50%, #fbbf24 100%) !important;
-}
-
-body.dark.theme-dark-sapphire {
-  --primary-color: #3b82f6 !important;
-  --primary-hover: #2563eb !important;
-  --gradient-primary: linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%) !important;
-  --gradient-hero: linear-gradient(135deg, #3b82f6 0%, #8b5cf6 50%, #ec4899 100%) !important;
-  --background-color: #080b14 !important;
-  --surface-color: #111827 !important;
-  --surface-elevated: #1f2937 !important;
-}
-body.light.theme-dark-sapphire {
-  --primary-color: #3b82f6 !important;
-  --primary-hover: #2563eb !important;
-  --gradient-primary: linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%) !important;
-  --gradient-hero: linear-gradient(135deg, #3b82f6 0%, #8b5cf6 50%, #ec4899 100%) !important;
-}
-body.dark.theme-focus,
-body.light.theme-focus {
-  --primary-color: #0D9488 !important;
-  --primary-hover: #14B8A6 !important;
-  --gradient-primary: linear-gradient(135deg, #0D9488 0%, #14B8A6 100%) !important;
-  --gradient-hero: linear-gradient(135deg, #0D9488 0%, #F97316 50%, #14B8A6 100%) !important;
-  --shadow-glow-primary: 0 0 40px rgba(13, 148, 136, 0.4) !important;
-}
 
 * {
   box-sizing: border-box;
@@ -292,28 +153,14 @@ body.light.theme-focus {
 body {
   font-family: var(--font-family-sans);
   background: var(--background-color);
-  background-image: var(--gradient-background);
   color: var(--on-background);
   line-height: 1.6;
   margin: 0;
   padding: 0;
   min-height: 100vh;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: background 0.2s ease, color 0.2s ease;
   position: relative;
   overflow-x: hidden;
-}
-
-body::before {
-  content: '';
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 200px;
-  background: var(--gradient-primary);
-  opacity: 0.03;
-  z-index: -1;
-  pointer-events: none;
 }
 
 .container {
@@ -1284,12 +1131,11 @@ button:disabled {
   left: 0;
   width: 100%;
   height: 100%;
-  background: rgba(0, 0, 0, 0.8);
+  background: rgba(0, 0, 0, 0.6);
   display: flex;
   justify-content: center;
   align-items: center;
   z-index: 1000;
-  backdrop-filter: blur(4px);
 }
 
 .modal.hidden {
@@ -1299,13 +1145,13 @@ button:disabled {
 .modal-content {
   background: var(--surface-color) !important;
   border: 1px solid var(--border-color) !important;
-  border-radius: var(--radius-2xl);
+  border-radius: var(--radius-lg);
   padding: var(--space-8);
   max-width: 500px;
   width: 90%;
   max-height: 80vh;
   overflow-y: auto;
-  box-shadow: var(--shadow-xl);
+  box-shadow: var(--shadow-lg);
   position: relative;
   color: var(--on-surface) !important;
 }
@@ -2514,3 +2360,342 @@ form .btn-danger:hover,
   color: var(--on-surface-variant);
   margin-bottom: var(--space-3);
 }
+/* ===== class-driven button/action overrides ===== */
+/* Manage page button colors — class-driven and consistent.
+ *
+ * This file used to escalate to per-ID / per-form !important rules
+ * ("maximum specificity") to force button colors. That fought the .btn-*
+ * class system and produced inconsistencies — e.g. the Rename submit rendered
+ * grey even though it is .btn-primary, because #editCategoryForm was hardcoded
+ * to the secondary colour. Buttons now derive their colour purely from their
+ * variant class (.btn-primary / .btn-secondary / .btn-danger), so the same
+ * class always looks the same everywhere on the page.
+ *
+ * The `html body` prefix gives these rules enough specificity to win over the
+ * layered overrides in manage-styles.css without resorting to element IDs.
+ */
+
+/* --- Variant classes drive every button's colour --- */
+html body .btn-primary {
+  background: var(--primary-color) !important;
+  border: 1px solid var(--primary-color) !important;
+  color: #fff !important;
+  box-shadow: none !important;
+}
+html body .btn-primary:hover {
+  background: var(--primary-hover) !important;
+  border-color: var(--primary-hover) !important;
+  color: #fff !important;
+}
+
+html body .btn-secondary {
+  background: var(--surface-elevated) !important;
+  border: 1px solid var(--border-color) !important;
+  color: var(--on-surface) !important;
+  box-shadow: none !important;
+}
+html body .btn-secondary:hover {
+  background: var(--surface-hover) !important;
+  border-color: var(--border-hover) !important;
+  color: var(--on-surface) !important;
+}
+
+html body .btn-danger {
+  background: var(--error-color) !important;
+  border: 1px solid var(--error-color) !important;
+  color: #fff !important;
+  box-shadow: none !important;
+}
+html body .btn-danger:hover {
+  background: var(--error-hover) !important;
+  border-color: var(--error-hover) !important;
+  color: #fff !important;
+}
+
+/* --- Per-row link action buttons (their own classes, not .btn-*) --- */
+html body .link-actions .visit-button {
+  background: var(--primary-color) !important;
+  border: 1px solid var(--primary-color) !important;
+  color: #fff !important;
+}
+html body .link-actions .visit-button:hover {
+  background: var(--primary-hover) !important;
+}
+html body .link-actions .edit-button {
+  background: var(--surface-elevated) !important;
+  border: 1px solid var(--border-color) !important;
+  color: var(--on-surface) !important;
+}
+html body .link-actions .edit-button:hover {
+  background: var(--surface-hover) !important;
+  color: var(--primary-color) !important;
+}
+html body .link-actions .delete-button {
+  background: var(--error-color) !important;
+  border: 1px solid var(--error-color) !important;
+  color: #fff !important;
+}
+html body .link-actions .delete-button:hover {
+  background: var(--error-hover) !important;
+}
+
+/* --- Grid / List view toggle --- */
+html body .view-toggle,
+html body .view-toggle .view-option {
+  background: var(--surface-elevated) !important;
+  border: 1px solid var(--border-color) !important;
+  color: var(--on-surface-variant) !important;
+}
+html body .view-toggle .view-option.active {
+  background: var(--primary-color) !important;
+  border: 1px solid var(--primary-color) !important;
+  color: #fff !important;
+}
+html body .view-toggle .view-option:hover:not(.active) {
+  background: var(--surface-hover) !important;
+  border: 1px solid var(--border-hover) !important;
+  color: var(--on-surface) !important;
+}
+
+/* ===== compact component system + flat shell ===== */
+/* Compact manage-page design system.
+ *
+ * Loaded last so it owns the redesigned tabs. Every colour is a theme variable
+ * (defined in styles.css / manage-styles.css) so these components follow the
+ * base light/dark theme AND all 18 colour themes automatically.
+ *
+ * Primitives are prefixed .mc-* to avoid colliding with the older button/card
+ * rules; component classes (.cat-list, .stat-strip, …) are unique names.
+ */
+
+/* ---- small primitives ---- */
+.mc-btn {
+  appearance: none; font: inherit; font-size: 13px; font-weight: 550; line-height: 1.2;
+  cursor: pointer; border-radius: var(--radius-md, 8px); padding: 6px 13px; white-space: nowrap;
+  border: 1px solid var(--border-hover); background: var(--surface-elevated); color: var(--on-surface);
+  transition: background .12s ease, border-color .12s ease; display: inline-flex; align-items: center; gap: 6px;
+}
+.mc-btn:hover { background: var(--surface-hover); }
+.mc-btn:focus-visible { outline: 2px solid var(--primary-color); outline-offset: 1px; }
+.mc-btn.accent { background: var(--primary-color); border-color: var(--primary-color); color: #fff; }
+.mc-btn.accent:hover { background: var(--primary-hover); border-color: var(--primary-hover); }
+.mc-btn.danger { color: var(--error-color); }
+.mc-btn.danger:hover { background: var(--primary-light, rgba(244,63,94,0.14)); background: color-mix(in srgb, var(--error-color) 14%, transparent); border-color: var(--error-color); }
+.mc-btn.tiny { padding: 4px 9px; font-size: 12.5px; }
+
+.mc-icon-btn {
+  appearance: none; cursor: pointer; width: 30px; height: 30px; padding: 0; flex: none;
+  display: inline-flex; align-items: center; justify-content: center;
+  border-radius: 6px; border: 1px solid transparent; background: none;
+  color: var(--on-surface-variant); font-size: 14px; line-height: 1; transition: all .12s ease;
+}
+.mc-icon-btn:hover { background: var(--surface-hover); color: var(--on-surface); border-color: var(--border-color); }
+.mc-icon-btn:focus-visible { outline: 2px solid var(--primary-color); outline-offset: 1px; }
+.mc-icon-btn:disabled { opacity: .35; cursor: default; }
+.mc-icon-btn.danger:hover { color: var(--error-color); border-color: var(--error-color);
+  background: color-mix(in srgb, var(--error-color) 14%, transparent); }
+.mc-icon-btn svg { width: 16px; height: 16px; }
+
+.mc-field {
+  appearance: none; font: inherit; font-size: 13px; color: var(--on-surface); background: var(--background-color);
+  border: 1px solid var(--border-hover); border-radius: var(--radius-md, 8px); padding: 7px 10px; width: 100%;
+}
+.mc-field:focus { outline: none; border-color: var(--primary-color); box-shadow: 0 0 0 3px var(--primary-light, rgba(139,92,246,0.2)); }
+.mc-field::placeholder { color: var(--on-surface-variant); opacity: .8; }
+
+.mc-sub { color: var(--on-surface-variant); font-size: 12.5px; margin: 0 0 14px; }
+.mc-lbl { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--on-surface-variant); }
+
+/* ---- Categories: the list is the primary view ---- */
+#manage-categories .category-management { display: block; }   /* undo old grid */
+
+.cat-add-row { display: flex; gap: 8px; margin: 0 0 14px; max-width: 460px; }
+.cat-add-row .mc-field { flex: 1; }
+
+.cat-list { list-style: none; margin: 0; padding: 0; border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg, 12px); overflow: hidden; }
+.cat-row { display: flex; align-items: center; gap: 12px; padding: 9px 12px;
+  background: var(--surface-color); border-bottom: 1px solid var(--border-color); }
+.cat-row:last-child { border-bottom: none; }
+.cat-row:hover { background: var(--surface-elevated); }
+.cat-row.dragging { opacity: .5; }
+.cat-row.drag-over { box-shadow: inset 0 2px 0 var(--primary-color); }
+.cat-row .grip { color: var(--on-surface-variant); cursor: grab; display: inline-flex; opacity: .7; width: 16px; }
+.cat-row .grip svg { width: 16px; height: 16px; }
+.cat-row .cat-name { font-weight: 550; font-size: 13.5px; flex: 1; min-width: 0; cursor: text;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cat-row .cat-name .default-badge { font-size: 10px; text-transform: uppercase; letter-spacing: .05em;
+  color: var(--on-surface-variant); border: 1px solid var(--border-color); border-radius: 999px; padding: 1px 7px; margin-left: 8px; font-weight: 500; }
+.cat-row .cat-rename { flex: 1; min-width: 0; }
+.cat-row .cat-count { color: var(--on-surface-variant); font-size: 12px; font-variant-numeric: tabular-nums;
+  min-width: 56px; text-align: right; }
+.cat-row .cat-acts { display: flex; gap: 2px; flex: none; }
+
+/* ---- shared: dense status strip (Sync) ---- */
+.stat-strip { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 1px;
+  background: var(--border-color); border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg, 12px); overflow: hidden; }
+.stat-strip .stat { background: var(--surface-color); padding: 10px 14px; display: flex; flex-direction: column; gap: 2px; }
+.stat-strip .stat .k { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--on-surface-variant); }
+.stat-strip .stat .v { font-size: 14px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.stat-strip .stat .v.ok { color: var(--success-color); }
+.stat-strip .stat .v.mono { font-family: var(--mono, ui-monospace, monospace); font-size: 12px; font-weight: 500; color: var(--on-surface-variant); }
+
+.mc-block { margin-bottom: 16px; }
+.mc-block > .mc-lbl { margin-bottom: 7px; display: block; }
+.mc-btn-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+
+/* ---- shared: dense list (Links) ---- */
+.dense-list { list-style: none; margin: 0; padding: 0; border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg, 12px); overflow: hidden; }
+.dense-row { display: flex; align-items: center; gap: 12px; padding: 8px 12px;
+  background: var(--surface-color); border-bottom: 1px solid var(--border-color); }
+.dense-row:last-child { border-bottom: none; }
+.dense-row:hover { background: var(--surface-elevated); }
+.dense-row .chip { font-size: 11px; color: var(--on-surface-variant); background: var(--surface-elevated);
+  border: 1px solid var(--border-color); border-radius: 999px; padding: 1px 9px; white-space: nowrap; }
+
+/* ---- shared: segmented toggle (Settings) ---- */
+.mc-seg { display: inline-flex; border: 1px solid var(--border-hover); border-radius: var(--radius-md, 8px); overflow: hidden; }
+.mc-seg button { appearance: none; background: none; border: none; color: var(--on-surface-variant);
+  font: inherit; font-size: 12.5px; padding: 6px 12px; cursor: pointer; transition: background .12s, color .12s; }
+.mc-seg button:hover { color: var(--on-surface); }
+.mc-seg button.on { background: var(--primary-color); color: #fff; }
+
+/* ---- shared: theme picker (Settings) ---- */
+.theme-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(94px, 1fr)); gap: 8px; }
+.theme-opt { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 8px 6px;
+  border: 1px solid var(--border-color); border-radius: var(--radius-md, 8px); background: var(--surface-color); cursor: pointer; transition: background .12s, border-color .12s; }
+.theme-opt:hover { background: var(--surface-elevated); }
+.theme-opt.on { border-color: var(--primary-color); box-shadow: inset 0 0 0 1px var(--primary-color); }
+.theme-opt .sw2 { width: 100%; height: 26px; border-radius: 6px; }
+.theme-opt .tn { font-size: 11.5px; color: var(--on-surface-variant); text-align: center; }
+.theme-opt.on .tn { color: var(--on-surface); }
+
+/* ---- shared: compact card + rows (Add Site, Data) ---- */
+.mc-card { background: var(--surface-color); border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg, 12px); padding: 16px; }
+.mc-card--rows { padding: 2px 16px; }
+
+.mc-form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+@media (max-width: 620px) { .mc-form-grid { grid-template-columns: 1fr; } }
+.mc-field-group { display: flex; flex-direction: column; gap: 5px; }
+.mc-field-group .mc-lbl { display: block; }
+.mc-icon-input { display: flex; gap: 8px; }
+.mc-icon-input .mc-field { flex: 1; }
+
+.qa-row { display: flex; align-items: center; justify-content: space-between; gap: 14px;
+  padding: 13px 0; border-bottom: 1px solid var(--border-color); }
+.qa-row:last-child { border-bottom: none; }
+.qa-row .qa-t { font-size: 13.5px; font-weight: 600; }
+.qa-row .qa-d { font-size: 12px; color: var(--on-surface-variant); }
+
+/* ---- Settings: compact theme-preview grid + consistent segmented toggles ---- */
+.theme-grid-compact { display: grid; grid-template-columns: repeat(auto-fill, minmax(92px, 1fr)); gap: 8px; }
+/* Base-theme toggle reuses the .view-toggle look so it matches the layout
+   toggle exactly (fixes the mismatched control sizes). */
+#modeToggle.view-toggle { display: inline-flex; width: auto; }
+#modeToggle.view-toggle .view-option { justify-content: center; padding: 6px 18px; }
+#modeToggle.view-toggle .view-option.active {
+  background: var(--primary-color) !important; color: #fff !important; border-color: var(--primary-color) !important;
+}
+
+/* ---- Manage Links: dense list rows (markup rendered by uiManager) ---- */
+#linksContainer.links-container {
+  padding: 0; background: var(--surface-color); border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg, 12px); overflow: hidden; margin: var(--space-6) 0;
+}
+#linksContainer .link-item {
+  display: flex; align-items: center; gap: 12px; padding: 8px 12px;
+  background: transparent; border: none; border-bottom: 1px solid var(--border-color);
+  border-radius: 0; margin: 0; box-shadow: none;
+}
+#linksContainer .link-item:last-child { border-bottom: none; }
+#linksContainer .link-item:hover { background: var(--surface-elevated); }
+#linksContainer .link-checkbox-container { flex: none; display: flex; align-items: center; }
+#linksContainer .link-details { flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; }
+#linksContainer .link-title { font-weight: 550; font-size: 13.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#linksContainer .link-category {
+  font-size: 11px; color: var(--on-surface-variant); background: var(--surface-elevated);
+  border: 1px solid var(--border-color); border-radius: 999px; padding: 1px 9px; white-space: nowrap;
+}
+#linksContainer .link-actions { display: flex; gap: 6px; flex: none; }
+#linksContainer .link-actions button {
+  background: transparent !important; border: 1px solid var(--border-color) !important;
+  color: var(--on-surface-variant) !important; padding: 4px 11px !important; font-size: 12.5px !important;
+  border-radius: 7px !important; box-shadow: none !important;
+}
+#linksContainer .link-actions button:hover { background: var(--surface-hover) !important; color: var(--on-surface) !important; }
+#linksContainer .link-actions .delete-button:hover { color: var(--error-color) !important; border-color: var(--error-color) !important; }
+
+/* Compact filter + bulk toolbar */
+#manage-links .links-management-panel { padding: var(--space-5); }
+#manage-links .filter-row { align-items: center; }
+#manage-links .bulk-actions-section h3 { font-size: 13px; }
+
+/* ---- shared: compact log ---- */
+.mc-log { border: 1px solid var(--border-color); border-radius: var(--radius-lg, 12px); background: var(--surface-color); padding: 4px 0; }
+.mc-log .e { display: flex; gap: 12px; padding: 5px 14px; font-size: 12.5px; }
+.mc-log .e .t { color: var(--on-surface-variant); opacity: .8; font-variant-numeric: tabular-nums;
+  font-family: var(--mono, ui-monospace, monospace); font-size: 11.5px; min-width: 64px; }
+.mc-log .e .m { color: var(--on-surface-variant); }
+
+/* =====================================================================
+   Flat shell — retire the elevated card + gradient hero to match the
+   approved mockup. The tab CONTENTS were already flattened; this drops
+   the glass/gradient chrome around them (title, header, container, tabs).
+   Loaded last, so these override the legacy manage-styles.css shell.
+   ===================================================================== */
+
+/* Narrower page, tighter gutters (mockup used ~1080px, flush content) */
+.container { max-width: 1120px; padding: 24px 24px 60px; }
+
+/* Header: tighter, calmer */
+.container header { margin-bottom: 18px; padding-bottom: 16px; }
+
+/* Flat, solid title — no 3rem gradient hero */
+.container h1 {
+  font-size: 21px; font-weight: 700; letter-spacing: -0.01em;
+  background: none; -webkit-background-clip: border-box; background-clip: border-box;
+  -webkit-text-fill-color: currentColor; color: var(--on-surface);
+}
+
+/* "Back to Home" as a small flat link-button, not a big pill */
+.container .home-link {
+  padding: 5px 12px; font-size: 13px; border-radius: 8px;
+  background: transparent; color: var(--primary-color);
+}
+.container .home-link:hover {
+  background: var(--surface-elevated); border-color: var(--primary-color);
+  transform: none; box-shadow: none;
+}
+
+/* No elevated card panel — content sits flat on the page background */
+.container main {
+  background: transparent; border: none; box-shadow: none;
+  border-radius: 0; padding: 0; min-height: 0;
+}
+
+/* Flat underline tabs: thin rule, no filled active chip, no rounded tops */
+.container .tabs {
+  border-bottom: 1px solid var(--border-color); margin-bottom: 20px; gap: 2px;
+}
+.container .tab-button {
+  padding: 9px 14px; font-size: 13.5px; border-radius: 0;
+  border-bottom: 2px solid transparent; margin-bottom: -1px;
+}
+.container .tab-button:hover {
+  background: none; color: var(--on-surface); border-bottom-color: transparent;
+}
+.container .tab-button.active {
+  background: none; color: var(--on-surface); font-weight: 600;
+  border-bottom-color: var(--primary-color);
+}
+.container .tab-button.active::after { display: none; }
+
+/* Drop the translateY slide-in so tabs don't leave a gap mid-animation */
+.container .tab-content.active { animation-duration: .15s; }
+.container .tab-content > h2 { margin-top: 0; }
+
+/* ===== flat polish: retire button shimmer sheens ===== */
+.btn-primary::before, .btn-danger::before, .icon-source-btn::before { display: none !important; }
