@@ -17,10 +17,10 @@ body {
   --surface-elevated: #20203a;
   --surface-hover: #2a2a48;
   
-  /* Bold Accent Colors */
-  --primary-color: #8b5cf6;
-  --primary-hover: #a78bfa;
-  --primary-light: rgba(139, 92, 246, 0.2);
+  /* Muted, restrained accent (much less purple) */
+  --primary-color: #7480b3;
+  --primary-hover: #8b96c4;
+  --primary-light: rgba(116, 128, 179, 0.18);
   --secondary-color: #06b6d4;
   --secondary-hover: #22d3ee;
   --secondary-light: rgba(6, 182, 212, 0.2);
@@ -108,9 +108,9 @@ body.light {
   --surface-color: #ffffff;
   --surface-elevated: #f4f6f9;
   --surface-hover: #e9edf2;
-  --primary-color: #2563eb;
-  --primary-hover: #1d4ed8;
-  --primary-light: #dbeafe;
+  --primary-color: #5561a0;
+  --primary-hover: #46528c;
+  --primary-light: rgba(85, 97, 160, 0.12);
   --secondary-color: #059669;
   --secondary-hover: #047857;
   --secondary-light: #d1fae5;

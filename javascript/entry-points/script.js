@@ -843,23 +843,11 @@ function toggleTheme() {
 function applyTheme() {
     const currentState = getState();
 
-    // Use DOM optimizer for theme updates
-    const theme = currentState.theme || 'dark';
-    const colorTheme = currentState.colorTheme || 'default';
-
-    // Build class string
-    let classes = theme;
-    if (colorTheme !== 'default') {
-        classes += ` ${colorTheme}`;
-    }
-
-    // Apply to body
-    document.body.className = classes;
-    debug('Applied theme classes:', classes);
-
-    // Also store in data attribute for debugging
+    // Only dark/light — color themes were retired.
+    const theme = currentState.theme === 'light' ? 'light' : 'dark';
+    document.body.className = theme;
     document.body.setAttribute('data-theme', theme);
-    document.body.setAttribute('data-color-theme', colorTheme);
+    debug('Applied theme class:', theme);
 }
 
 function toggleView() {
