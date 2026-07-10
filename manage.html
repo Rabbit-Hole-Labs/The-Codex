@@ -383,122 +383,84 @@
             </div>
 
             <div class="tab-content" id="sync-settings">
-                <h2>Sync Settings & Diagnostics</h2>
-                
-                <div class="sync-info-grid">
-                    <div class="sync-status-card">
-                        <h3>Sync Status</h3>
-                        <div class="sync-info">
-                            <div class="sync-info-row">
-                                <span class="label">Current Status:</span>
-                                <span id="sync-current-status" class="value">Loading...</span>
-                            </div>
-                            <div class="sync-info-row">
-                                <span class="label">Last Sync:</span>
-                                <span id="sync-last-time" class="value">Never</span>
-                            </div>
-                            <div class="sync-info-row">
-                                <span class="label">Local Version:</span>
-                                <span id="sync-local-version" class="value">-</span>
-                            </div>
-                            <div class="sync-info-row">
-                                <span class="label">Cloud Version:</span>
-                                <span id="sync-remote-version" class="value">-</span>
-                            </div>
-                        </div>
-                        <button id="refresh-sync-status" class="btn-secondary">Refresh Status</button>
-                    </div>
+                <h2>Sync &amp; Diagnostics</h2>
+                <p class="mc-sub">Your links sync across devices through your browser account. This is the current state.</p>
 
-                    <div class="sync-storage-card">
-                        <h3>Storage Usage</h3>
-                        <div class="storage-info">
-                            <div class="storage-bar-container">
-                                <div class="storage-bar">
-                                    <div id="storage-fill" class="storage-fill" style="width: 0%"></div>
-                                </div>
-                                <div class="storage-text">
-                                    <span id="storage-used">0 KB</span> / <span id="storage-total">0 KB</span>
-                                </div>
-                            </div>
-                            <div class="sync-info-row">
-                                <span class="label">Quota Usage:</span>
-                                <span id="quota-percentage" class="value">0%</span>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="sync-actions-card">
-                        <h3>Sync Actions</h3>
-                        <div class="sync-actions-grid">
-                            <button id="manual-sync-btn" class="btn-primary">Sync Now</button>
-                            <button id="force-push-btn" class="btn-secondary">Force Push</button>
-                            <button id="force-pull-btn" class="btn-secondary">Force Pull</button>
-                            <button id="clear-sync-btn" class="btn-danger">Clear Sync Data</button>
-                        </div>
-                        <div class="sync-strategy">
-                            <label for="sync-strategy-select">Conflict Resolution:</label>
-                            <select id="sync-strategy-select">
-                                <option value="merge">Smart Merge (Recommended)</option>
-                                <option value="local">Local Data Wins</option>
-                                <option value="remote">Cloud Data Wins</option>
-                            </select>
-                        </div>
-                    </div>
-
-                    <div class="sync-diagnostics-card">
-                        <h3>Sync Diagnostics</h3>
-                        <div class="diagnostics-info">
-                            <div class="sync-info-row">
-                                <span class="label">Device ID:</span>
-                                <span id="device-id" class="value monospace">Loading...</span>
-                            </div>
-                            <div class="sync-info-row">
-                                <span class="label">Sync Enabled:</span>
-                                <span id="sync-enabled" class="value">Yes</span>
-                            </div>
-                            <div class="sync-info-row">
-                                <span class="label">Network Status:</span>
-                                <span id="network-status" class="value">Online</span>
-                            </div>
-                        </div>
-                        <div class="diagnostic-actions">
-                            <button id="test-sync-btn" class="btn-secondary">Test Sync Connection</button>
-                            <button id="export-diagnostics-btn" class="btn-secondary">Export Diagnostics</button>
-                        </div>
-                    </div>
-
-                    <div class="sync-data-verification-card">
-                        <h3>Data Verification</h3>
-                        <div class="verification-actions">
-                            <button id="view-cloud-data-btn" class="btn-secondary">View Cloud Data</button>
-                            <button id="view-local-data-btn" class="btn-secondary">View Local Data</button>
-                            <button id="compare-data-btn" class="btn-secondary">Compare Local vs Cloud</button>
-                            <button id="validate-integrity-btn" class="btn-secondary">Validate Data Integrity</button>
-                        </div>
+                <div class="stat-strip" style="margin-bottom:16px">
+                    <div class="stat"><span class="k">Status</span><span id="sync-current-status" class="v">Loading…</span></div>
+                    <div class="stat"><span class="k">Last sync</span><span id="sync-last-time" class="v">Never</span></div>
+                    <div class="stat"><span class="k">Network</span><span id="network-status" class="v">Online</span></div>
+                    <div class="stat"><span class="k">Local version</span><span id="sync-local-version" class="v">-</span></div>
+                    <div class="stat"><span class="k">Cloud version</span><span id="sync-remote-version" class="v">-</span></div>
+                    <div class="stat"><span class="k">Storage used</span><span id="quota-percentage" class="v">0%</span>
+                        <div class="storage-bar" style="margin-top:4px"><div id="storage-fill" class="storage-fill" style="width: 0%"></div></div>
+                        <span class="k" style="text-transform:none;letter-spacing:0"><span id="storage-used">0 KB</span> / <span id="storage-total">0 KB</span></span>
                     </div>
                 </div>
 
-                <div class="sync-log-card">
-                    <h3>Sync Activity Log</h3>
+                <div class="mc-block">
+                    <div class="mc-lbl">Actions</div>
+                    <div class="mc-btn-row">
+                        <button id="manual-sync-btn" class="mc-btn">Sync now</button>
+                        <button id="force-push-btn" class="mc-btn">Force push</button>
+                        <button id="force-pull-btn" class="mc-btn">Force pull</button>
+                        <select id="sync-strategy-select" class="mc-field" style="width:auto">
+                            <option value="merge">Conflict: Smart merge</option>
+                            <option value="local">Conflict: Local wins</option>
+                            <option value="remote">Conflict: Cloud wins</option>
+                        </select>
+                        <button id="clear-sync-btn" class="mc-btn danger" style="margin-left:auto">Clear sync data</button>
+                    </div>
+                </div>
+
+                <div class="mc-block">
+                    <div class="mc-lbl">Data verification</div>
+                    <div class="mc-btn-row">
+                        <button id="view-cloud-data-btn" class="mc-btn tiny">View cloud data</button>
+                        <button id="view-local-data-btn" class="mc-btn tiny">View local data</button>
+                        <button id="compare-data-btn" class="mc-btn tiny">Compare local vs cloud</button>
+                        <button id="validate-integrity-btn" class="mc-btn tiny">Validate integrity</button>
+                    </div>
+                </div>
+
+                <div class="mc-block">
+                    <div class="mc-lbl">Diagnostics</div>
+                    <div class="stat-strip" style="grid-template-columns:repeat(auto-fit,minmax(180px,1fr));margin-bottom:8px">
+                        <div class="stat"><span class="k">Device ID</span><span id="device-id" class="v mono">Loading…</span></div>
+                        <div class="stat"><span class="k">Sync enabled</span><span id="sync-enabled" class="v">Yes</span></div>
+                    </div>
+                    <div class="mc-btn-row">
+                        <button id="refresh-sync-status" class="mc-btn tiny">Refresh status</button>
+                        <button id="test-sync-btn" class="mc-btn tiny">Test connection</button>
+                        <button id="export-diagnostics-btn" class="mc-btn tiny">Export diagnostics</button>
+                    </div>
+                </div>
+
+                <div class="mc-block">
+                    <div class="mc-lbl" style="display:flex;align-items:center;justify-content:space-between;gap:10px">
+                        <span>Activity log</span>
+                        <button id="clear-log-btn" class="mc-btn tiny">Clear</button>
+                    </div>
                     <div id="sync-log" class="sync-log">
                         <div class="log-entry">
                             <span class="log-time">Ready</span>
                             <span class="log-message">Sync manager initialized</span>
                         </div>
                     </div>
-                    <button id="clear-log-btn" class="btn-secondary">Clear Log</button>
                 </div>
 
-                <div class="error-log-card">
-                    <h3>Captured Errors</h3>
-                    <p class="error-log-hint">Runtime errors, unhandled promise rejections, and CSP violations captured across every context (new tab, manage, popup, service worker). This is the same runtime data Chrome shows on its extensions &ldquo;Errors&rdquo; screen &mdash; which extensions can&rsquo;t read directly.</p>
+                <div class="mc-block" style="margin-bottom:0">
+                    <div class="mc-lbl" style="display:flex;align-items:center;justify-content:space-between;gap:10px">
+                        <span>Captured errors</span>
+                        <span class="mc-btn-row">
+                            <button id="refresh-errors-btn" class="mc-btn tiny">Refresh</button>
+                            <button id="copy-errors-btn" class="mc-btn tiny">Copy all</button>
+                            <button id="clear-errors-btn" class="mc-btn tiny danger">Clear</button>
+                        </span>
+                    </div>
+                    <p class="mc-sub" style="margin:2px 0 8px">Runtime errors, unhandled rejections, and CSP violations captured across every context — the same data Chrome shows on its extension &ldquo;Errors&rdquo; screen, which extensions can&rsquo;t read directly.</p>
                     <div id="error-log" class="error-log" aria-live="polite">
                         <div class="error-log-empty">No errors captured. 🎉</div>
-                    </div>
-                    <div class="error-log-actions">
-                        <button id="refresh-errors-btn" class="btn-secondary">Refresh</button>
-                        <button id="copy-errors-btn" class="btn-secondary">Copy All</button>
-                        <button id="clear-errors-btn" class="btn-danger">Clear</button>
                     </div>
                 </div>
             </div>
