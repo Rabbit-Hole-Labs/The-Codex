@@ -31,51 +31,48 @@
             </div>
 
             <div class="tab-content active" id="add-site">
-                <h2>Add New Site</h2>
-                <form id="linkForm" class="modern-form">
-                    <div class="form-row">
-                        <div class="form-group">
-                            <label for="siteName">Service Name</label>
-                            <input type="text" id="siteName" placeholder="e.g., GitHub, Google Drive" required>
+                <h2>Add a site</h2>
+                <p class="mc-sub">Add a link to your dashboard. The icon is fetched automatically from the site name.</p>
+                <form id="linkForm" class="mc-card">
+                    <div class="mc-form-grid">
+                        <div class="mc-field-group">
+                            <label class="mc-lbl" for="siteName">Name</label>
+                            <input type="text" id="siteName" class="mc-field" placeholder="e.g. GitHub" required>
                         </div>
-                        <div class="form-group">
-                            <label for="siteUrl">URL</label>
-                            <input type="url" id="siteUrl" placeholder="https://example.com" required>
-                        </div>
-                    </div>
-                    
-                    <div class="form-row">
-                        <div class="form-group">
-                            <label for="siteIcon">Icon URL (optional)</label>
-                            <div class="icon-input-group">
-                                <input type="url" id="siteIcon" placeholder="Leave empty for auto-detection">
-                                <button type="button" class="icon-helper-btn" data-target="siteIcon">Icon</button>
-                            </div>
-                        </div>
-                        <div class="form-group">
-                            <label for="siteCategory">Category</label>
-                            <select id="siteCategory">
+                        <div class="mc-field-group">
+                            <label class="mc-lbl" for="siteCategory">Category</label>
+                            <select id="siteCategory" class="mc-field">
                                 <option value="">Default</option>
                             </select>
                         </div>
-                        <div class="form-group">
-                            <label for="siteSize">Tile Size</label>
-                            <select id="siteSize">
-                                <option value="default">Use Default Size</option>
-                                <option value="compact">Compact - Minimal height</option>
-                                <option value="small">Small - Reduced size</option>
-                                <option value="medium">Medium - Standard size</option>
-                                <option value="large">Large - Bigger tiles</option>
-                                <option value="square">Square - Perfect square</option>
-                                <option value="wide">Wide - Horizontal layout</option>
-                                <option value="tall">Tall - Vertical emphasis</option>
-                                <option value="giant">Giant - 2x2 showcase</option>
+                        <div class="mc-field-group" style="grid-column:1 / -1">
+                            <label class="mc-lbl" for="siteUrl">URL</label>
+                            <input type="url" id="siteUrl" class="mc-field" placeholder="https://example.com" required>
+                        </div>
+                        <div class="mc-field-group">
+                            <label class="mc-lbl" for="siteIcon">Icon (optional)</label>
+                            <div class="mc-icon-input">
+                                <input type="url" id="siteIcon" class="mc-field" placeholder="Auto from name, or paste an icon URL">
+                                <button type="button" class="mc-btn icon-helper-btn" data-target="siteIcon">Icon</button>
+                            </div>
+                        </div>
+                        <div class="mc-field-group">
+                            <label class="mc-lbl" for="siteSize">Tile size</label>
+                            <select id="siteSize" class="mc-field">
+                                <option value="default">Use default size</option>
+                                <option value="compact">Compact</option>
+                                <option value="small">Small</option>
+                                <option value="medium">Medium</option>
+                                <option value="large">Large</option>
+                                <option value="square">Square</option>
+                                <option value="wide">Wide</option>
+                                <option value="tall">Tall</option>
+                                <option value="giant">Giant</option>
                             </select>
                         </div>
                     </div>
-                    
-                    <div class="form-actions">
-                        <button type="submit" class="btn-primary">Add Service</button>
+                    <div style="display:flex;justify-content:flex-end;margin-top:14px">
+                        <button type="submit" class="mc-btn accent">Add site</button>
                     </div>
                 </form>
             </div>
@@ -359,25 +356,21 @@
             </div>
 
             <div class="tab-content" id="quick-actions">
-                <h2>Quick Actions</h2>
-                <div class="quick-actions-panel">
-                    <div class="action-card">
-                        <h3>Export Data</h3>
-                        <p class="action-description">Download all your links and categories as a JSON file for backup or sharing</p>
-                        <button id="exportBtn" class="btn-primary">Export Sites</button>
+                <h2>Import &amp; Export</h2>
+                <p class="mc-sub">Back up your links or bring them in from elsewhere.</p>
+                <div class="mc-card mc-card--rows">
+                    <div class="qa-row">
+                        <div><div class="qa-t">Export</div><div class="qa-d">Download all links and categories as a JSON backup</div></div>
+                        <button id="exportBtn" class="mc-btn">Export JSON</button>
                     </div>
-                    
-                    <div class="action-card">
-                        <h3>Import Data</h3>
-                        <p class="action-description">Upload a previously exported JSON file to restore your links</p>
-                        <button id="importBtn" class="btn-primary">Import Sites</button>
+                    <div class="qa-row">
+                        <div><div class="qa-t">Import</div><div class="qa-d">Restore from a previously exported JSON file</div></div>
+                        <button id="importBtn" class="mc-btn">Choose file…</button>
                         <input type="file" id="importFile" accept=".json" style="display: none;">
                     </div>
-                    
-                    <div class="action-card">
-                        <h3>Import Bookmarks</h3>
-                        <p class="action-description">Import links directly from your browser bookmarks</p>
-                        <button id="importBookmarksBtn" class="btn-primary">Import Bookmarks</button>
+                    <div class="qa-row">
+                        <div><div class="qa-t">Import bookmarks</div><div class="qa-d">Pull links directly from your browser bookmarks</div></div>
+                        <button id="importBookmarksBtn" class="mc-btn">Import bookmarks</button>
                     </div>
                 </div>
             </div>

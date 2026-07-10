@@ -112,6 +112,24 @@
 .theme-opt .tn { font-size: 11.5px; color: var(--on-surface-variant); text-align: center; }
 .theme-opt.on .tn { color: var(--on-surface); }
 
+/* ---- shared: compact card + rows (Add Site, Data) ---- */
+.mc-card { background: var(--surface-color); border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg, 12px); padding: 16px; }
+.mc-card--rows { padding: 2px 16px; }
+
+.mc-form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+@media (max-width: 620px) { .mc-form-grid { grid-template-columns: 1fr; } }
+.mc-field-group { display: flex; flex-direction: column; gap: 5px; }
+.mc-field-group .mc-lbl { display: block; }
+.mc-icon-input { display: flex; gap: 8px; }
+.mc-icon-input .mc-field { flex: 1; }
+
+.qa-row { display: flex; align-items: center; justify-content: space-between; gap: 14px;
+  padding: 13px 0; border-bottom: 1px solid var(--border-color); }
+.qa-row:last-child { border-bottom: none; }
+.qa-row .qa-t { font-size: 13.5px; font-weight: 600; }
+.qa-row .qa-d { font-size: 12px; color: var(--on-surface-variant); }
+
 /* ---- shared: compact log ---- */
 .mc-log { border: 1px solid var(--border-color); border-radius: var(--radius-lg, 12px); background: var(--surface-color); padding: 4px 0; }
 .mc-log .e { display: flex; gap: 12px; padding: 5px 14px; font-size: 12.5px; }
