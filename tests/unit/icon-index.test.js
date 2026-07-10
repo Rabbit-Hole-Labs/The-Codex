@@ -6,7 +6,8 @@
 import {
     parseIndexPayload,
     searchIndex,
-    normalizeForMatch
+    normalizeForMatch,
+    pickDisplaySlug
 } from '../../javascript/features/iconIndex.js';
 
 describe('parseIndexPayload', () => {
@@ -34,9 +35,9 @@ describe('parseIndexPayload', () => {
             .toEqual(['pi-hole', 'uptime-kuma']);
     });
 
-    it('drops -light/-dark theme variants when the base icon exists', () => {
+    it('keeps -light/-dark theme variants (needed to know recolors exist)', () => {
         const slugs = parseIndexPayload(['plex', 'plex-light', 'plex-dark', 'nightlight']);
-        expect(slugs.sort()).toEqual(['nightlight', 'plex']);
+        expect(slugs.sort()).toEqual(['nightlight', 'plex', 'plex-dark', 'plex-light']);
     });
 
     it('returns empty for unknown shapes without throwing', () => {
@@ -89,6 +90,32 @@ describe('searchIndex', () => {
     it('returns nothing for empty or too-short queries', () => {
         expect(searchIndex('', CATALOG)).toEqual([]);
         expect(searchIndex('a', CATALOG)).toEqual([]);
+    });
+
+    it('hides theme recolors of existing base icons from results', () => {
+        const catalog = ['github', 'github-light', 'github-dark', 'nightlight'];
+        const results = searchIndex('git', catalog);
+        expect(results).toEqual(['github']);
+        // ...but a -light slug with no base is a real icon, not a variant.
+        expect(searchIndex('night', catalog)).toEqual(['nightlight']);
+    });
+});
+
+describe('pickDisplaySlug', () => {
+    const CATALOG = ['github', 'github-light', 'github-dark', 'plex'];
+
+    it('prefers the -light recolor on the dark theme when it exists', () => {
+        expect(pickDisplaySlug('github', CATALOG, 'dark')).toBe('github-light');
+        expect(pickDisplaySlug('github', CATALOG, 'light')).toBe('github-dark');
+    });
+
+    it('keeps the base slug when no recolor exists', () => {
+        expect(pickDisplaySlug('plex', CATALOG, 'dark')).toBe('plex');
+    });
+
+    it('respects an explicitly chosen variant and missing catalogs', () => {
+        expect(pickDisplaySlug('github-light', CATALOG, 'light')).toBe('github-light');
+        expect(pickDisplaySlug('github', null, 'dark')).toBe('github');
     });
 });
 

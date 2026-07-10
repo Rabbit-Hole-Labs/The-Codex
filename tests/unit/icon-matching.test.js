@@ -5,7 +5,8 @@
 import {
     toIconSlug,
     selfhstCandidateSlugs,
-    selfhstIconUrl
+    selfhstIconUrl,
+    themedIconVariantUrl
 } from '../../javascript/features/iconCache.js';
 
 describe('toIconSlug', () => {
@@ -61,5 +62,28 @@ describe('selfhstIconUrl', () => {
     it('builds a jsDelivr WebP URL', () => {
         expect(selfhstIconUrl('jellyfin'))
             .toBe('https://cdn.jsdelivr.net/gh/selfhst/icons/webp/jellyfin.webp');
+    });
+});
+
+describe('themedIconVariantUrl', () => {
+    const BASE = 'https://cdn.jsdelivr.net/gh/selfhst/icons/webp/github.webp';
+
+    it('prefers the -light recolor on the dark theme, -dark on light', () => {
+        expect(themedIconVariantUrl(BASE, 'dark'))
+            .toBe('https://cdn.jsdelivr.net/gh/selfhst/icons/webp/github-light.webp');
+        expect(themedIconVariantUrl(BASE, 'light'))
+            .toBe('https://cdn.jsdelivr.net/gh/selfhst/icons/webp/github-dark.webp');
+    });
+
+    it('respects an explicitly picked variant (no double transform)', () => {
+        expect(themedIconVariantUrl('https://cdn.jsdelivr.net/gh/selfhst/icons/webp/github-light.webp', 'dark'))
+            .toBeNull();
+    });
+
+    it('ignores non-library URLs, data URIs, and unknown themes', () => {
+        expect(themedIconVariantUrl('https://cdn.selfh.st/icons/webp/plex.webp', 'dark')).toBeNull();
+        expect(themedIconVariantUrl('data:image/png;base64,AAAA', 'dark')).toBeNull();
+        expect(themedIconVariantUrl(BASE, 'blue')).toBeNull();
+        expect(themedIconVariantUrl(null, 'dark')).toBeNull();
     });
 });

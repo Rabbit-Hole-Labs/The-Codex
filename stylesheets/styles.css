@@ -311,17 +311,19 @@ h1 {
   width: 100%;
 }
 
+/* No border-radius on the artwork: logos are transparent images, and a 12px
+   radius on a 26px small-tile icon acted as a near-circular mask that chopped
+   every square logo. Never clip the icon itself. */
 .tile-icon {
   width: 32px;
   height: 32px;
   object-fit: contain;
-  border-radius: var(--radius-md);
 }
 
 .tile-placeholder {
   width: 32px;
   height: 32px;
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-control);
   background: var(--primary-light);
   color: var(--primary-color);
   display: flex;

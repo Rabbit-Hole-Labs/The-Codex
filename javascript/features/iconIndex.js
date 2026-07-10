@@ -13,7 +13,9 @@
 import { toIconSlug } from './iconCache.js';
 import { debug } from '../core-systems/debug.js';
 
-const CACHE_KEY = 'selfhstIconIndex';
+// v2: the index now RETAINS -light/-dark variant slugs (needed to know which
+// icons have theme recolors); the key bump forces a refetch of v1 caches.
+const CACHE_KEY = 'selfhstIconIndexV2';
 const CACHE_TTL = 7 * 24 * 60 * 60 * 1000; // refresh weekly
 const FETCH_TIMEOUT = 15000;
 
@@ -79,12 +81,25 @@ export function parseIndexPayload(payload) {
         if (slug && slug.length >= 2) slugs.add(slug.toLowerCase());
     }
 
-    // Drop -light/-dark theme variants when the base icon exists — they'd
-    // triple the result list without adding choices.
-    return Array.from(slugs).filter(slug => {
-        const variant = slug.match(/^(.+)-(light|dark)$/);
-        return !(variant && slugs.has(variant[1]));
-    });
+    // Keep -light/-dark variant slugs: search filters them out of results,
+    // but their presence is how we know an icon has a theme recolor.
+    return Array.from(slugs);
+}
+
+/**
+ * Picks the slug to DISPLAY for the active theme: the -light recolor on a
+ * dark theme (and -dark on light) when the catalog has one. Callers store
+ * the base slug's URL — rendering re-applies this preference per theme.
+ * @param {string} slug - Base slug chosen from search
+ * @param {string[]|null} slugs - Catalog (null → no change)
+ * @param {string} theme - 'dark' | 'light'
+ * @returns {string}
+ */
+export function pickDisplaySlug(slug, slugs, theme) {
+    if (!Array.isArray(slugs) || (theme !== 'dark' && theme !== 'light')) return slug;
+    if (/-(light|dark)$/.test(slug)) return slug;
+    const variant = `${slug}-${theme === 'dark' ? 'light' : 'dark'}`;
+    return slugs.includes(variant) ? variant : slug;
 }
 
 /**
@@ -103,8 +118,14 @@ export function searchIndex(query, slugs, options = {}) {
     if (!q || q.length < 2 || !Array.isArray(slugs)) return [];
 
     const aliasSet = new Set(aliases);
+    const catalogSet = new Set(slugs);
     const scored = [];
     for (const slug of slugs) {
+        // Theme recolors of an existing base icon aren't separate choices —
+        // the picker applies them automatically per theme.
+        const variant = slug.match(/^(.+)-(light|dark)$/);
+        if (variant && catalogSet.has(variant[1])) continue;
+
         const s = normalizeForMatch(slug);
         let score;
         if (s === q || aliasSet.has(slug)) score = 0;
