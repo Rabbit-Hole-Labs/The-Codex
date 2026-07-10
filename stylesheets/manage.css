@@ -1167,12 +1167,13 @@ textarea {
 }
 
 /* Icon Helper Modal Styles */
+/* Context line is a plain muted subtitle, not a boxed field. Hide it entirely
+   when there's no context text (was showing an empty bordered box). */
 .icon-helper-info {
-  margin-bottom: var(--space-4);
-  padding: var(--space-3);
-  background: var(--surface-elevated);
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-lg);
+  margin: -4px 0 var(--space-4);
+}
+.icon-helper-info:has(.helper-context:empty) {
+  display: none;
 }
 
 .helper-context {
@@ -1188,15 +1189,17 @@ textarea {
 }
 
 .icon-helper-content {
-  max-width: 500px;
   width: 100%;
 }
 
+/* Compact, muted section labels (were 18px medium — too heavy for a modal) */
 .icon-options h3 {
-  color: var(--on-surface);
-  font-size: var(--font-size-lg);
-  font-weight: var(--font-weight-medium);
-  margin: var(--space-6) 0 var(--space-3) 0;
+  color: var(--on-surface-variant);
+  font-size: 12px;
+  font-weight: var(--font-weight-semibold);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin: var(--space-5) 0 var(--space-3) 0;
 }
 
 .icon-options h3:first-child {
@@ -1205,9 +1208,9 @@ textarea {
 
 .icon-source-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  grid-template-columns: 1fr 1fr;
   gap: var(--space-3);
-  margin-bottom: var(--space-6);
+  margin-bottom: var(--space-2);
 }
 
 .icon-source-btn {
@@ -1242,54 +1245,25 @@ textarea {
   color: var(--on-surface-variant);
 }
 
-.icon-helper-content input[type="url"] {
-  width: 100%;
-  padding: var(--space-3);
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-md);
-  background: var(--surface-color);
-  color: var(--on-surface);
-  font-size: var(--font-size-base);
-  margin-bottom: var(--space-3);
-  transition: border-color 0.2s ease;
-}
-
-.icon-helper-content input[type="url"]:focus {
-  outline: none;
-  border-color: var(--primary-color);
-  box-shadow: 0 0 0 3px var(--primary-light);
-}
-
-.icon-helper-content button {
-  padding: var(--space-3) var(--space-4);
-  background: var(--primary-color);
-  color: white;
-  border: none;
-  border-radius: var(--radius-md);
-  cursor: pointer;
-  font-weight: var(--font-weight-medium);
-  transition: background-color 0.2s ease;
-}
-
-.icon-helper-content button:hover {
-  background: var(--primary-hover);
-}
-
+/* Custom URL: input + button on one row, both flat. */
 .custom-icon-section {
   display: flex;
-  flex-direction: column;
-  gap: var(--space-3);
-  margin-bottom: var(--space-6);
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
 }
 
 .custom-icon-section input {
-  padding: var(--space-3) var(--space-4);
-  border: 2px solid var(--border-color);
-  border-radius: var(--radius-lg);
-  background: var(--surface-color);
+  flex: 1;
+  min-width: 0;
+  height: 34px;
+  padding: 0 11px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-control);
+  background: var(--surface-elevated);
   color: var(--on-surface);
-  font-size: var(--font-size-base);
-  transition: all 0.2s ease;
+  font-size: 13px;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
 .custom-icon-section input:focus {
@@ -1299,8 +1273,8 @@ textarea {
 }
 
 .custom-icon-section button {
-  align-self: flex-end;
-  min-width: 150px;
+  flex: none;
+  height: 34px;
 }
 
 /* Category Management Styles */
@@ -1385,24 +1359,30 @@ textarea {
 }
 
 .icon-examples {
-  margin-top: var(--space-6);
+  margin-top: var(--space-4);
 }
 
 .url-examples {
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
-  margin-top: var(--space-3);
+  margin-top: var(--space-2);
 }
 
+/* Long template URLs wrap inside the box instead of overflowing the modal. */
 .url-examples code {
+  display: block;
   background: var(--surface-elevated);
-  padding: var(--space-2) var(--space-3);
-  border-radius: var(--radius-md);
-  font-size: var(--font-size-sm);
-  color: var(--on-surface);
+  padding: 6px 9px;
+  border-radius: var(--radius-control);
+  font-size: 11.5px;
+  line-height: 1.4;
+  color: var(--on-surface-variant);
   border: 1px solid var(--border-color);
-  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+  font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-all;
 }
 
 .icon-input-group {

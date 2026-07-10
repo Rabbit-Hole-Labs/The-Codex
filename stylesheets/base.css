@@ -53,8 +53,9 @@ body.dark {
   --info-color: #06b6d4;
   --info-hover: #0891b2;
 
-  /* Typography — one family across both pages */
-  --font-family-display: 'Space Grotesk', 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  /* Typography — Inter across both pages (Space Grotesk read jagged at small
+     sizes). "display" is a heavier Inter, not a different family. */
+  --font-family-display: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   --font-family-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   --font-size-xs: 0.75rem;
   --font-size-sm: 0.875rem;
@@ -163,6 +164,14 @@ body.dark[data-accent="violet"] { --primary-color:#8b7cc8; --primary-hover:#a394
 body.light[data-accent="violet"]{ --primary-color:#6f5cc0; --primary-hover:#5c4aa6; --primary-light:rgba(111,92,192,.12); }
 body.dark[data-accent="amber"]  { --primary-color:#c19a5e; --primary-hover:#d4ad70; --primary-light:rgba(193,154,94,.18); }
 body.light[data-accent="amber"] { --primary-color:#a67c3a; --primary-hover:#8c672e; --primary-light:rgba(166,124,58,.12); }
+
+/* Smooth text rendering (Space Grotesk read jagged; keep Inter crisp on
+   both platforms). */
+body {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
 
 /* ======================================================================
    Shared UI primitives — identical on both pages.
