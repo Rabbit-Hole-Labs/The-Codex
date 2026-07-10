@@ -18,15 +18,16 @@
 .sync-status {
     display: flex;
     align-items: center;
-    gap: 6px;
-    padding: 6px 12px;
-    border-radius: 20px;
+    gap: 7px;
+    height: 34px;
+    padding: 0 12px;
+    border-radius: var(--radius-full);
     background: var(--surface-elevated);
     border: 1px solid var(--border-color);
     color: var(--on-surface);
     cursor: pointer;
-    transition: all 0.3s ease;
-    font-size: 14px;
+    transition: background 0.15s ease, border-color 0.15s ease;
+    font-size: 13px;
 }
 
 .sync-status:hover {

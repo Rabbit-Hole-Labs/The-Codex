@@ -162,12 +162,13 @@ h1 {
   gap: var(--space-3);
 }
 
-/* Flat header link/button — matches the shared .btn look from base.css */
+/* Flat header link/button — matches the manage page's "Back to Home". */
 .manage-link {
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  padding: 7px 13px;
+  height: 34px;
+  padding: 0 13px;
   color: var(--on-surface);
   text-decoration: none;
   border-radius: var(--radius-control);
@@ -224,13 +225,13 @@ h1 {
   padding-bottom: var(--space-10);
 }
 
-/* Flat category sections (no panel fill / glow / lift) */
+/* Flat category sections, separated by a clear titled header. */
 .category-section {
   background: var(--category-background);
   border: none;
   border-radius: var(--radius-lg);
   padding: var(--space-3) 0;
-  margin-bottom: var(--space-5);
+  margin-bottom: var(--space-8);
   position: relative;
 }
 
@@ -238,12 +239,16 @@ h1 {
   opacity: 1;
 }
 
+/* Each category heading gets an accent-tinted underline spanning the row —
+   this both separates one category from the next and puts the accent to work. */
 .category-section h2 {
   font-family: var(--font-family-display);
   font-size: var(--font-size-lg);
   font-weight: var(--font-weight-semibold);
   color: var(--on-surface);
-  margin-bottom: var(--space-3);
+  margin-bottom: var(--space-4);
+  padding-bottom: var(--space-3);
+  border-bottom: 2px solid color-mix(in srgb, var(--primary-color) 60%, var(--border-color));
   display: flex;
   align-items: center;
   gap: var(--space-2);
@@ -251,8 +256,8 @@ h1 {
 
 .category-section h2::before {
   content: '';
-  width: 3px;
-  height: 1.05rem;
+  width: 4px;
+  height: 1.15rem;
   background: var(--primary-color);
   border-radius: var(--radius-full);
   flex-shrink: 0;
@@ -291,7 +296,7 @@ h1 {
 
 .link-tile:hover {
   background: var(--tile-hover-background);
-  border-color: var(--border-hover);
+  border-color: var(--primary-color);
 }
 
 .link-tile:focus-visible {
@@ -324,11 +329,12 @@ h1 {
   width: 32px;
   height: 32px;
   border-radius: var(--radius-md);
-  background: var(--surface-elevated);
-  color: var(--on-surface-variant);
+  background: var(--primary-light);
+  color: var(--primary-color);
   display: flex;
   align-items: center;
   justify-content: center;
+  font-weight: var(--font-weight-semibold);
 }
 
 .tile-content h3 {

@@ -69,11 +69,11 @@ header {
 }
 
 h1 {
-  font-size: 20px;
+  font-size: 22px;
   font-weight: var(--font-weight-bold);
   color: var(--on-surface);
   margin: 0;
-  letter-spacing: -0.01em;
+  letter-spacing: -0.02em;
   position: relative;
 }
 
@@ -92,14 +92,18 @@ h3 {
   margin-bottom: var(--space-3);
 }
 
-/* "Back to Home" as a small flat pill link */
+/* "Back to Home" — same shape/size as the new tab's "Settings" button so the
+   two "go elsewhere" actions read as siblings across pages. */
 .home-link {
+  display: inline-flex;
+  align-items: center;
+  height: 34px;
+  padding: 0 13px;
   color: var(--primary-color);
   text-decoration: none;
-  font-weight: var(--font-weight-medium);
-  padding: 5px 12px;
+  font-weight: 550;
   font-size: 13px;
-  border-radius: var(--radius-full);
+  border-radius: var(--radius-control);
   border: 1px solid var(--border-color);
   transition: background 0.15s ease, border-color 0.15s ease;
   background: transparent;
@@ -1332,6 +1336,16 @@ textarea {
   min-width: 150px;
 }
 
+/* Every control on the toolbar is exactly one height so the buttons
+   (Move / Apply / Delete) and the selects line up — previously the buttons
+   inside .action-row stretched to the taller select while "Delete selected"
+   stayed at its natural height. */
+.links-toolbar .mc-btn,
+.links-toolbar .mc-field,
+.links-toolbar .view-toggle {
+  height: 34px;
+}
+
 /* Thin divider between the filter group and the bulk-action group */
 .toolbar-sep {
   width: 1px;
@@ -1361,6 +1375,7 @@ textarea {
 
 .action-row {
   display: flex;
+  align-items: center;
   gap: 6px;
 }
 
