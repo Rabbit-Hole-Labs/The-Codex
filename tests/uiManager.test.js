@@ -242,6 +242,36 @@ describe('uiManager', () => {
             expect(() => UIManager.renderLinks(state)).not.toThrow();
         });
 
+        // Regression: Save in the edit modal was a silent no-op. getState()
+        // returns a fresh JSON clone per call, so openEditModal stashed
+        // editIndex on one clone while the submit handler read it from the
+        // init-time clone (undefined → resolveLinkIndex -1 → nothing saved).
+        // The modal must operate on the state captured when it was opened.
+        test('edit modal Save updates the link captured at open time', async () => {
+            const links = createLinks(3);
+            const state = makeState({ links, filteredLinks: links });
+            const editCategory = document.getElementById('editSiteCategory');
+            const opt = document.createElement('option');
+            opt.value = 'Default';
+            editCategory.appendChild(opt);
+
+            UIManager.setupModalListeners();
+            UIManager.renderLinks(state);
+            document.querySelectorAll('.link-item')[1]
+                .querySelector('.edit-button').click();
+
+            document.getElementById('editSiteName').value = 'Renamed Site';
+            document.getElementById('editSiteUrl').value = 'https://site1.com';
+            document.getElementById('editSiteIcon').value = '';
+            editCategory.value = 'Default';
+            document.getElementById('editForm')
+                .dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+            await new Promise(resolve => setTimeout(resolve, 10));
+
+            expect(state.links[1].name).toBe('Renamed Site');
+            expect(state.filteredLinks[1].name).toBe('Renamed Site');
+        });
+
         test('getSelectedIndices returns checked indices', () => {
             const state = makeState({ links: createLinks(3), filteredLinks: createLinks(3) });
             UIManager.renderLinks(state);

@@ -1,6 +1,7 @@
 import * as StorageManager from './storageManager.js';
 import { sanitizeUserInput, validateLink } from '../features/securityUtils.js';
 import { validateAndSanitizeUrl } from '../features/utils.js';
+import { validateIconValue } from '../features/iconCache.js';
 
 /**
  * Resolve a rendered link (an entry of state.filteredLinks) back to its index
@@ -42,7 +43,6 @@ export async function addLink(state, name, url, category, icon, size = 'medium')
         const sanitizedName = sanitizeUserInput(name, { maxLength: 100 });
         const sanitizedUrl = validateAndSanitizeUrl(url);
         const sanitizedCategory = sanitizeUserInput(category, { maxLength: 50 });
-        const sanitizedIcon = icon ? sanitizeUserInput(icon, { maxLength: 500 }) : 'default';
 
         // Validate required fields
         if (!sanitizedName || sanitizedName.length === 0) {
@@ -56,6 +56,15 @@ export async function addLink(state, name, url, category, icon, size = 'medium')
         if (!sanitizedCategory || sanitizedCategory.length === 0) {
             throw new Error('Category is required and cannot be empty');
         }
+
+        // Icons must be loadable under the extension CSP (selfh.st/jsDelivr
+        // https URLs or data: images) — reject at save time instead of
+        // persisting a value that render would silently refuse.
+        const iconCheck = validateIconValue(icon ? sanitizeUserInput(icon, { maxLength: 500 }) : 'default');
+        if (!iconCheck.valid) {
+            throw new Error(iconCheck.reason);
+        }
+        const sanitizedIcon = iconCheck.value;
 
         // Create new link with sanitized data and a stable id.
         const newLink = {
@@ -171,8 +180,14 @@ export async function editLink(state, index, name, url, category, icon, size = '
         const sanitizedName = sanitizeUserInput(name, { maxLength: 100 });
         const sanitizedUrl = validateAndSanitizeUrl(url);
         const sanitizedCategory = sanitizeUserInput(category, { maxLength: 50 });
-        const sanitizedIcon = icon ? sanitizeUserInput(icon, { maxLength: 500 }) : 'default';
-        
+
+        // Same save-time icon rule as addLink — see validateIconValue.
+        const iconCheck = validateIconValue(icon ? sanitizeUserInput(icon, { maxLength: 500 }) : 'default');
+        if (!iconCheck.valid) {
+            throw new Error(iconCheck.reason);
+        }
+        const sanitizedIcon = iconCheck.value;
+
         // Create updated link with sanitized data, preserving the stable id.
         const updatedLink = {
             name: sanitizedName,

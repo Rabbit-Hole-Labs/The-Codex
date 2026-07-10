@@ -51,8 +51,9 @@
                         <div class="mc-field-group">
                             <label class="mc-lbl" for="siteIcon">Icon (optional)</label>
                             <div class="mc-icon-input">
-                                <input type="url" id="siteIcon" class="mc-field" placeholder="Auto from name, or paste an icon URL">
-                                <button type="button" class="mc-btn icon-helper-btn" data-target="siteIcon">Icon</button>
+                                <span class="icon-preview" id="siteIconPreview" hidden><img alt=""></span>
+                                <input type="text" id="siteIcon" class="mc-field" placeholder="Automatic from name — or pick one">
+                                <button type="button" class="mc-btn icon-helper-btn" data-target="siteIcon">Pick icon</button>
                             </div>
                         </div>
                         <div class="mc-field-group">
@@ -349,8 +350,9 @@
                 <input type="text" id="editSiteName" required class="col-12">
                 <input type="url" id="editSiteUrl" required class="col-12">
                 <div class="icon-input-group col-12">
-                    <input type="url" id="editSiteIcon" placeholder="Icon URL (optional)">
-                    <button type="button" class="icon-helper-btn" data-target="editSiteIcon">Icon</button>
+                    <span class="icon-preview" id="editSiteIconPreview" hidden><img alt=""></span>
+                    <input type="text" id="editSiteIcon" placeholder="Automatic from name — or pick one">
+                    <button type="button" class="icon-helper-btn" data-target="editSiteIcon">Pick icon</button>
                 </div>
                 <select id="editSiteCategory" class="col-12"></select>
                 <select id="editSiteSize" class="col-12">
@@ -369,43 +371,26 @@
         </div>
     </div>
 
-    <!-- Icon Helper Modal -->
+    <!-- Icon Picker Modal — only verified icons can be chosen -->
     <div id="iconHelperModal" class="modal hidden">
-        <div class="modal-content">
+        <div class="modal-content icon-picker">
             <span class="close-button" id="iconHelperClose">&times;</span>
-            <h2>Icon Helper</h2>
-            <div class="icon-helper-info">
-                <p id="iconHelperContext" class="helper-context"></p>
+            <h2>Choose an icon</h2>
+            <p id="iconHelperContext" class="helper-context"></p>
+            <div class="picker-search">
+                <input type="search" id="iconSearchInput" class="mc-field" placeholder="Search by app name (e.g. Plex, Home Assistant)" autocomplete="off">
             </div>
-            <div class="icon-helper-content">
-                <div class="icon-options">
-                    <h3>Quick Options</h3>
-                    <div class="icon-source-grid">
-                        <button class="icon-source-btn" data-source="selfh">
-                            <span class="source-name">Auto-Detect</span>
-                            <span class="source-desc">Find icon by service name</span>
-                        </button>
-                        <button class="icon-source-btn" data-source="clear">
-                            <span class="source-name">Remove Icon</span>
-                            <span class="source-desc">Use text only</span>
-                        </button>
-                    </div>
-                    
-                    <h3>Custom Icon URL</h3>
-                    <div class="custom-icon-section">
-                        <input type="url" id="customIconUrl" placeholder="https://example.com/icon.png">
-                        <button id="useCustomIconBtn" class="btn-primary">Use Custom URL</button>
-                    </div>
-                    
-                    <div class="icon-examples">
-                        <h3>Suggested URLs:</h3>
-                        <div class="url-examples">
-                            <code>https://cdn.jsdelivr.net/gh/selfhst/icons/svg/[name].svg</code>
-                            <code>https://cdn.jsdelivr.net/npm/simple-icons@v9/icons/[name].svg</code>
-                            <code>https://raw.githubusercontent.com/walkxcode/dashboard-icons/main/png/[name].png</code>
-                        </div>
-                    </div>
+            <p id="iconSearchStatus" class="picker-status"></p>
+            <div id="iconResults" class="icon-results"></div>
+            <div class="picker-footer">
+                <h3>Or paste an image URL</h3>
+                <div class="custom-icon-section">
+                    <span class="icon-preview" id="customIconPreview" hidden><img alt=""></span>
+                    <input type="text" id="customIconUrl" placeholder="https://cdn.jsdelivr.net/… or data:image/…">
+                    <button id="useCustomIconBtn" class="btn-primary" disabled>Use</button>
                 </div>
+                <p id="customIconNote" class="picker-note">Allowed sources: selfh.st, jsDelivr, or a data: image URI. The preview must load before the icon can be used.</p>
+                <button type="button" id="iconNoneBtn" class="mc-btn picker-none-btn">No icon — show initials instead</button>
             </div>
         </div>
     </div>

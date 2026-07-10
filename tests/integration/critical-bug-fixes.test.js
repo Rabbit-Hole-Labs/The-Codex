@@ -143,7 +143,7 @@ describe('General Application Functionality', () => {
         'Test Link',
         'https://example.com',
         'Test Category',
-        'https://example.com/favicon.ico'
+        'https://cdn.jsdelivr.net/gh/selfhst/icons/webp/plex.webp'
       );
 
       expect(result).toBeDefined();

@@ -92,6 +92,8 @@ javascript/
 - Progressive enhancement: custom (`data:` or selfh.st/jsDelivr only) > [selfh.st/icons](https://selfh.st/icons) match by app name (via jsDelivr) > Google favicon proxy (public sites) > generated text initials
 - Icons resolve to known hosts only (jsDelivr, selfh.st, Google), so the CSP needs no `img-src` wildcard; homelab/internal apps get logos by name without contacting the internal host
 - Use `loadIconWithCache()` for efficient loading
+- **Icon Picker** (`features/iconPicker.js`): search the selfh.st library with probe-verified previews — only icons that actually loaded can be chosen; the custom-URL path is gated on host validation plus a live image load
+- **Save-time validation**: `validateIconValue()` in `iconCache.js` is the single source of truth for what may be persisted as `link.icon` (`'default'`, `data:image` URIs, or https on selfh.st/jsDelivr). `addLink`/`editLink` throw on anything else; imports coerce invalid icons to `'default'`
 
 ## Data Schemas
 
@@ -128,7 +130,7 @@ javascript/
 - **`key`**: manifest `key` pins the extension ID to the published Web Store ID (`dimphibhkgnildpnlapckpgnonmaiddj`). Do NOT remove or change it — a stable ID is what lets an unpacked/dev build share the same `chrome.storage.sync` data as the published extension (and across devices). Without it, an unpacked build gets a per-machine ID and its data is isolated.
 - **Versioning**: bump the `manifest.json` `version` build component (the 4th number in `7.0.0.X`) in **every PR**, so a tester can tell from `edge://extensions` which build they're running.
 - **Permissions**: storage, bookmarks, activeTab
-- **CSP**: `script-src 'self'; object-src 'none'; base-uri 'none'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdnjs.cloudflare.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https://cdn.jsdelivr.net https://selfh.st https://www.google.com https://*.gstatic.com; connect-src 'self';` — no `img-src` wildcard: tile icons come from the [selfh.st/icons](https://selfh.st/icons) library (via jsDelivr) matched by app name, with the Google favicon proxy as fallback (served from `*.gstatic.com`); custom icons must be `data:` URIs or selfh.st/jsDelivr URLs
+- **CSP**: `script-src 'self'; object-src 'none'; base-uri 'none'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdnjs.cloudflare.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https://cdn.jsdelivr.net https://selfh.st https://*.selfh.st https://www.google.com https://*.gstatic.com; connect-src 'self';` — no `img-src` wildcard: tile icons come from the [selfh.st/icons](https://selfh.st/icons) library (via jsDelivr) matched by app name, with the Google favicon proxy as fallback (served from `*.gstatic.com`); custom icons must be `data:` URIs or selfh.st/jsDelivr URLs (`*.selfh.st` covers `cdn.selfh.st`, which the code allowlist accepted but the CSP previously blocked)
 - **Overrides**: newtab ([index.html](index.html)), browser_action ([popup.html](popup.html))
 - **ES6 Modules**: Uses `"type": "module"` in [package.json](package.json); all imports must include `.js` extension
 - Storage strategy: sync (primary) with local (fallback)
