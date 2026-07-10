@@ -214,7 +214,8 @@ export class SyncStatusIndicator {
         const iconElement = this.container.querySelector('.sync-icon');
         const textElement = this.container.querySelector('.sync-text');
 
-        iconElement.textContent = state.icon;
+        // The dot is drawn purely in CSS (.sync-icon); keep the span empty.
+        iconElement.textContent = '';
         textElement.textContent = state.text;
         this.statusElement.className = `sync-status ${state.class}`;
     }

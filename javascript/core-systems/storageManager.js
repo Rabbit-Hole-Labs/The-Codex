@@ -263,13 +263,8 @@ export async function saveSettings(settings) {
         if (settings.theme && ['dark', 'light'].includes(settings.theme)) {
             dataToSave.theme = settings.theme;
         }
-        if (settings.colorTheme && [
-            'default', 'ocean', 'cosmic', 'sunset', 'forest', 'fire', 'aurora',
-            'theme-purple', 'theme-pink', 'theme-green', 'theme-orange', 'theme-teal',
-            "theme-focus",
-            'theme-dark-orange', 'theme-dark-purple', 'theme-dark-emerald', 
-            'theme-dark-crimson', 'theme-dark-sapphire'
-        ].includes(settings.colorTheme)) {
+        if (settings.colorTheme &&
+            ['default', 'slate', 'blue', 'teal', 'violet', 'amber'].includes(settings.colorTheme)) {
             dataToSave.colorTheme = settings.colorTheme;
         }
         if (settings.view && ['grid', 'list'].includes(settings.view)) {

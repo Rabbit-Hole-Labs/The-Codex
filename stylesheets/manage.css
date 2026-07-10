@@ -5,142 +5,8 @@
    separate (shared with the new-tab page).
    ============================================================ */
 
-/* ===== base + tokens + legacy components (flattened) ===== */
-/* The Codex - Bold Creative Management Page Styles */
-
-:root,
-body.dark,
-body {
-  /* Flat opaque surfaces (no translucent glass washes) */
-  --background-color: #0f0f1a;
-  --surface-color: #17172a;
-  --surface-elevated: #20203a;
-  --surface-hover: #2a2a48;
-  
-  /* Muted, restrained accent (much less purple) */
-  --primary-color: #7480b3;
-  --primary-hover: #8b96c4;
-  --primary-light: rgba(116, 128, 179, 0.18);
-  --secondary-color: #06b6d4;
-  --secondary-hover: #22d3ee;
-  --secondary-light: rgba(6, 182, 212, 0.2);
-  --accent-color: #f43f5e;
-  --accent-hover: #fb7185;
-  --accent-light: rgba(244, 63, 94, 0.2);
-  
-  /* Text Colors */
-  --on-background: #ffffff;
-  --on-surface: #f1f5f9;
-  --on-surface-variant: #94a3b8;
-  --on-surface-muted: #64748b;
-  --outline-color: var(--primary-color);
-  --border-color: #2c2c46;
-  --border-hover: #3d3d5c;
-  
-  /* Semantic Colors */
-  --danger-color: #f43f5e;
-  --danger-hover: #e11d48;
-  --error-color: #f43f5e;
-  --error-hover: #e11d48;
-  --success-color: #10b981;
-  --success-hover: #059669;
-  --warning-color: #f59e0b;
-  --warning-hover: #d97706;
-  --info-color: #06b6d4;
-  --info-hover: #0891b2;
-  
-  /* Flat solids (gradients retired) */
-  --gradient-primary: var(--primary-color);
-  --gradient-hero: var(--primary-color);
-  --gradient-accent: var(--accent-color);
-  --gradient-danger: var(--danger-color);
-  --gradient-success: var(--success-color);
-  --gradient-surface: var(--surface-elevated);
-  --gradient-background: none;
-  
-  /* Typography - Creative Mix */
-  --font-family-display: 'Space Grotesk', sans-serif;
-  --font-family-sans: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-  --font-size-xs: 0.75rem;
-  --font-size-sm: 0.875rem;
-  --font-size-base: 1rem;
-  --font-size-lg: 1.125rem;
-  --font-size-xl: 1.375rem;
-  --font-size-2xl: 1.75rem;
-  --font-size-3xl: 2.25rem;
-  --font-size-4xl: 3rem;
-  --font-weight-normal: 400;
-  --font-weight-medium: 500;
-  --font-weight-semibold: 600;
-  --font-weight-bold: 700;
-  
-  /* Border Radius - Rounded */
-  --radius-sm: 0.5rem;
-  --radius-md: 0.75rem;
-  --radius-lg: 1rem;
-  --radius-xl: 1.5rem;
-  --radius-2xl: 2rem;
-  --radius-full: 9999px;
-  
-  /* Spacing */
-  --space-1: 0.25rem;
-  --space-2: 0.5rem;
-  --space-3: 0.75rem;
-  --space-4: 1rem;
-  --space-5: 1.25rem;
-  --space-6: 1.5rem;
-  --space-8: 2rem;
-  --space-10: 2.5rem;
-  --space-12: 3rem;
-
-  /* Shared content width — kept identical to the new-tab page so both
-     surfaces line up. */
-  --content-max: 1600px;
-  
-  /* Flat, restrained shadows (no glow) */
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
-  --shadow-md: 0 2px 6px rgba(0, 0, 0, 0.35);
-  --shadow-lg: 0 4px 14px rgba(0, 0, 0, 0.4);
-  --shadow-xl: 0 8px 24px rgba(0, 0, 0, 0.45);
-  --shadow-glow-primary: none;
-  --shadow-glow-accent: none;
-}
-
-body.light {
-  /* Soft, non-stark light theme (page is light-gray, cards are white) */
-  --background-color: #eef0f4;
-  --surface-color: #ffffff;
-  --surface-elevated: #f4f6f9;
-  --surface-hover: #e9edf2;
-  --primary-color: #5561a0;
-  --primary-hover: #46528c;
-  --primary-light: rgba(85, 97, 160, 0.12);
-  --secondary-color: #059669;
-  --secondary-hover: #047857;
-  --secondary-light: #d1fae5;
-  --accent-color: #d97706;
-  --accent-hover: #b45309;
-  --accent-light: #fed7aa;
-  --on-background: #0f172a;
-  --on-surface: #334155;
-  --on-surface-variant: #64748b;
-  --on-surface-muted: #94a3b8;
-  --outline-color: #cbd5e1;
-  --border-color: #cbd5e1;
-  --border-hover: #94a3b8;
-  --error-color: #dc2626;
-  --error-hover: #b91c1c;
-  --success-color: #16a34a;
-  --success-hover: #15803d;
-  --warning-color: #d97706;
-  --warning-hover: #b45309;
-  --info-color: #0891b2;
-  --info-hover: #0e7490;
-  
-  --gradient-surface: var(--surface-elevated);
-  --gradient-background: none;
-}
-
+/* Design tokens + light/dark themes + accent presets live in base.css
+   (shared with the new-tab page). This sheet is manage-page layout only. */
 
 * {
   box-sizing: border-box;
@@ -1206,8 +1072,15 @@ textarea {
 
 .setting-select {
   width: 100%;
-  padding: 7px 10px;
-  background: var(--surface-elevated);
+  padding: 7px 30px 7px 10px;
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  background-color: var(--surface-elevated);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 9px center;
+  background-size: 15px;
   border: 1px solid var(--border-color);
   border-radius: 7px;
   color: var(--on-surface);
@@ -1437,8 +1310,8 @@ textarea {
 }
 
 /* Links Management — flat toolbar (no filled card), matches the mockup:
-   row 1 = filter + select-all on the left, view toggle on the right;
-   row 2 = inline bulk actions (move / resize / delete). */
+   Everything lives on one wrapping line: filter + select-all + bulk
+   actions on the left, view toggle pushed to the right. */
 .links-management-panel {
   background: transparent;
   border: none;
@@ -1447,24 +1320,29 @@ textarea {
   margin: 0 0 14px;
 }
 
-.filter-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: var(--space-3);
-  margin-bottom: 10px;
-}
-
-.filter-left {
+.links-toolbar {
   display: flex;
   align-items: center;
-  gap: var(--space-3);
   flex-wrap: wrap;
+  gap: 10px;
 }
 
-.filter-left .mc-field {
+.links-toolbar > .mc-field {
   width: auto;
-  min-width: 170px;
+  min-width: 150px;
+}
+
+/* Thin divider between the filter group and the bulk-action group */
+.toolbar-sep {
+  width: 1px;
+  align-self: stretch;
+  min-height: 22px;
+  background: var(--border-color);
+}
+
+/* View toggle sits at the far right of the toolbar */
+.links-toolbar .view-toggle-container {
+  margin-left: auto;
 }
 
 .select-all-group {
@@ -1474,17 +1352,11 @@ textarea {
   font-size: 13px;
   color: var(--on-surface-variant);
   cursor: pointer;
+  white-space: nowrap;
 }
 
 .select-all-group input {
   margin: 0;
-}
-
-.bulk-actions-row {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  flex-wrap: wrap;
 }
 
 .action-row {
@@ -1690,9 +1562,34 @@ html body .view-toggle .view-option:hover:not(.active) {
 }
 .mc-field:focus { outline: none; border-color: var(--primary-color); box-shadow: 0 0 0 3px var(--primary-light, rgba(139,92,246,0.2)); }
 .mc-field::placeholder { color: var(--on-surface-variant); opacity: .8; }
+/* Selects get a visible caret (the shorthand background above would otherwise
+   wipe the one from base.css). */
+select.mc-field {
+  padding-right: 30px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 9px center;
+  background-size: 15px;
+}
 
 .mc-sub { color: var(--on-surface-variant); font-size: 12.5px; margin: 0 0 14px; }
 .mc-lbl { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--on-surface-variant); }
+
+/* ---- Accent color picker (Settings > Theme) ---- */
+.accent-picker { display: flex; gap: 10px; flex-wrap: wrap; }
+.accent-swatch {
+  width: 26px; height: 26px; border-radius: 50%; cursor: pointer; padding: 0;
+  border: 1px solid rgba(0, 0, 0, 0.15);
+  transition: transform .12s ease, box-shadow .12s ease;
+}
+.accent-swatch:hover { transform: translateY(-1px); }
+.accent-swatch.selected { box-shadow: 0 0 0 2px var(--surface-color), 0 0 0 4px var(--on-surface); }
+.accent-swatch:focus-visible { outline: 2px solid var(--on-surface); outline-offset: 2px; }
+.accent-swatch[data-accent="slate"]  { background: #7480b3; }
+.accent-swatch[data-accent="blue"]   { background: #5b8cc4; }
+.accent-swatch[data-accent="teal"]   { background: #4f9d94; }
+.accent-swatch[data-accent="violet"] { background: #8b7cc8; }
+.accent-swatch[data-accent="amber"]  { background: #c19a5e; }
 
 /* ---- Categories: the list is the primary view ---- */
 #manage-categories .category-management { display: block; }   /* undo old grid */
@@ -1776,7 +1673,10 @@ html body .view-toggle .view-option:hover:not(.active) {
 #linksContainer .link-checkbox-container { flex: none; display: flex; align-items: center; }
 #linksContainer .link-details { flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; }
 #linksContainer .link-title { font-weight: 550; font-size: 13.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Right-align the category pill so it forms a clean column across all rows
+   regardless of how long the link name is. */
 #linksContainer .link-category {
+  margin-left: auto;
   font-size: 11px; color: var(--on-surface-variant); background: var(--surface-elevated);
   border: 1px solid var(--border-color); border-radius: 999px; padding: 1px 9px; white-space: nowrap;
 }
@@ -1787,7 +1687,14 @@ html body .view-toggle .view-option:hover:not(.active) {
   border-radius: 7px !important; box-shadow: none !important;
 }
 #linksContainer .link-actions button:hover { background: var(--surface-hover) !important; color: var(--on-surface) !important; }
-#linksContainer .link-actions .delete-button:hover { color: var(--error-color) !important; border-color: var(--error-color) !important; }
+/* Delete always reads as destructive (red), then fills red on hover. */
+#linksContainer .link-actions .delete-button {
+  color: var(--error-color) !important;
+  border-color: color-mix(in srgb, var(--error-color) 32%, var(--border-color)) !important;
+}
+#linksContainer .link-actions .delete-button:hover {
+  color: #fff !important; background: var(--error-color) !important; border-color: var(--error-color) !important;
+}
 
 /* Manage Links summary line sits tight under the heading */
 #manage-links .mc-sub { margin: -2px 0 14px; }

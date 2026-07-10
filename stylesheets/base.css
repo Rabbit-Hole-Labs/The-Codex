@@ -1,0 +1,340 @@
+/* ============================================================
+   The Codex — shared foundation (imported first by BOTH the new
+   tab and the manage page). Single source of truth for design
+   tokens, the accent presets, and the shared UI primitives
+   (buttons, pills, fields, segmented toggles, the sync dot) so
+   the two surfaces look like one product.
+
+   Page-specific layout lives in styles.css (new tab) and
+   manage.css (manage page); neither redefines these tokens.
+   ============================================================ */
+
+/* ---- Dark theme tokens (default) ---- */
+:root,
+body.dark {
+  --background-color: #0f0f1a;
+  --surface-color: #17172a;
+  --surface-elevated: #20203a;
+  --surface-hover: #2a2a48;
+
+  /* Accent (overridden by the [data-accent] presets below) */
+  --primary-color: #7480b3;
+  --primary-hover: #8b96c4;
+  --primary-light: rgba(116, 128, 179, 0.18);
+
+  --secondary-color: #6b8fb0;
+  --secondary-hover: #7ea0be;
+  --secondary-light: rgba(107, 143, 176, 0.2);
+  --accent-color: #b0708a;
+  --accent-hover: #c0839c;
+  --accent-light: rgba(176, 112, 138, 0.2);
+
+  --on-background: #ffffff;
+  --on-surface: #f1f5f9;
+  --on-surface-variant: #94a3b8;
+  --on-surface-muted: #64748b;
+
+  --border-color: #2c2c46;
+  --border-hover: #3d3d5c;
+  --outline-color: var(--primary-color);
+
+  --tile-background: #17172a;
+  --tile-hover-background: #22223c;
+  --category-background: transparent;
+
+  --danger-color: #f43f5e;
+  --danger-hover: #e11d48;
+  --error-color: #f43f5e;
+  --error-hover: #e11d48;
+  --success-color: #10b981;
+  --success-hover: #059669;
+  --warning-color: #f59e0b;
+  --warning-hover: #d97706;
+  --info-color: #06b6d4;
+  --info-hover: #0891b2;
+
+  /* Typography — one family across both pages */
+  --font-family-display: 'Space Grotesk', 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-family-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-size-xs: 0.75rem;
+  --font-size-sm: 0.875rem;
+  --font-size-base: 1rem;
+  --font-size-lg: 1.125rem;
+  --font-size-xl: 1.375rem;
+  --font-size-2xl: 1.75rem;
+  --font-size-3xl: 2.25rem;
+  --font-size-4xl: 3rem;
+  --font-weight-normal: 400;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+  --font-weight-bold: 700;
+
+  --radius-sm: 0.5rem;
+  --radius-md: 0.75rem;
+  --radius-lg: 1rem;
+  --radius-xl: 1.5rem;
+  --radius-2xl: 2rem;
+  --radius-full: 9999px;
+  /* Shared control radius so every button/field matches across pages */
+  --radius-control: 8px;
+
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.25rem;
+  --space-6: 1.5rem;
+  --space-8: 2rem;
+  --space-10: 2.5rem;
+  --space-12: 3rem;
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 2px 6px rgba(0, 0, 0, 0.35);
+  --shadow-lg: 0 4px 14px rgba(0, 0, 0, 0.4);
+  --shadow-xl: 0 8px 24px rgba(0, 0, 0, 0.45);
+
+  /* Gradients were retired to flat solids; kept as aliases for any
+     legacy reference so nothing falls back to an undefined value. */
+  --gradient-primary: var(--primary-color);
+  --gradient-surface: var(--surface-elevated);
+  --gradient-background: none;
+
+  /* Shared content width — both pages line up */
+  --content-max: 1600px;
+}
+
+/* ---- Light theme tokens (soft, calm — no stark pure-white) ---- */
+body.light {
+  --background-color: #eceef2;
+  --surface-color: #f8f9fb;
+  --surface-elevated: #f1f3f7;
+  --surface-hover: #e7eaf0;
+
+  --primary-color: #5561a0;
+  --primary-hover: #46528c;
+  --primary-light: rgba(85, 97, 160, 0.12);
+
+  --secondary-color: #4a7a97;
+  --secondary-hover: #3d6883;
+  --secondary-light: rgba(74, 122, 151, 0.14);
+  --accent-color: #a35f77;
+  --accent-hover: #8c4f65;
+  --accent-light: rgba(163, 95, 119, 0.14);
+
+  --on-background: #1c2230;
+  --on-surface: #2a3242;
+  --on-surface-variant: #5b6675;
+  --on-surface-muted: #97a1b0;
+
+  --border-color: #dde0e7;
+  --border-hover: #c6cad4;
+
+  --tile-background: #f8f9fb;
+  --tile-hover-background: #eef0f4;
+  --category-background: transparent;
+
+  --error-color: #dc2626;
+  --error-hover: #b91c1c;
+  --danger-color: #dc2626;
+  --danger-hover: #b91c1c;
+  --success-color: #16a34a;
+  --success-hover: #15803d;
+  --warning-color: #d97706;
+  --warning-hover: #b45309;
+  --info-color: #0891b2;
+  --info-hover: #0e7490;
+
+  --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.06);
+  --shadow-md: 0 2px 6px rgba(15, 23, 42, 0.08);
+  --shadow-lg: 0 4px 14px rgba(15, 23, 42, 0.1);
+  --shadow-xl: 0 8px 24px rgba(15, 23, 42, 0.12);
+}
+
+/* ======================================================================
+   Accent presets — recolor ONLY the single accent so the look stays
+   calm. Chosen muted, not neon. Applied via body[data-accent="…"].
+   Slate is the default (no attribute needed).
+   ====================================================================== */
+body.dark[data-accent="blue"]   { --primary-color:#5b8cc4; --primary-hover:#74a3d8; --primary-light:rgba(91,140,196,.18); }
+body.light[data-accent="blue"]  { --primary-color:#3c6fa8; --primary-hover:#305d90; --primary-light:rgba(60,111,168,.12); }
+body.dark[data-accent="teal"]   { --primary-color:#4f9d94; --primary-hover:#66b3aa; --primary-light:rgba(79,157,148,.18); }
+body.light[data-accent="teal"]  { --primary-color:#2f8078; --primary-hover:#266861; --primary-light:rgba(47,128,120,.12); }
+body.dark[data-accent="violet"] { --primary-color:#8b7cc8; --primary-hover:#a394d8; --primary-light:rgba(139,124,200,.18); }
+body.light[data-accent="violet"]{ --primary-color:#6f5cc0; --primary-hover:#5c4aa6; --primary-light:rgba(111,92,192,.12); }
+body.dark[data-accent="amber"]  { --primary-color:#c19a5e; --primary-hover:#d4ad70; --primary-light:rgba(193,154,94,.18); }
+body.light[data-accent="amber"] { --primary-color:#a67c3a; --primary-hover:#8c672e; --primary-light:rgba(166,124,58,.12); }
+
+/* ======================================================================
+   Shared UI primitives — identical on both pages.
+   ====================================================================== */
+
+/* Buttons: one flat shape everywhere. Existing class names are mapped to
+   the same look so a "button" is the same button on both surfaces. */
+.btn,
+.mc-btn,
+.btn-primary,
+.btn-secondary,
+.manage-link,
+.header-controls > button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 550;
+  line-height: 1.2;
+  padding: 7px 13px;
+  border-radius: var(--radius-control);
+  border: 1px solid var(--border-color);
+  background: var(--surface-elevated);
+  color: var(--on-surface);
+  cursor: pointer;
+  text-decoration: none;
+  white-space: nowrap;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.btn:hover,
+.mc-btn:hover,
+.btn-secondary:hover,
+.manage-link:hover,
+.header-controls > button:hover {
+  background: var(--surface-hover);
+  border-color: var(--border-hover);
+}
+
+.btn:focus-visible,
+.mc-btn:focus-visible,
+.btn-primary:focus-visible,
+.btn-secondary:focus-visible,
+.manage-link:focus-visible,
+.header-controls > button:focus-visible {
+  outline: 2px solid var(--primary-color);
+  outline-offset: 1px;
+}
+
+/* Accent (primary) variant */
+.btn.accent,
+.mc-btn.accent,
+.btn-primary {
+  background: var(--primary-color);
+  border-color: var(--primary-color);
+  color: #fff;
+}
+.btn.accent:hover,
+.mc-btn.accent:hover,
+.btn-primary:hover {
+  background: var(--primary-hover);
+  border-color: var(--primary-hover);
+  color: #fff;
+}
+
+/* Destructive variant — always reads as dangerous */
+.btn.danger,
+.mc-btn.danger,
+.btn-danger {
+  color: var(--error-color);
+  border-color: var(--border-color);
+  background: var(--surface-elevated);
+}
+.btn.danger:hover,
+.mc-btn.danger:hover,
+.btn-danger:hover {
+  color: #fff;
+  background: var(--error-color);
+  border-color: var(--error-color);
+}
+
+/* Icon-only / ghost buttons in the header pick up the same shape */
+.header-controls > button { padding: 7px; }
+
+.btn:disabled,
+.mc-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.btn.tiny,
+.mc-btn.tiny { padding: 4px 9px; font-size: 12.5px; }
+
+/* Status pill (the "Synced" indicator) — one look on both pages */
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12.5px;
+  color: var(--on-surface-variant);
+  background: var(--surface-elevated);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-full);
+  padding: 5px 12px;
+}
+.pill .dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--success-color);
+  flex-shrink: 0;
+}
+
+/* Fields (inputs + selects) share one shape; selects get a caret. */
+.field,
+.mc-field {
+  font-family: inherit;
+  font-size: 13px;
+  color: var(--on-surface);
+  background: var(--surface-elevated);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-control);
+  padding: 7px 11px;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.field:focus,
+.mc-field:focus {
+  outline: none;
+  border-color: var(--primary-color);
+  box-shadow: 0 0 0 3px var(--primary-light);
+}
+.field::placeholder,
+.mc-field::placeholder { color: var(--on-surface-variant); opacity: 0.85; }
+
+/* Selects: hide the native arrow and draw a consistent caret so every
+   dropdown clearly reads as a dropdown. */
+select.field,
+select.mc-field {
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  padding-right: 30px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 9px center;
+  background-size: 15px;
+}
+
+/* Segmented toggle (List / Grid, Dark / Light) — one look on both pages */
+.seg {
+  display: inline-flex;
+  background: var(--surface-elevated);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-control);
+  overflow: hidden;
+}
+.seg > * {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  font-size: 13px;
+  color: var(--on-surface-variant);
+  cursor: pointer;
+  border: none;
+  background: transparent;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.seg > *.active {
+  background: var(--primary-color);
+  color: #fff;
+}
+.seg > *:hover:not(.active) {
+  background: var(--surface-hover);
+  color: var(--on-surface);
+}

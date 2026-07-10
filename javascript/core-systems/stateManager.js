@@ -26,14 +26,10 @@ const stateSchemas = {
         enum: ['dark', 'light']
     },
     colorTheme: {
+        // Accent preset. 'default' is kept for backward-compat with data
+        // saved before the accent presets replaced the old color themes.
         type: 'string',
-        enum: [
-            'default', 'ocean', 'cosmic', 'sunset', 'forest', 'fire', 'aurora',
-            'theme-purple', 'theme-pink', 'theme-green', 'theme-orange', 'theme-teal',
-            'theme-focus',
-            'theme-dark-orange', 'theme-dark-purple', 'theme-dark-emerald',
-            'theme-dark-crimson', 'theme-dark-sapphire'
-        ]
+        enum: ['default', 'slate', 'blue', 'teal', 'violet', 'amber']
     },
     view: {
         type: 'string',

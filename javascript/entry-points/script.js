@@ -843,11 +843,21 @@ function toggleTheme() {
 function applyTheme() {
     const currentState = getState();
 
-    // Only dark/light — color themes were retired.
+    // Base theme is dark/light; the accent recolors the single accent var.
     const theme = currentState.theme === 'light' ? 'light' : 'dark';
     document.body.className = theme;
     document.body.setAttribute('data-theme', theme);
+    applyAccent(currentState.colorTheme);
     debug('Applied theme class:', theme);
+}
+
+// Accent presets live in base.css as body[data-accent="…"]; 'slate' is the
+// default (no attribute). Legacy 'default' maps to slate.
+function applyAccent(accent) {
+    const valid = ['slate', 'blue', 'teal', 'violet', 'amber'];
+    const a = valid.includes(accent) ? accent : 'slate';
+    if (a === 'slate') document.body.removeAttribute('data-accent');
+    else document.body.setAttribute('data-accent', a);
 }
 
 function toggleView() {
