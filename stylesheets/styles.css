@@ -82,6 +82,10 @@
   --space-8: 2rem;
   --space-10: 2.5rem;
   --space-12: 3rem;
+
+  /* Shared content width — kept identical to the manage page so both
+     surfaces line up. */
+  --content-max: 1080px;
   
   /* Flat, restrained shadows (no glow) */
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
@@ -158,18 +162,18 @@ body {
 /* App Container */
 .app-container {
   flex: 1;
-  max-width: 1600px;
+  max-width: var(--content-max);
   margin: 0 auto;
   width: 100%;
-  padding: 0 var(--space-6);
+  padding: 0 22px;
   display: flex;
   flex-direction: column;
 }
 
-/* Bold Header with Glassmorphism */
+/* Header (flat, compact) */
 .app-header {
-  padding: var(--space-8) 0 var(--space-6) 0;
-  margin-bottom: var(--space-8);
+  padding: var(--space-6) 0 var(--space-4) 0;
+  margin-bottom: var(--space-5);
   position: relative;
 }
 
@@ -197,7 +201,7 @@ body {
 /* Flat solid title */
 h1 {
   font-family: var(--font-family-display);
-  font-size: var(--font-size-4xl);
+  font-size: var(--font-size-2xl);
   font-weight: var(--font-weight-bold);
   color: var(--on-surface);
   margin: 0;
@@ -213,11 +217,11 @@ h1 {
   font-weight: var(--font-weight-normal);
 }
 
-/* Glassmorphic Search */
+/* Search */
 .search-section {
   justify-self: center;
   width: 100%;
-  max-width: 700px;
+  max-width: 560px;
 }
 
 .search-input-wrapper {
@@ -239,7 +243,7 @@ h1 {
 
 #searchInput {
   width: 100%;
-  padding: var(--space-4) var(--space-4) var(--space-4) 3rem;
+  padding: var(--space-3) var(--space-4) var(--space-3) 2.75rem;
   border: 1px solid var(--border-color);
   border-radius: var(--radius-md);
   background: var(--surface-color);
@@ -272,7 +276,7 @@ h1 {
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  padding: var(--space-3) var(--space-5);
+  padding: var(--space-2) var(--space-4);
   color: var(--on-surface);
   text-decoration: none;
   border-radius: var(--radius-md);
@@ -304,7 +308,7 @@ h1 {
   background: var(--surface-elevated);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-md);
-  padding: var(--space-3);
+  padding: var(--space-2);
   cursor: pointer;
   color: var(--on-surface);
   transition: background 0.15s ease, border-color 0.15s ease;
@@ -334,8 +338,8 @@ h1 {
   background: var(--category-background);
   border: none;
   border-radius: var(--radius-lg);
-  padding: var(--space-4) 0;
-  margin-bottom: var(--space-6);
+  padding: var(--space-3) 0;
+  margin-bottom: var(--space-5);
   position: relative;
 }
 
@@ -345,29 +349,29 @@ h1 {
 
 .category-section h2 {
   font-family: var(--font-family-display);
-  font-size: var(--font-size-xl);
-  font-weight: var(--font-weight-bold);
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-semibold);
   color: var(--on-surface);
-  margin-bottom: var(--space-4);
+  margin-bottom: var(--space-3);
   display: flex;
   align-items: center;
-  gap: var(--space-3);
+  gap: var(--space-2);
 }
 
 .category-section h2::before {
   content: '';
-  width: 4px;
-  height: 1.5rem;
+  width: 3px;
+  height: 1.05rem;
   background: var(--primary-color);
   border-radius: var(--radius-full);
   flex-shrink: 0;
 }
 
-/* Links Grid with Masonry Feel */
+/* Links grid */
 .links-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-  gap: var(--space-5);
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: var(--space-4);
 }
 
 .links-grid.list-view {
@@ -380,7 +384,7 @@ h1 {
   background: var(--tile-background);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-lg);
-  padding: var(--space-5);
+  padding: var(--space-4);
   text-decoration: none;
   color: var(--on-surface);
   transition: background 0.15s ease, border-color 0.15s ease;
@@ -388,7 +392,7 @@ h1 {
   align-items: center;
   justify-content: center;
   flex-direction: column;
-  height: 132px;
+  height: 104px;
   text-align: center;
   position: relative;
   overflow: hidden;
@@ -419,15 +423,15 @@ h1 {
 }
 
 .tile-icon {
-  width: 40px;
-  height: 40px;
+  width: 34px;
+  height: 34px;
   object-fit: contain;
   border-radius: var(--radius-md);
 }
 
 .tile-placeholder {
-  width: 40px;
-  height: 40px;
+  width: 34px;
+  height: 34px;
   border-radius: var(--radius-md);
   background: var(--surface-elevated);
   color: var(--on-surface-variant);
@@ -494,18 +498,16 @@ h1 {
   line-clamp: 1;
 }
 
-/* Custom Tile Sizes */
-/* Tall enough for a 28px icon + two 19.6px lines of name + padding (~107px);
-   132px medium stays distinct via its larger 40px icon and greater height. */
+/* Custom Tile Sizes (kept proportional to the 104px medium default) */
 .link-tile.size-small {
-  height: 112px;
-  padding: var(--space-4);
+  height: 88px;
+  padding: var(--space-3);
 }
 
 .link-tile.size-small .tile-icon,
 .link-tile.size-small .tile-placeholder {
-  width: 28px;
-  height: 28px;
+  width: 26px;
+  height: 26px;
 }
 
 .link-tile.size-medium {
@@ -513,13 +515,13 @@ h1 {
 }
 
 .link-tile.size-large {
-  height: 150px;
-  padding: var(--space-6);
+  height: 130px;
+  padding: var(--space-5);
 }
 
 .link-tile.size-large .tile-icon {
-  width: 56px;
-  height: 56px;
+  width: 46px;
+  height: 46px;
 }
 
 .link-tile.size-large .tile-content h3 {
@@ -539,29 +541,29 @@ h1 {
 }
 
 .link-tile.size-tall {
-  height: 220px;
+  height: 176px;
   grid-row: span 2;
 }
 
 .link-tile.size-tall .tile-icon {
-  width: 64px;
-  height: 64px;
+  width: 52px;
+  height: 52px;
 }
 
 .link-tile.size-square {
-  height: 180px;
+  height: 148px;
   aspect-ratio: 1;
 }
 
 .link-tile.size-giant {
-  height: 220px;
+  height: 176px;
   grid-column: span 2;
   grid-row: span 2;
 }
 
 .link-tile.size-giant .tile-icon {
-  width: 72px;
-  height: 72px;
+  width: 60px;
+  height: 60px;
 }
 
 .link-tile.size-giant .tile-content h3 {
