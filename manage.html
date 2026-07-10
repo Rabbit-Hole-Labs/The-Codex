@@ -8,6 +8,7 @@
     <link href="stylesheets/manage-styles.css" rel="stylesheet">
     <link href="stylesheets/sync-status.css" rel="stylesheet">
     <link href="stylesheets/manage-overrides.css" rel="stylesheet">
+    <link href="stylesheets/manage-compact.css" rel="stylesheet">
 </head>
 <body>
     <div class="container">
@@ -30,108 +31,64 @@
             </div>
 
             <div class="tab-content active" id="add-site">
-                <h2>Add New Site</h2>
-                <form id="linkForm" class="modern-form">
-                    <div class="form-row">
-                        <div class="form-group">
-                            <label for="siteName">Service Name</label>
-                            <input type="text" id="siteName" placeholder="e.g., GitHub, Google Drive" required>
+                <h2>Add a site</h2>
+                <p class="mc-sub">Add a link to your dashboard. The icon is fetched automatically from the site name.</p>
+                <form id="linkForm" class="mc-card">
+                    <div class="mc-form-grid">
+                        <div class="mc-field-group">
+                            <label class="mc-lbl" for="siteName">Name</label>
+                            <input type="text" id="siteName" class="mc-field" placeholder="e.g. GitHub" required>
                         </div>
-                        <div class="form-group">
-                            <label for="siteUrl">URL</label>
-                            <input type="url" id="siteUrl" placeholder="https://example.com" required>
-                        </div>
-                    </div>
-                    
-                    <div class="form-row">
-                        <div class="form-group">
-                            <label for="siteIcon">Icon URL (optional)</label>
-                            <div class="icon-input-group">
-                                <input type="url" id="siteIcon" placeholder="Leave empty for auto-detection">
-                                <button type="button" class="icon-helper-btn" data-target="siteIcon">Icon</button>
-                            </div>
-                        </div>
-                        <div class="form-group">
-                            <label for="siteCategory">Category</label>
-                            <select id="siteCategory">
+                        <div class="mc-field-group">
+                            <label class="mc-lbl" for="siteCategory">Category</label>
+                            <select id="siteCategory" class="mc-field">
                                 <option value="">Default</option>
                             </select>
                         </div>
-                        <div class="form-group">
-                            <label for="siteSize">Tile Size</label>
-                            <select id="siteSize">
-                                <option value="default">Use Default Size</option>
-                                <option value="compact">Compact - Minimal height</option>
-                                <option value="small">Small - Reduced size</option>
-                                <option value="medium">Medium - Standard size</option>
-                                <option value="large">Large - Bigger tiles</option>
-                                <option value="square">Square - Perfect square</option>
-                                <option value="wide">Wide - Horizontal layout</option>
-                                <option value="tall">Tall - Vertical emphasis</option>
-                                <option value="giant">Giant - 2x2 showcase</option>
+                        <div class="mc-field-group" style="grid-column:1 / -1">
+                            <label class="mc-lbl" for="siteUrl">URL</label>
+                            <input type="url" id="siteUrl" class="mc-field" placeholder="https://example.com" required>
+                        </div>
+                        <div class="mc-field-group">
+                            <label class="mc-lbl" for="siteIcon">Icon (optional)</label>
+                            <div class="mc-icon-input">
+                                <input type="url" id="siteIcon" class="mc-field" placeholder="Auto from name, or paste an icon URL">
+                                <button type="button" class="mc-btn icon-helper-btn" data-target="siteIcon">Icon</button>
+                            </div>
+                        </div>
+                        <div class="mc-field-group">
+                            <label class="mc-lbl" for="siteSize">Tile size</label>
+                            <select id="siteSize" class="mc-field">
+                                <option value="default">Use default size</option>
+                                <option value="compact">Compact</option>
+                                <option value="small">Small</option>
+                                <option value="medium">Medium</option>
+                                <option value="large">Large</option>
+                                <option value="square">Square</option>
+                                <option value="wide">Wide</option>
+                                <option value="tall">Tall</option>
+                                <option value="giant">Giant</option>
                             </select>
                         </div>
                     </div>
-                    
-                    <div class="form-actions">
-                        <button type="submit" class="btn-primary">Add Service</button>
+                    <div style="display:flex;justify-content:flex-end;margin-top:14px">
+                        <button type="submit" class="mc-btn accent">Add site</button>
                     </div>
                 </form>
             </div>
 
             <div class="tab-content" id="manage-categories">
-                <h2>Manage Categories</h2>
+                <h2>Categories</h2>
+                <p class="mc-sub">Drag the handle or use the arrows to set the order they appear on your new tab. Click a name to rename.</p>
                 <div class="category-management">
-                    <div class="category-card">
-                        <h3>Create Category</h3>
-                        <form id="createCategoryForm" class="modern-form-compact">
-                            <div class="form-group">
-                                <label for="newCategoryName">Category Name</label>
-                                <input type="text" id="newCategoryName" placeholder="e.g., Work, Personal, Entertainment" required>
-                            </div>
-                            <button type="submit" class="btn-primary">Create Category</button>
-                        </form>
-                    </div>
-                    
-                    <div class="category-card">
-                        <h3>Rename Category</h3>
-                        <form id="editCategoryForm" class="modern-form-compact">
-                            <div class="form-group">
-                                <label for="editCategorySelect">Select Category</label>
-                                <select id="editCategorySelect">
-                                    <option value="">Choose a category to rename</option>
-                                </select>
-                            </div>
-                            <div class="form-group">
-                                <label for="editCategoryName">New Name</label>
-                                <input type="text" id="editCategoryName" placeholder="Enter new category name" required>
-                            </div>
-                            <button type="submit" class="btn-primary">Rename Category</button>
-                        </form>
-                    </div>
-                    
-                    <div class="category-card">
-                        <h3>Delete Category</h3>
-                        <form id="deleteCategoryForm" class="modern-form-compact">
-                            <div class="form-group">
-                                <label for="deleteCategorySelect">Select Category</label>
-                                <select id="deleteCategorySelect">
-                                    <option value="">Choose a category to delete</option>
-                                </select>
-                            </div>
-                            <p class="warning-text">Links in this category will be moved to Default</p>
-                            <button type="submit" class="btn-danger">Delete Category</button>
-                        </form>
-                    </div>
-
-                    <div class="category-card category-reorder-card">
-                        <h3>Reorder Categories</h3>
-                        <p class="helper-text">Drag categories to change their display order on the main page</p>
-                        <div id="categoryReorderList" class="category-reorder-list">
-                            <!-- Categories will be populated here -->
-                        </div>
-                        <button type="button" id="saveCategoryOrderBtn" class="btn-primary" style="margin-top: 12px;">Save Order</button>
-                    </div>
+                    <form id="createCategoryForm" class="cat-add-row">
+                        <input type="text" id="newCategoryName" class="mc-field" placeholder="New category name…" required>
+                        <button type="submit" class="mc-btn accent">Add</button>
+                    </form>
+                    <ul id="categoryReorderList" class="cat-list">
+                        <!-- Categories populated here -->
+                    </ul>
+                    <p class="mc-sub" style="margin-top:10px">Deleting a category moves its links to <strong>Default</strong>.</p>
                 </div>
             </div>
 
@@ -142,7 +99,7 @@
                         <div class="filter-row">
                             <div class="form-group">
                                 <label for="filterCategory">Filter by Category</label>
-                                <select id="filterCategory">
+                                <select id="filterCategory" class="mc-field">
                                     <option value="all">All Categories</option>
                                 </select>
                             </div>
@@ -184,17 +141,17 @@
                             <div class="bulk-action-group">
                                 <label>Move Selected</label>
                                 <div class="action-row">
-                                    <select id="moveCategory">
+                                    <select id="moveCategory" class="mc-field">
                                         <option value="">Choose category</option>
                                     </select>
-                                    <button id="bulkMoveBtn" class="btn-secondary">Move</button>
+                                    <button id="bulkMoveBtn" class="mc-btn">Move</button>
                                 </div>
                             </div>
                             
                             <div class="bulk-action-group">
                                 <label>Change Size</label>
                                 <div class="action-row">
-                                    <select id="bulkSizeChange">
+                                    <select id="bulkSizeChange" class="mc-field">
                                         <option value="">Choose size</option>
                                         <option value="default">Default</option>
                                         <option value="small">Small</option>
@@ -202,13 +159,13 @@
                                         <option value="large">Large</option>
                                         <option value="wide">Wide</option>
                                     </select>
-                                    <button id="bulkSizeBtn" class="btn-secondary">Apply</button>
+                                    <button id="bulkSizeBtn" class="mc-btn">Apply</button>
                                 </div>
                             </div>
                             
                             <div class="bulk-action-group">
                                 <label>Delete Selected</label>
-                                <button id="bulkDeleteBtn" class="btn-danger">Delete Selected</button>
+                                <button id="bulkDeleteBtn" class="mc-btn danger">Delete Selected</button>
                             </div>
                         </div>
                     </div>
@@ -217,9 +174,9 @@
                 <div id="linksContainer" class="links-container"></div>
                 
                 <div id="paginationControls" class="pagination">
-                    <button id="prevPage" class="btn-secondary">Previous</button>
+                    <button id="prevPage" class="mc-btn">Previous</button>
                     <span id="pageInfo" class="page-info">Page 1 of 1</span>
-                    <button id="nextPage" class="btn-secondary">Next</button>
+                    <button id="nextPage" class="mc-btn">Next</button>
                 </div>
             </div>
 
@@ -230,36 +187,19 @@
                     <div class="settings-card">
                         <h3>Theme Settings</h3>
                         <div class="setting-group">
-                            <label for="modeToggle">Dark/Light Mode</label>
-                            <div class="toggle-switch">
-                                <button id="modeToggle" class="mode-toggle" aria-label="Toggle dark/light mode">
-                                    <div class="toggle-slider">
-                                        <svg class="mode-icon moon-icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                            <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
-                                        </svg>
-                                        <svg class="mode-icon sun-icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                            <circle cx="12" cy="12" r="5"></circle>
-                                            <line x1="12" y1="1" x2="12" y2="3"></line>
-                                            <line x1="12" y1="21" x2="12" y2="23"></line>
-                                            <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
-                                            <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
-                                            <line x1="1" y1="12" x2="3" y2="12"></line>
-                                            <line x1="21" y1="12" x2="23" y2="12"></line>
-                                            <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
-                                            <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
-                                        </svg>
-                                    </div>
-                                </button>
-                                <span id="modeLabel">Dark Mode</span>
+                            <label>Dark / Light Mode</label>
+                            <div class="view-toggle mc-seg-toggle" id="modeToggle" role="group" aria-label="Base theme">
+                                <button type="button" class="view-option" data-mode="dark"><span>Dark</span></button>
+                                <button type="button" class="view-option" data-mode="light"><span>Light</span></button>
                             </div>
                         </div>
-                        
+
                         <div class="setting-group">
                             <label>Color Themes</label>
-                            <p class="setting-description">Choose your preferred color theme</p>
+                            <p class="setting-description">Choose your preferred color theme — these match your new tab</p>
                         </div>
 
-                        <div class="theme-preview-grid">
+                        <div class="theme-preview-grid theme-grid-compact">
                             <div class="theme-preview-card active" data-theme="default">
                                 <div class="preview-colors">
                                     <span class="preview-color-primary"></span>
@@ -399,146 +339,104 @@
             </div>
 
             <div class="tab-content" id="quick-actions">
-                <h2>Quick Actions</h2>
-                <div class="quick-actions-panel">
-                    <div class="action-card">
-                        <h3>Export Data</h3>
-                        <p class="action-description">Download all your links and categories as a JSON file for backup or sharing</p>
-                        <button id="exportBtn" class="btn-primary">Export Sites</button>
+                <h2>Import &amp; Export</h2>
+                <p class="mc-sub">Back up your links or bring them in from elsewhere.</p>
+                <div class="mc-card mc-card--rows">
+                    <div class="qa-row">
+                        <div><div class="qa-t">Export</div><div class="qa-d">Download all links and categories as a JSON backup</div></div>
+                        <button id="exportBtn" class="mc-btn">Export JSON</button>
                     </div>
-                    
-                    <div class="action-card">
-                        <h3>Import Data</h3>
-                        <p class="action-description">Upload a previously exported JSON file to restore your links</p>
-                        <button id="importBtn" class="btn-primary">Import Sites</button>
+                    <div class="qa-row">
+                        <div><div class="qa-t">Import</div><div class="qa-d">Restore from a previously exported JSON file</div></div>
+                        <button id="importBtn" class="mc-btn">Choose file…</button>
                         <input type="file" id="importFile" accept=".json" style="display: none;">
                     </div>
-                    
-                    <div class="action-card">
-                        <h3>Import Bookmarks</h3>
-                        <p class="action-description">Import links directly from your browser bookmarks</p>
-                        <button id="importBookmarksBtn" class="btn-primary">Import Bookmarks</button>
+                    <div class="qa-row">
+                        <div><div class="qa-t">Import bookmarks</div><div class="qa-d">Pull links directly from your browser bookmarks</div></div>
+                        <button id="importBookmarksBtn" class="mc-btn">Import bookmarks</button>
                     </div>
                 </div>
             </div>
 
             <div class="tab-content" id="sync-settings">
-                <h2>Sync Settings & Diagnostics</h2>
-                
-                <div class="sync-info-grid">
-                    <div class="sync-status-card">
-                        <h3>Sync Status</h3>
-                        <div class="sync-info">
-                            <div class="sync-info-row">
-                                <span class="label">Current Status:</span>
-                                <span id="sync-current-status" class="value">Loading...</span>
-                            </div>
-                            <div class="sync-info-row">
-                                <span class="label">Last Sync:</span>
-                                <span id="sync-last-time" class="value">Never</span>
-                            </div>
-                            <div class="sync-info-row">
-                                <span class="label">Local Version:</span>
-                                <span id="sync-local-version" class="value">-</span>
-                            </div>
-                            <div class="sync-info-row">
-                                <span class="label">Cloud Version:</span>
-                                <span id="sync-remote-version" class="value">-</span>
-                            </div>
-                        </div>
-                        <button id="refresh-sync-status" class="btn-secondary">Refresh Status</button>
-                    </div>
+                <h2>Sync &amp; Diagnostics</h2>
+                <p class="mc-sub">Your links sync across devices through your browser account. This is the current state.</p>
 
-                    <div class="sync-storage-card">
-                        <h3>Storage Usage</h3>
-                        <div class="storage-info">
-                            <div class="storage-bar-container">
-                                <div class="storage-bar">
-                                    <div id="storage-fill" class="storage-fill" style="width: 0%"></div>
-                                </div>
-                                <div class="storage-text">
-                                    <span id="storage-used">0 KB</span> / <span id="storage-total">0 KB</span>
-                                </div>
-                            </div>
-                            <div class="sync-info-row">
-                                <span class="label">Quota Usage:</span>
-                                <span id="quota-percentage" class="value">0%</span>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="sync-actions-card">
-                        <h3>Sync Actions</h3>
-                        <div class="sync-actions-grid">
-                            <button id="manual-sync-btn" class="btn-primary">Sync Now</button>
-                            <button id="force-push-btn" class="btn-secondary">Force Push</button>
-                            <button id="force-pull-btn" class="btn-secondary">Force Pull</button>
-                            <button id="clear-sync-btn" class="btn-danger">Clear Sync Data</button>
-                        </div>
-                        <div class="sync-strategy">
-                            <label for="sync-strategy-select">Conflict Resolution:</label>
-                            <select id="sync-strategy-select">
-                                <option value="merge">Smart Merge (Recommended)</option>
-                                <option value="local">Local Data Wins</option>
-                                <option value="remote">Cloud Data Wins</option>
-                            </select>
-                        </div>
-                    </div>
-
-                    <div class="sync-diagnostics-card">
-                        <h3>Sync Diagnostics</h3>
-                        <div class="diagnostics-info">
-                            <div class="sync-info-row">
-                                <span class="label">Device ID:</span>
-                                <span id="device-id" class="value monospace">Loading...</span>
-                            </div>
-                            <div class="sync-info-row">
-                                <span class="label">Sync Enabled:</span>
-                                <span id="sync-enabled" class="value">Yes</span>
-                            </div>
-                            <div class="sync-info-row">
-                                <span class="label">Network Status:</span>
-                                <span id="network-status" class="value">Online</span>
-                            </div>
-                        </div>
-                        <div class="diagnostic-actions">
-                            <button id="test-sync-btn" class="btn-secondary">Test Sync Connection</button>
-                            <button id="export-diagnostics-btn" class="btn-secondary">Export Diagnostics</button>
-                        </div>
-                    </div>
-
-                    <div class="sync-data-verification-card">
-                        <h3>Data Verification</h3>
-                        <div class="verification-actions">
-                            <button id="view-cloud-data-btn" class="btn-secondary">View Cloud Data</button>
-                            <button id="view-local-data-btn" class="btn-secondary">View Local Data</button>
-                            <button id="compare-data-btn" class="btn-secondary">Compare Local vs Cloud</button>
-                            <button id="validate-integrity-btn" class="btn-secondary">Validate Data Integrity</button>
-                        </div>
+                <div class="stat-strip" style="margin-bottom:16px">
+                    <div class="stat"><span class="k">Status</span><span id="sync-current-status" class="v">Loading…</span></div>
+                    <div class="stat"><span class="k">Last sync</span><span id="sync-last-time" class="v">Never</span></div>
+                    <div class="stat"><span class="k">Network</span><span id="network-status" class="v">Online</span></div>
+                    <div class="stat"><span class="k">Local version</span><span id="sync-local-version" class="v">-</span></div>
+                    <div class="stat"><span class="k">Cloud version</span><span id="sync-remote-version" class="v">-</span></div>
+                    <div class="stat"><span class="k">Storage used</span><span id="quota-percentage" class="v">0%</span>
+                        <div class="storage-bar" style="margin-top:4px"><div id="storage-fill" class="storage-fill" style="width: 0%"></div></div>
+                        <span class="k" style="text-transform:none;letter-spacing:0"><span id="storage-used">0 KB</span> / <span id="storage-total">0 KB</span></span>
                     </div>
                 </div>
 
-                <div class="sync-log-card">
-                    <h3>Sync Activity Log</h3>
+                <div class="mc-block">
+                    <div class="mc-lbl">Actions</div>
+                    <div class="mc-btn-row">
+                        <button id="manual-sync-btn" class="mc-btn">Sync now</button>
+                        <button id="force-push-btn" class="mc-btn">Force push</button>
+                        <button id="force-pull-btn" class="mc-btn">Force pull</button>
+                        <select id="sync-strategy-select" class="mc-field" style="width:auto">
+                            <option value="merge">Conflict: Smart merge</option>
+                            <option value="local">Conflict: Local wins</option>
+                            <option value="remote">Conflict: Cloud wins</option>
+                        </select>
+                        <button id="clear-sync-btn" class="mc-btn danger" style="margin-left:auto">Clear sync data</button>
+                    </div>
+                </div>
+
+                <div class="mc-block">
+                    <div class="mc-lbl">Data verification</div>
+                    <div class="mc-btn-row">
+                        <button id="view-cloud-data-btn" class="mc-btn tiny">View cloud data</button>
+                        <button id="view-local-data-btn" class="mc-btn tiny">View local data</button>
+                        <button id="compare-data-btn" class="mc-btn tiny">Compare local vs cloud</button>
+                        <button id="validate-integrity-btn" class="mc-btn tiny">Validate integrity</button>
+                    </div>
+                </div>
+
+                <div class="mc-block">
+                    <div class="mc-lbl">Diagnostics</div>
+                    <div class="stat-strip" style="grid-template-columns:repeat(auto-fit,minmax(180px,1fr));margin-bottom:8px">
+                        <div class="stat"><span class="k">Device ID</span><span id="device-id" class="v mono">Loading…</span></div>
+                        <div class="stat"><span class="k">Sync enabled</span><span id="sync-enabled" class="v">Yes</span></div>
+                    </div>
+                    <div class="mc-btn-row">
+                        <button id="refresh-sync-status" class="mc-btn tiny">Refresh status</button>
+                        <button id="test-sync-btn" class="mc-btn tiny">Test connection</button>
+                        <button id="export-diagnostics-btn" class="mc-btn tiny">Export diagnostics</button>
+                    </div>
+                </div>
+
+                <div class="mc-block">
+                    <div class="mc-lbl" style="display:flex;align-items:center;justify-content:space-between;gap:10px">
+                        <span>Activity log</span>
+                        <button id="clear-log-btn" class="mc-btn tiny">Clear</button>
+                    </div>
                     <div id="sync-log" class="sync-log">
                         <div class="log-entry">
                             <span class="log-time">Ready</span>
                             <span class="log-message">Sync manager initialized</span>
                         </div>
                     </div>
-                    <button id="clear-log-btn" class="btn-secondary">Clear Log</button>
                 </div>
 
-                <div class="error-log-card">
-                    <h3>Captured Errors</h3>
-                    <p class="error-log-hint">Runtime errors, unhandled promise rejections, and CSP violations captured across every context (new tab, manage, popup, service worker). This is the same runtime data Chrome shows on its extensions &ldquo;Errors&rdquo; screen &mdash; which extensions can&rsquo;t read directly.</p>
+                <div class="mc-block" style="margin-bottom:0">
+                    <div class="mc-lbl" style="display:flex;align-items:center;justify-content:space-between;gap:10px">
+                        <span>Captured errors</span>
+                        <span class="mc-btn-row">
+                            <button id="refresh-errors-btn" class="mc-btn tiny">Refresh</button>
+                            <button id="copy-errors-btn" class="mc-btn tiny">Copy all</button>
+                            <button id="clear-errors-btn" class="mc-btn tiny danger">Clear</button>
+                        </span>
+                    </div>
+                    <p class="mc-sub" style="margin:2px 0 8px">Runtime errors, unhandled rejections, and CSP violations captured across every context — the same data Chrome shows on its extension &ldquo;Errors&rdquo; screen, which extensions can&rsquo;t read directly.</p>
                     <div id="error-log" class="error-log" aria-live="polite">
                         <div class="error-log-empty">No errors captured. 🎉</div>
-                    </div>
-                    <div class="error-log-actions">
-                        <button id="refresh-errors-btn" class="btn-secondary">Refresh</button>
-                        <button id="copy-errors-btn" class="btn-secondary">Copy All</button>
-                        <button id="clear-errors-btn" class="btn-danger">Clear</button>
                     </div>
                 </div>
             </div>
