@@ -82,9 +82,10 @@ javascript/
 - Always handle quota exceeded errors gracefully
 
 ### Theme System
-- CSS custom properties with `!important` for theme overrides
-- Base themes: `dark`, `light`
-- Color themes: `default`, `ocean`, `cosmic`, `sunset`, `forest`, `fire`, `aurora`, `theme-purple`, `theme-pink`, `theme-green`, `theme-orange`, `theme-teal`, `theme-focus`, `theme-dark-orange`, `theme-dark-purple`, `theme-dark-emerald`, `theme-dark-crimson`, `theme-dark-sapphire`
+- Flat, calm design; dark/light only (the multi–color-theme system was removed).
+- Design tokens live in each stylesheet's `:root` (surfaces, borders, one muted accent). Flattening a token flattens every surface at once — no glass, gradients, glow, or hover-lift.
+- Base themes: `dark`, `light` (`body.dark` / `body.light`).
+- Shared content width: both the new tab and the manage page use `--content-max: 1080px` so the two surfaces line up.
 - Tile sizes: `compact`, `small`, `medium`, `large`, `square`, `wide`, `tall`, `giant`
 
 ### Icon Loading

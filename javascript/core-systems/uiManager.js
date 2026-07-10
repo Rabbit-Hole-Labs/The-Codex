@@ -176,7 +176,7 @@ function getDefaultOptionForElement(element) {
     // moved to inline per-row actions, so guard against missing elements.
     const defaultOptions = {};
     if (elements.filterCategory) defaultOptions[elements.filterCategory.id] = '<option value="all">All Categories</option>';
-    if (elements.moveCategory) defaultOptions[elements.moveCategory.id] = '<option value="">Select New Category</option>';
+    if (elements.moveCategory) defaultOptions[elements.moveCategory.id] = '<option value="">Move selected to…</option>';
     if (elements.editCategorySelect) defaultOptions[elements.editCategorySelect.id] = '<option value="">Select Category to Edit</option>';
     if (elements.deleteCategorySelect) defaultOptions[elements.deleteCategorySelect.id] = '<option value="">Select Category to Delete</option>';
     return defaultOptions[element.id] || '';

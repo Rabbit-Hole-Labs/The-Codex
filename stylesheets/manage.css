@@ -92,6 +92,10 @@ body {
   --space-8: 2rem;
   --space-10: 2.5rem;
   --space-12: 3rem;
+
+  /* Shared content width — kept identical to the new-tab page so both
+     surfaces line up. */
+  --content-max: 1600px;
   
   /* Flat, restrained shadows (no glow) */
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
@@ -163,10 +167,11 @@ body {
   overflow-x: hidden;
 }
 
+/* Flat page shell: narrow, flush, no elevated card (matches the mockup). */
 .container {
-  max-width: 1400px;
+  max-width: var(--content-max);
   margin: 0 auto;
-  padding: var(--space-8);
+  padding: 22px 22px 60px;
   min-height: 100vh;
 }
 
@@ -189,21 +194,20 @@ body {
 .col-11 { grid-column: span 11; }
 .col-12 { grid-column: span 12; }
 
-/* Header */
+/* Header: tight, calm, no divider line */
 header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: var(--space-12);
-  padding-bottom: var(--space-6);
-  border-bottom: 1px solid var(--border-color);
+  margin-bottom: 18px;
 }
 
 h1 {
-  font-size: var(--font-size-4xl);
+  font-size: 20px;
   font-weight: var(--font-weight-bold);
   color: var(--on-surface);
   margin: 0;
+  letter-spacing: -0.01em;
   position: relative;
 }
 
@@ -222,40 +226,41 @@ h3 {
   margin-bottom: var(--space-3);
 }
 
+/* "Back to Home" as a small flat pill link */
 .home-link {
-  color: var(--secondary-color);
+  color: var(--primary-color);
   text-decoration: none;
   font-weight: var(--font-weight-medium);
-  padding: var(--space-3) var(--space-4);
-  border-radius: var(--radius-lg);
+  padding: 5px 12px;
+  font-size: 13px;
+  border-radius: var(--radius-full);
   border: 1px solid var(--border-color);
-  transition: all 0.2s ease;
-  background: var(--surface-color);
+  transition: background 0.15s ease, border-color 0.15s ease;
+  background: transparent;
 }
 
 .home-link:hover {
   background: var(--surface-elevated);
-  border-color: var(--secondary-color);
-  transform: translateY(-1px);
-  box-shadow: var(--shadow-md);
+  border-color: var(--primary-color);
 }
 
-/* Main Content */
+/* Main content sits flat on the page background (no elevated card) */
 main {
-  background: var(--surface-color);
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-2xl);
-  padding: var(--space-8);
-  box-shadow: var(--shadow-lg);
-  min-height: 70vh;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  padding: 0;
+  box-shadow: none;
+  min-height: 0;
 }
 
-/* Enhanced Tab System */
+/* Flat underline tabs: thin rule, no filled active chip, no rounded tops */
 .tabs {
   display: flex;
   justify-content: flex-start;
-  margin-bottom: var(--space-8);
-  border-bottom: 2px solid var(--border-color);
+  margin-bottom: 20px;
+  gap: 2px;
+  border-bottom: 1px solid var(--border-color);
   overflow-x: auto;
   scrollbar-width: none;
   -ms-overflow-style: none;
@@ -270,44 +275,30 @@ main {
   border: none;
   color: var(--on-surface-variant);
   cursor: pointer;
-  font-size: var(--font-size-base);
+  font-size: 13.5px;
   font-weight: var(--font-weight-medium);
-  padding: var(--space-4) var(--space-6);
-  transition: all 0.2s ease;
-  border-bottom: 3px solid transparent;
-  margin-bottom: -2px;
+  padding: 9px 14px;
+  transition: color 0.15s ease;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
   white-space: nowrap;
   position: relative;
-  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  border-radius: 0;
 }
 
 .tab-button:hover {
-  background: var(--surface-elevated);
   color: var(--on-surface);
-  border-bottom-color: var(--primary-color);
 }
 
 .tab-button.active {
-  background: var(--surface-elevated);
   color: var(--on-surface);
   border-bottom-color: var(--primary-color);
   font-weight: var(--font-weight-semibold);
 }
 
-.tab-button.active::after {
-  content: '';
-  position: absolute;
-  bottom: -2px;
-  left: 0;
-  right: 0;
-  height: 3px;
-  background: var(--primary-color);
-  border-radius: 2px 2px 0 0;
-}
-
 .tab-content {
   display: none;
-  animation: fadeIn 0.3s ease-in-out;
+  animation: fadeIn 0.15s ease-in-out;
 }
 
 .tab-content.active {
@@ -325,38 +316,7 @@ main {
   }
 }
 
-/* Modern Form Styles */
-.modern-form {
-  background: var(--surface-elevated);
-  padding: var(--space-8);
-  border-radius: var(--radius-2xl);
-  border: 1px solid var(--border-color);
-  box-shadow: var(--shadow-sm);
-}
-
-.form-row {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-  gap: var(--space-6);
-  margin-bottom: var(--space-6);
-}
-
-.form-group {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-}
-
-.form-actions {
-  display: flex;
-  justify-content: center;
-  gap: var(--space-4);
-  margin-top: var(--space-8);
-  padding-top: var(--space-6);
-  border-top: 1px solid var(--border-color);
-}
-
-/* Enhanced Form Styles */
+/* Edit-link modal form grid */
 .form-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
@@ -393,58 +353,38 @@ input::placeholder, textarea::placeholder {
   color: var(--on-surface-variant);
 }
 
-/* Enhanced Button Styles */
+/* Flat buttons (no shimmer sheen, no lift). .btn-danger is unused. */
 .btn-primary {
   background: var(--primary-color) !important;
   color: white !important;
   border: 1px solid var(--primary-color) !important;
-  padding: var(--space-3) var(--space-6);
-  border-radius: var(--radius-lg);
+  padding: 6px 13px;
+  border-radius: 7px;
   cursor: pointer;
-  font-weight: var(--font-weight-medium);
-  font-size: var(--font-size-base);
-  transition: all 0.2s ease;
+  font-weight: 550;
+  font-size: 13px;
+  transition: background 0.15s ease, border-color 0.15s ease;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: var(--space-2);
-  box-shadow: var(--shadow-sm);
-  position: relative;
-  overflow: hidden;
-}
-
-.btn-primary::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: -100%;
-  width: 100%;
-  height: 100%;
-  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
-  transition: left 0.5s;
-}
-
-.btn-primary:hover::before {
-  left: 100%;
 }
 
 .btn-primary:hover {
   background: var(--primary-hover) !important;
   border-color: var(--primary-hover) !important;
-  transform: translateY(-1px);
-  box-shadow: var(--shadow-md);
 }
 
 .btn-secondary {
   background: var(--surface-elevated) !important;
   color: var(--on-surface) !important;
   border: 1px solid var(--border-color) !important;
-  padding: var(--space-3) var(--space-6);
-  border-radius: var(--radius-lg);
+  padding: 6px 13px;
+  border-radius: 7px;
   cursor: pointer;
-  font-weight: var(--font-weight-medium);
-  font-size: var(--font-size-base);
-  transition: all 0.2s ease;
+  font-weight: 550;
+  font-size: 13px;
+  transition: background 0.15s ease, border-color 0.15s ease;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -455,48 +395,6 @@ input::placeholder, textarea::placeholder {
   background: var(--surface-hover) !important;
   border-color: var(--border-hover) !important;
   color: var(--on-surface) !important;
-  transform: translateY(-1px);
-  box-shadow: var(--shadow-sm);
-}
-
-.btn-danger {
-  background: var(--danger-color) !important;
-  color: white !important;
-  border: 1px solid var(--danger-color) !important;
-  padding: var(--space-3) var(--space-6);
-  border-radius: var(--radius-lg);
-  cursor: pointer;
-  font-weight: var(--font-weight-medium);
-  font-size: var(--font-size-base);
-  transition: all 0.2s ease;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: var(--space-2);
-  position: relative;
-  overflow: hidden;
-}
-
-.btn-danger::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: -100%;
-  width: 100%;
-  height: 100%;
-  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
-  transition: left 0.5s;
-}
-
-.btn-danger:hover::before {
-  left: 100%;
-}
-
-.btn-danger:hover {
-  background: var(--danger-hover) !important;
-  border-color: var(--danger-hover) !important;
-  transform: translateY(-1px);
-  box-shadow: var(--shadow-md);
 }
 
 button:disabled {
@@ -505,21 +403,7 @@ button:disabled {
   transform: none !important;
 }
 
-/* Button Groups */
-.button-group {
-  display: flex;
-  gap: var(--space-3);
-  flex-wrap: wrap;
-  align-items: center;
-}
-
-.button-group.grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  gap: var(--space-4);
-}
-
-/* Enhanced Links Container */
+/* Links list container */
 .links-container {
   background: var(--background-color);
   border: 1px solid var(--border-color);
@@ -1142,56 +1026,6 @@ input[type="submit"] {
   font-family: inherit;
 }
 
-/* Primary buttons - MUST come after universal reset */
-.btn-primary,
-button.btn-primary,
-form button.btn-primary {
-  background: var(--primary-color) !important;
-  border: 1px solid var(--primary-color) !important;
-  color: white !important;
-}
-
-.btn-primary:hover,
-button.btn-primary:hover,
-form button.btn-primary:hover {
-  background: var(--primary-hover) !important;
-  border: 1px solid var(--primary-hover) !important;
-  color: white !important;
-}
-
-/* Secondary buttons - MUST come after universal reset */
-.btn-secondary,
-button.btn-secondary,
-form button.btn-secondary {
-  background: var(--surface-elevated) !important;
-  border: 1px solid var(--border-color) !important;
-  color: var(--on-surface) !important;
-}
-
-.btn-secondary:hover,
-button.btn-secondary:hover,
-form button.btn-secondary:hover {
-  background: var(--surface-hover) !important;
-  border: 1px solid var(--border-hover) !important;
-  color: var(--on-surface) !important;
-}
-
-/* Danger buttons - MUST come after universal reset */
-.btn-danger,
-button.btn-danger,
-form button.btn-danger {
-  background: var(--error-color) !important;
-  border: 1px solid var(--error-color) !important;
-  color: white !important;
-}
-
-.btn-danger:hover,
-button.btn-danger:hover,
-form button.btn-danger:hover {
-  background: var(--error-hover) !important;
-  border: 1px solid var(--error-hover) !important;
-  color: white !important;
-}
 
 /* Inputs use theme colors; visual sizing comes from .mc-field / component rules */
 input[type="text"],
@@ -1214,21 +1048,6 @@ textarea {
   color: var(--on-surface);
 }
 
-/* Force all text colors */
-h1, h2, h3, h4, h5, h6,
-p, span, div, label {
-  color: var(--on-surface) !important;
-}
-
-/* Special text elements */
-.label, .value {
-  color: var(--on-surface) !important;
-}
-
-.setting-description {
-  color: var(--on-surface-variant) !important;
-}
-
 /* Responsive Design */
 @media (max-width: 768px) {
   .container {
@@ -1249,15 +1068,6 @@ p, span, div, label {
   }
 
   .form-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .button-group {
-    flex-direction: column;
-    align-items: stretch;
-  }
-
-  .button-group.grid {
     grid-template-columns: 1fr;
   }
 
@@ -1352,8 +1162,8 @@ p, span, div, label {
 .view-toggle {
   display: flex;
   background: var(--surface-elevated);
-  border: 2px solid var(--border-color);
-  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
   overflow: hidden;
   cursor: pointer;
 }
@@ -1361,10 +1171,16 @@ p, span, div, label {
 .view-option {
   display: flex;
   align-items: center;
-  gap: var(--space-2);
-  padding: var(--space-3) var(--space-4);
-  transition: all 0.2s ease;
+  gap: 6px;
+  padding: 5px 12px;
+  font-size: 13px;
+  transition: background 0.15s ease, color 0.15s ease;
   color: var(--on-surface-variant);
+}
+
+.view-option svg {
+  width: 16px;
+  height: 16px;
 }
 
 .view-option.active {
@@ -1390,20 +1206,19 @@ p, span, div, label {
 
 .setting-select {
   width: 100%;
-  padding: var(--space-3) var(--space-4);
+  padding: 7px 10px;
   background: var(--surface-elevated);
-  border: 2px solid var(--border-color);
-  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-color);
+  border-radius: 7px;
   color: var(--on-surface);
-  font-size: var(--font-size-sm);
+  font-size: 13px;
   font-weight: var(--font-weight-medium);
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: border-color 0.15s ease;
 }
 
 .setting-select:hover {
   border-color: var(--primary-color);
-  background: var(--surface-hover);
 }
 
 .setting-select:focus {
@@ -1439,7 +1254,6 @@ p, span, div, label {
 @media print {
   .header-controls,
   .tabs,
-  .button-group,
   .link-actions,
   .pagination {
     display: none;
@@ -1473,68 +1287,6 @@ p, span, div, label {
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
-}
-
-/* Class-based button colors (the blanket armor that used to box every button
-   — tabs and .mc-btns included — has been removed; controls now render from
-   their own classes). */
-
-/* Primary button overrides */
-button.btn-primary,
-.btn-primary,
-form .btn-primary,
-.tab-content .btn-primary {
-  background: var(--primary-color) !important;
-  border: 1px solid var(--primary-color) !important;
-  color: white !important;
-}
-
-/* Secondary button overrides */
-button.btn-secondary,
-.btn-secondary,
-form .btn-secondary,
-.tab-content .btn-secondary {
-  background: var(--surface-elevated) !important;
-  border: 1px solid var(--border-color) !important;
-  color: var(--on-surface) !important;
-}
-
-/* Danger button overrides */
-button.btn-danger,
-.btn-danger,
-form .btn-danger,
-.tab-content .btn-danger {
-  background: var(--error-color) !important;
-  border: 1px solid var(--error-color) !important;
-  color: white !important;
-}
-
-
-button.btn-primary:hover,
-.btn-primary:hover,
-form .btn-primary:hover,
-.tab-content .btn-primary:hover {
-  background: var(--primary-hover) !important;
-  border: 1px solid var(--primary-hover) !important;
-  color: white !important;
-}
-
-button.btn-secondary:hover,
-.btn-secondary:hover,
-form .btn-secondary:hover,
-.tab-content .btn-secondary:hover {
-  background: var(--surface-hover) !important;
-  border: 1px solid var(--border-hover) !important;
-  color: var(--on-surface) !important;
-}
-
-button.btn-danger:hover,
-.btn-danger:hover,
-form .btn-danger:hover,
-.tab-content .btn-danger:hover {
-  background: var(--error-hover) !important;
-  border: 1px solid var(--error-hover) !important;
-  color: white !important;
 }
 
 /* Icon Helper Modal Styles */
@@ -1587,37 +1339,18 @@ form .btn-danger:hover,
   align-items: center;
   padding: var(--space-4);
   background: var(--surface-color) !important;
-  border: 2px solid var(--border-color) !important;
-  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-color) !important;
+  border-radius: 8px;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
   text-align: center;
   gap: var(--space-2);
   color: var(--on-surface) !important;
-  position: relative;
-  overflow: hidden;
-}
-
-.icon-source-btn::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: -100%;
-  width: 100%;
-  height: 100%;
-  background: linear-gradient(90deg, transparent, var(--primary-light), transparent);
-  transition: left 0.5s;
-}
-
-.icon-source-btn:hover::before {
-  left: 100%;
 }
 
 .icon-source-btn:hover {
   background: var(--surface-elevated) !important;
   border-color: var(--primary-color) !important;
-  transform: translateY(-2px);
-  box-shadow: var(--shadow-lg);
   color: var(--primary-color) !important;
 }
 
@@ -1703,71 +1436,65 @@ form .btn-danger:hover,
   align-items: start;
 }
 
-/* Links Management Styles */
+/* Links Management — flat toolbar (no filled card), matches the mockup:
+   row 1 = filter + select-all on the left, view toggle on the right;
+   row 2 = inline bulk actions (move / resize / delete). */
 .links-management-panel {
-  background: var(--surface-elevated);
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-xl);
-  padding: var(--space-6);
-  margin-bottom: var(--space-6);
-}
-
-.filter-section {
-  margin-bottom: var(--space-6);
-  padding-bottom: var(--space-6);
-  border-bottom: 1px solid var(--border-color);
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  padding: 0;
+  margin: 0 0 14px;
 }
 
 .filter-row {
   display: flex;
   justify-content: space-between;
-  align-items: flex-end;
-  gap: var(--space-4);
+  align-items: center;
+  gap: var(--space-3);
+  margin-bottom: 10px;
+}
+
+.filter-left {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.filter-left .mc-field {
+  width: auto;
+  min-width: 170px;
 }
 
 .select-all-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--on-surface-variant);
+  cursor: pointer;
+}
+
+.select-all-group input {
+  margin: 0;
+}
+
+.bulk-actions-row {
   display: flex;
   align-items: center;
-  gap: var(--space-2);
-}
-
-.bulk-actions-section h3 {
-  color: var(--on-surface);
-  font-size: var(--font-size-lg);
-  margin-bottom: var(--space-4);
-}
-
-.bulk-actions-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-  gap: var(--space-4);
-}
-
-.bulk-action-group {
-  display: flex;
-  flex-direction: column;
   gap: var(--space-3);
-}
-
-/* A lone bulk button (e.g. Delete Selected) sizes to its label instead of
-   stretching into a full-width bar, matching the Move/Apply buttons. */
-.bulk-action-group > button {
-  align-self: flex-start;
-  min-width: 160px;
-}
-
-.bulk-action-group label {
-  font-weight: var(--font-weight-medium);
-  color: var(--on-surface);
+  flex-wrap: wrap;
 }
 
 .action-row {
   display: flex;
-  gap: var(--space-2);
+  gap: 6px;
 }
 
-.action-row select {
-  flex: 1;
+.action-row .mc-field {
+  width: auto;
+  min-width: 150px;
 }
 
 .icon-examples {
@@ -1900,20 +1627,21 @@ html body .link-actions .delete-button:hover {
 }
 
 /* --- Grid / List view toggle --- */
-html body .view-toggle,
-html body .view-toggle .view-option {
+html body .view-toggle {
   background: var(--surface-elevated) !important;
   border: 1px solid var(--border-color) !important;
+}
+html body .view-toggle .view-option {
+  background: transparent !important;
+  border: none !important;
   color: var(--on-surface-variant) !important;
 }
 html body .view-toggle .view-option.active {
   background: var(--primary-color) !important;
-  border: 1px solid var(--primary-color) !important;
   color: #fff !important;
 }
 html body .view-toggle .view-option:hover:not(.active) {
   background: var(--surface-hover) !important;
-  border: 1px solid var(--border-hover) !important;
   color: var(--on-surface) !important;
 }
 
@@ -2061,67 +1789,5 @@ html body .view-toggle .view-option:hover:not(.active) {
 #linksContainer .link-actions button:hover { background: var(--surface-hover) !important; color: var(--on-surface) !important; }
 #linksContainer .link-actions .delete-button:hover { color: var(--error-color) !important; border-color: var(--error-color) !important; }
 
-/* Compact filter + bulk toolbar */
-#manage-links .links-management-panel { padding: var(--space-5); }
-#manage-links .filter-row { align-items: center; }
-#manage-links .bulk-actions-section h3 { font-size: 13px; }
-
-/* =====================================================================
-   Flat shell — retire the elevated card + gradient hero to match the
-   approved mockup. The tab CONTENTS were already flattened; this drops
-   the glass/gradient chrome around them (title, header, container, tabs).
-   Loaded last, so these override the legacy manage-styles.css shell.
-   ===================================================================== */
-
-/* Narrower page, tighter gutters (mockup ~1080px, flush content) */
-.container { max-width: 1080px; padding: 22px 22px 60px; }
-
-/* Header: tighter, calmer, no divider line */
-.container header { margin-bottom: 18px; padding-bottom: 0; border-bottom: none; }
-
-/* Flat, solid title */
-.container h1 {
-  font-size: 20px; font-weight: 700; letter-spacing: -0.01em;
-  background: none; -webkit-background-clip: border-box; background-clip: border-box;
-  -webkit-text-fill-color: currentColor; color: var(--on-surface);
-}
-
-/* "Back to Home" as a small flat pill link */
-.container .home-link {
-  padding: 5px 12px; font-size: 13px; border-radius: var(--radius-full);
-  background: transparent; color: var(--primary-color);
-}
-.container .home-link:hover {
-  background: var(--surface-elevated); border-color: var(--primary-color);
-  transform: none; box-shadow: none;
-}
-
-/* No elevated card panel — content sits flat on the page background */
-.container main {
-  background: transparent; border: none; box-shadow: none;
-  border-radius: 0; padding: 0; min-height: 0;
-}
-
-/* Flat underline tabs: thin rule, no filled active chip, no rounded tops */
-.container .tabs {
-  border-bottom: 1px solid var(--border-color); margin-bottom: 20px; gap: 2px;
-}
-.container .tab-button {
-  padding: 9px 14px; font-size: 13.5px; border-radius: 0;
-  border-bottom: 2px solid transparent; margin-bottom: -1px;
-}
-.container .tab-button:hover {
-  background: none; color: var(--on-surface); border-bottom-color: transparent;
-}
-.container .tab-button.active {
-  background: none; color: var(--on-surface); font-weight: 600;
-  border-bottom-color: var(--primary-color);
-}
-.container .tab-button.active::after { display: none; }
-
-/* Drop the translateY slide-in so tabs don't leave a gap mid-animation */
-.container .tab-content.active { animation-duration: .15s; }
-.container .tab-content > h2 { margin-top: 0; }
-
-/* ===== flat polish: retire button shimmer sheens ===== */
-.btn-primary::before, .btn-danger::before, .icon-source-btn::before { display: none !important; }
+/* Manage Links summary line sits tight under the heading */
+#manage-links .mc-sub { margin: -2px 0 14px; }
