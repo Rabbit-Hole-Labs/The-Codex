@@ -288,13 +288,8 @@ async function loadCurrentSettings() {
         const view = data.view || 'grid';
         const defaultTileSize = data.defaultTileSize || 'medium';
 
-        // Update mode toggle
-        const modeToggle = document.getElementById('modeToggle');
-        const modeLabel = document.getElementById('modeLabel');
-        if (modeToggle && modeLabel) {
-            modeToggle.classList.toggle('light', theme === 'light');
-            modeLabel.textContent = theme === 'light' ? 'Light Mode' : 'Dark Mode';
-        }
+        // Update base-theme segmented control (Dark / Light)
+        updateModeToggle(theme);
 
         // Update default tile size selector
         const defaultTileSizeSelect = document.getElementById('defaultTileSize');
@@ -317,11 +312,10 @@ async function loadCurrentSettings() {
 }
 
 function setupThemeControls() {
-    // Mode toggle (dark/light)
-    const modeToggle = document.getElementById('modeToggle');
-    if (modeToggle) {
-        modeToggle.addEventListener('click', toggleMode);
-    }
+    // Base-theme segmented control (Dark / Light) — each option sets the mode.
+    document.querySelectorAll('#modeToggle .view-option[data-mode]').forEach(opt => {
+        opt.addEventListener('click', () => setMode(opt.dataset.mode));
+    });
 
     // Color theme select - removed (using cards only)
 
@@ -358,30 +352,22 @@ function setupTileSizeControls() {
     }
 }
 
-async function toggleMode() {
+async function setMode(mode) {
     try {
-        const currentData = await chrome.storage.sync.get(['theme']);
-        const currentTheme = currentData.theme || 'dark';
-        const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
-
-        await chrome.storage.sync.set({ theme: newTheme });
-
-        // Update UI
-        const modeToggle = document.getElementById('modeToggle');
-        const modeLabel = document.getElementById('modeLabel');
-        if (modeToggle && modeLabel) {
-            modeToggle.classList.toggle('light', newTheme === 'light');
-            modeLabel.textContent = newTheme === 'light' ? 'Light Mode' : 'Dark Mode';
-        }
-
-        // Apply theme
+        await chrome.storage.sync.set({ theme: mode });
+        updateModeToggle(mode);
         const colorData = await chrome.storage.sync.get(['colorTheme']);
         const colorTheme = colorData.colorTheme || 'default';
-        applyTheme(newTheme, colorTheme);
-
+        applyTheme(mode, colorTheme);
     } catch (error) {
-        console.error('Error toggling mode:', error);
+        console.error('Error setting mode:', error);
     }
+}
+
+function updateModeToggle(mode) {
+    document.querySelectorAll('#modeToggle .view-option[data-mode]').forEach(opt => {
+        opt.classList.toggle('active', opt.dataset.mode === mode);
+    });
 }
 
 async function setColorTheme(theme) {
