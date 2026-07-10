@@ -34,24 +34,28 @@
     border-color: var(--border-hover);
 }
 
+/* The indicator is a small colored status dot (was an empty glyph span, so
+   no indicator ever showed). Color comes from the state class below. */
 .sync-icon {
-    font-size: 16px;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: currentColor;
+    flex-shrink: 0;
 }
 
 .sync-success .sync-icon { color: var(--success-color, #10b981); }
 .sync-progress .sync-icon {
     color: var(--info-color, #06b6d4);
-    animation: spin 1s linear infinite;
+    animation: pulse 1.1s ease-in-out infinite;
 }
 .sync-error .sync-icon { color: var(--error-color, #f43f5e); }
 .sync-offline .sync-icon { color: var(--on-surface-variant, #94a3b8); }
 .sync-pending .sync-icon { color: var(--warning-color, #f59e0b); }
 
-@keyframes spin {
-    100% { transform: rotate(360deg); }
+@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.35; }
 }
 
 .sync-details {

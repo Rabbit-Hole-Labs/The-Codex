@@ -278,7 +278,7 @@ function setupSettingsTab() {
 
 async function loadCurrentSettings() {
     try {
-        const data = await chrome.storage.sync.get(['theme', 'view', 'defaultTileSize']);
+        const data = await chrome.storage.sync.get(['theme', 'view', 'defaultTileSize', 'colorTheme']);
         const theme = data.theme || 'dark';
         const view = data.view || 'grid';
         const defaultTileSize = data.defaultTileSize || 'medium';
@@ -295,8 +295,10 @@ async function loadCurrentSettings() {
         // Update view toggle
         updateViewToggle(view);
 
-        // Apply current theme (dark/light) to management page
+        // Apply current theme (dark/light) + accent to management page
         applyTheme(theme);
+        applyAccent(data.colorTheme);
+        updateAccentPicker(data.colorTheme);
 
     } catch (error) {
         console.error('Error loading current settings:', error);
@@ -305,10 +307,41 @@ async function loadCurrentSettings() {
 
 function setupThemeControls() {
     // Base-theme segmented control (Dark / Light) — each option sets the mode.
-    // Color themes were retired; this is the only theme control now.
     document.querySelectorAll('#modeToggle .view-option[data-mode]').forEach(opt => {
         opt.addEventListener('click', () => setMode(opt.dataset.mode));
     });
+    // Accent color swatches
+    document.querySelectorAll('#accentPicker .accent-swatch').forEach(btn => {
+        btn.addEventListener('click', () => setAccent(btn.dataset.accent));
+    });
+}
+
+// ---- Accent color (stored in the dormant `colorTheme` field) ----
+const ACCENTS = ['slate', 'blue', 'teal', 'violet', 'amber'];
+function normalizeAccent(a) { return ACCENTS.includes(a) ? a : 'slate'; }
+
+function applyAccent(accent) {
+    const a = normalizeAccent(accent);
+    if (a === 'slate') document.body.removeAttribute('data-accent');
+    else document.body.setAttribute('data-accent', a);
+}
+
+function updateAccentPicker(accent) {
+    const a = normalizeAccent(accent);
+    document.querySelectorAll('#accentPicker .accent-swatch').forEach(btn => {
+        btn.classList.toggle('selected', btn.dataset.accent === a);
+    });
+}
+
+async function setAccent(accent) {
+    const a = normalizeAccent(accent);
+    try {
+        await chrome.storage.sync.set({ colorTheme: a });
+        applyAccent(a);
+        updateAccentPicker(a);
+    } catch (error) {
+        console.error('Error setting accent:', error);
+    }
 }
 
 function setupViewControls() {

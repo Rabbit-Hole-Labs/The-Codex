@@ -124,7 +124,7 @@ describe('Storage Manager Functionality', () => {
       // Test with valid settings
       const validSettings = {
         theme: 'light',
-        colorTheme: 'ocean',
+        colorTheme: 'blue',
         view: 'list',
         defaultTileSize: 'large'
       };
@@ -146,7 +146,7 @@ describe('Storage Manager Functionality', () => {
       // Test with mixed valid/invalid settings
       const mixedSettings = {
         theme: 'invalid-theme', // Invalid
-        colorTheme: 'ocean',    // Valid
+        colorTheme: 'blue',     // Valid
         view: 'grid',           // Valid
         invalidProp: 'value'    // Invalid
       };
@@ -156,7 +156,7 @@ describe('Storage Manager Functionality', () => {
       // Should be successful but only save valid settings
       expect(result).toBe(true);
       expect(mockChromeStorage.sync.set).toHaveBeenCalledWith({
-        colorTheme: 'ocean',
+        colorTheme: 'blue',
         view: 'grid'
       });
     });

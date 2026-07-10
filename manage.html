@@ -4,7 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Manage The Codex</title>
-    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link href="stylesheets/base.css" rel="stylesheet">
     <link href="stylesheets/manage.css" rel="stylesheet">
     <link href="stylesheets/sync-status.css" rel="stylesheet">
 </head>
@@ -94,16 +95,33 @@
                 <h2>Manage Links</h2>
                 <p class="mc-sub" id="linksSummary">Filter, reorder, and bulk-edit your links.</p>
                 <div class="links-management-panel">
-                    <div class="filter-row">
-                        <div class="filter-left">
-                            <select id="filterCategory" class="mc-field" aria-label="Filter by category">
-                                <option value="all">All categories</option>
+                    <div class="links-toolbar">
+                        <select id="filterCategory" class="mc-field" aria-label="Filter by category">
+                            <option value="all">All categories</option>
+                        </select>
+                        <label class="select-all-group">
+                            <input type="checkbox" id="selectAllCheckbox">
+                            <span>Select all</span>
+                        </label>
+                        <span class="toolbar-sep" aria-hidden="true"></span>
+                        <div class="action-row">
+                            <select id="moveCategory" class="mc-field" aria-label="Move selected links to category">
+                                <option value="">Move selected to…</option>
                             </select>
-                            <label class="select-all-group">
-                                <input type="checkbox" id="selectAllCheckbox">
-                                <span>Select all</span>
-                            </label>
+                            <button id="bulkMoveBtn" class="mc-btn">Move</button>
                         </div>
+                        <div class="action-row">
+                            <select id="bulkSizeChange" class="mc-field" aria-label="Resize selected links">
+                                <option value="">Resize selected…</option>
+                                <option value="default">Default</option>
+                                <option value="small">Small</option>
+                                <option value="medium">Medium</option>
+                                <option value="large">Large</option>
+                                <option value="wide">Wide</option>
+                            </select>
+                            <button id="bulkSizeBtn" class="mc-btn">Apply</button>
+                        </div>
+                        <button id="bulkDeleteBtn" class="mc-btn danger">Delete selected</button>
                         <div class="view-toggle-container">
                             <button id="linksViewToggle" class="view-toggle" aria-label="Toggle grid/list view for links">
                                 <div class="view-option active" data-view="list">
@@ -128,27 +146,6 @@
                                 </div>
                             </button>
                         </div>
-                    </div>
-
-                    <div class="bulk-actions-row">
-                        <div class="action-row">
-                            <select id="moveCategory" class="mc-field" aria-label="Move selected links to category">
-                                <option value="">Move selected to…</option>
-                            </select>
-                            <button id="bulkMoveBtn" class="mc-btn">Move</button>
-                        </div>
-                        <div class="action-row">
-                            <select id="bulkSizeChange" class="mc-field" aria-label="Resize selected links">
-                                <option value="">Resize selected…</option>
-                                <option value="default">Default</option>
-                                <option value="small">Small</option>
-                                <option value="medium">Medium</option>
-                                <option value="large">Large</option>
-                                <option value="wide">Wide</option>
-                            </select>
-                            <button id="bulkSizeBtn" class="mc-btn">Apply</button>
-                        </div>
-                        <button id="bulkDeleteBtn" class="mc-btn danger">Delete selected</button>
                     </div>
                 </div>
                 
@@ -175,6 +172,17 @@
                             </div>
                         </div>
 
+                        <div class="setting-group">
+                            <label>Accent Color</label>
+                            <p class="setting-description">A single calm accent, applied to both the new tab and this page.</p>
+                            <div class="accent-picker" id="accentPicker" role="group" aria-label="Accent color">
+                                <button type="button" class="accent-swatch" data-accent="slate" aria-label="Slate" title="Slate"></button>
+                                <button type="button" class="accent-swatch" data-accent="blue" aria-label="Blue" title="Blue"></button>
+                                <button type="button" class="accent-swatch" data-accent="teal" aria-label="Teal" title="Teal"></button>
+                                <button type="button" class="accent-swatch" data-accent="violet" aria-label="Violet" title="Violet"></button>
+                                <button type="button" class="accent-swatch" data-accent="amber" aria-label="Amber" title="Amber"></button>
+                            </div>
+                        </div>
                     </div>
 
                     <div class="settings-card">
@@ -321,7 +329,7 @@
                         <span class="mc-btn-row">
                             <button id="refresh-errors-btn" class="mc-btn tiny">Refresh</button>
                             <button id="copy-errors-btn" class="mc-btn tiny">Copy all</button>
-                            <button id="clear-errors-btn" class="mc-btn tiny danger">Clear</button>
+                            <button id="clear-errors-btn" class="mc-btn tiny">Clear</button>
                         </span>
                     </div>
                     <p class="mc-sub" style="margin:2px 0 8px">Runtime errors, unhandled rejections, and CSP violations captured across every context — the same data Chrome shows on its extension &ldquo;Errors&rdquo; screen, which extensions can&rsquo;t read directly.</p>

@@ -171,21 +171,21 @@ describe('Theme and Appearance Features', () => {
     expect(result.theme).toBe('light');
   });
 
-  test('should support multiple color themes', async () => {
+  test('should support accent presets', async () => {
     // Import the storage manager
     const { loadLinks } = await import('../javascript/core-systems/storageManager.js');
-    
-    // Test with color theme
+
+    // Test with an accent preset
     global.chrome.storage.sync.get = async () => ({
       theme: 'dark',
-      colorTheme: 'ocean'
+      colorTheme: 'blue'
     });
 
     const result = await loadLinks();
 
-    // Should support color themes
+    // Should carry the accent preset through
     expect(result.theme).toBe('dark');
-    expect(result.colorTheme).toBe('ocean');
+    expect(result.colorTheme).toBe('blue');
   });
 });
 

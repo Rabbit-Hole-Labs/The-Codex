@@ -58,7 +58,19 @@ export function renderLinks(state) {
     });
 
     updatePaginationControls(state);
+    updateLinksSummary(state);
 
+}
+
+// Dynamic "N links across M categories." line under the Manage Links heading.
+function updateLinksSummary(state) {
+    const summary = document.getElementById('linksSummary');
+    if (!summary) return;
+    const total = (state.links || []).length;
+    const catCount = new Set((state.links || []).map(l => l.category || 'Default')).size;
+    const linkWord = total === 1 ? 'link' : 'links';
+    const catWord = catCount === 1 ? 'category' : 'categories';
+    summary.textContent = `${total} ${linkWord} across ${catCount} ${catWord}.`;
 }
 
 function createLinkElement(link, index, state) {
