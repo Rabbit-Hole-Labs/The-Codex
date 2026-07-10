@@ -155,7 +155,7 @@ async function handleCreateCategory(e) {
 
 async function handleBulkDelete() {
     try {
-        const selectedIndices = UIManager.getSelectedIndices();
+        const selectedIndices = UIManager.getSelectedIndices(getState());
         if (selectedIndices.length === 0) {
             UIManager.showMessage('Please select links to delete.', 'error');
             return;
@@ -176,7 +176,7 @@ async function handleBulkDelete() {
 async function handleBulkMove() {
     try {
         const elements = UIManager.getElements();
-        const selectedIndices = UIManager.getSelectedIndices();
+        const selectedIndices = UIManager.getSelectedIndices(getState());
         const newCategory = elements.moveCategory.value;
 
         if (selectedIndices.length === 0) {
@@ -202,7 +202,7 @@ async function handleBulkMove() {
 async function handleBulkSizeChange() {
     try {
         const elements = UIManager.getElements();
-        const selectedIndices = UIManager.getSelectedIndices();
+        const selectedIndices = UIManager.getSelectedIndices(getState());
         const newSize = elements.bulkSizeChange.value;
 
         if (selectedIndices.length === 0) {

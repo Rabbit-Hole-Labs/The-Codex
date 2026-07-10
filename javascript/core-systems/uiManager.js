@@ -52,8 +52,18 @@ export function renderLinks(state) {
 
     debug('Rendering links:', linksToRender);
 
-    linksToRender.forEach((link, index) => {
-        const div = createLinkElement(link, index, state);
+    // Pass the GLOBAL index into filteredLinks (start + offset), not the
+    // page-relative offset — otherwise every checkbox on page 2+ carries the
+    // same 0..N values as page 1, and delete/edit/bulk act on the wrong (first
+    // page) links. Keep any active "Select all" reflected on freshly-rendered
+    // pages too.
+    const selectAllActive = elements.selectAllCheckbox && elements.selectAllCheckbox.checked;
+    linksToRender.forEach((link, offset) => {
+        const div = createLinkElement(link, start + offset, state);
+        if (selectAllActive) {
+            const cb = div.querySelector('.link-checkbox');
+            if (cb) cb.checked = true;
+        }
         elements.linksContainer.appendChild(div);
     });
 
@@ -113,6 +123,12 @@ function createLinkElement(link, index, state) {
         deleteLink(state, index);
     });
 
+    // Unchecking any row drops out of the all-pages "Select all" selection.
+    div.querySelector('.link-checkbox').addEventListener('change', (e) => {
+        const master = getElements().selectAllCheckbox;
+        if (master && !e.target.checked) master.checked = false;
+    });
+
     return div;
 }
 
@@ -153,9 +169,15 @@ export function handleSelectAll() {
     });
 }
 
-export function getSelectedIndices() {
+export function getSelectedIndices(state) {
+    const elements = getElements();
+    // "Select all" means every filtered link across ALL pages, not just the
+    // checkboxes rendered on the current page.
+    if (state && elements.selectAllCheckbox && elements.selectAllCheckbox.checked) {
+        return state.filteredLinks.map((_, i) => i);
+    }
     return Array.from(document.querySelectorAll('.link-checkbox:checked'))
-                 .map(checkbox => parseInt(checkbox.value));
+                 .map(checkbox => parseInt(checkbox.value, 10));
 }
 
 export function populateCategoryDropdowns(categories) {
