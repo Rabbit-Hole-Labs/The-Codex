@@ -187,18 +187,14 @@ function updateViewClasses(view) {
 }
 
 /**
- * Updates theme classes without re-rendering content
+ * Updates the base theme class without re-rendering content.
+ * Only dark/light — color themes were retired.
  * @param {string} theme - The theme ('dark' or 'light')
- * @param {string} colorTheme - The color theme
  */
-function updateThemeClasses(theme, colorTheme) {
-    let classes = theme;
-    if (colorTheme !== 'default') {
-        classes += ` ${colorTheme}`;
-    }
-    document.body.className = classes;
-    document.body.setAttribute('data-theme', theme);
-    document.body.setAttribute('data-color-theme', colorTheme);
+function updateThemeClasses(theme) {
+    const base = theme === 'light' ? 'light' : 'dark';
+    document.body.className = base;
+    document.body.setAttribute('data-theme', base);
 }
 
 /**
