@@ -25,8 +25,11 @@ const LAST_USED_WRITE_THROTTLE = 24 * 60 * 60 * 1000;
 const PRUNE_EVERY_N_WRITES = 25;
 
 // Hosts we attempt to byte-fetch from (kept in lockstep with the manifest
-// CSP connect-src). Everything else renders via plain <img> only.
-const FETCHABLE_HOSTS = ['cdn.jsdelivr.net', 'selfh.st', 'www.google.com', 'gstatic.com'];
+// CSP connect-src). Everything else renders via plain <img> only. Google's
+// favicon service is deliberately NOT here: it sends no CORS headers, so
+// every fetch attempt fails AND the browser prints an uncatchable CORS
+// error to the console — favicons stay on the probe/img path instead.
+const FETCHABLE_HOSTS = ['cdn.jsdelivr.net', 'selfh.st'];
 
 let writesSincePrune = 0;
 const inFlightRefreshes = new Set();
