@@ -16,7 +16,7 @@ import {
     testImageLoad,
     validateIconValue
 } from './iconCache.js';
-import { getIconIndex, searchIndex, pickDisplaySlug } from './iconIndex.js';
+import { getIconIndex, searchIndex } from './iconIndex.js';
 import { debug } from '../core-systems/debug.js';
 
 const PROBE_TIMEOUT = 4000;
@@ -257,7 +257,7 @@ async function collectCandidates(query, extraSeeds = []) {
     for (const seed of extraSeeds) {
         if (seed && !candidates.includes(seed)) candidates.push(seed);
     }
-    return { candidates, index };
+    return { candidates, hasIndex: !!index };
 }
 
 function noResultText(hasIndex) {
@@ -284,25 +284,17 @@ async function runSearch(query, extraSeeds = []) {
     }
 
     setStatus('Searching the selfh.st icon library…');
-    const { candidates, index } = await collectCandidates(query, extraSeeds);
+    const { candidates, hasIndex } = await collectCandidates(query, extraSeeds);
     if (generation !== searchGeneration) return; // superseded by a newer search
     if (!candidates.length) {
-        setStatus(noResultText(!!index));
+        setStatus(noResultText(hasIndex));
         return;
     }
 
-    // Display the theme recolor (-light on dark) when the catalog has one so
-    // monochrome logos are visible in the grid; the BASE URL is what gets
-    // stored — rendering re-applies the theme preference on each surface.
-    const theme = document.body.classList.contains('light') ? 'light' : 'dark';
-    const probes = await Promise.all(candidates.map(async (slug) => {
-        const displaySlug = pickDisplaySlug(slug, index, theme);
-        let url = await testImageLoad(selfhstIconUrl(displaySlug), PROBE_TIMEOUT);
-        if (!url && displaySlug !== slug) {
-            url = await testImageLoad(selfhstIconUrl(slug), PROBE_TIMEOUT);
-        }
-        return url ? { slug, url } : null;
-    }));
+    const probes = await Promise.all(candidates.map(slug =>
+        testImageLoad(selfhstIconUrl(slug), PROBE_TIMEOUT)
+            .then(url => (url ? { slug, url } : null))
+    ));
     if (generation !== searchGeneration) return;
 
     const found = probes.filter(Boolean);
@@ -310,18 +302,18 @@ async function runSearch(query, extraSeeds = []) {
     found.forEach(({ slug, url }) => results.appendChild(buildResult(slug, url)));
     setStatus(found.length
         ? `${found.length} verified icon${found.length === 1 ? '' : 's'} found — click one to use it.`
-        : noResultText(!!index));
-    debug(`Icon picker: ${found.length}/${candidates.length} candidates verified for "${query}" (index: ${!!index})`);
+        : noResultText(hasIndex));
+    debug(`Icon picker: ${found.length}/${candidates.length} candidates verified for "${query}" (index: ${hasIndex})`);
 }
 
-function buildResult(slug, displayUrl) {
+function buildResult(slug, url) {
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'icon-result';
     btn.title = slug;
 
     const img = document.createElement('img');
-    img.src = displayUrl; // just loaded in the probe, so this renders from cache
+    img.src = url; // just loaded in the probe, so this renders from cache
     img.alt = '';
 
     const label = document.createElement('span');
@@ -330,8 +322,9 @@ function buildResult(slug, displayUrl) {
 
     btn.appendChild(img);
     btn.appendChild(label);
-    // Store the canonical base URL — theme recolors are applied at render.
-    btn.addEventListener('click', () => choose(selfhstIconUrl(slug)));
+    // What you see is exactly what gets stored and rendered — recolor
+    // variants (github-light, …) are their own results, chosen deliberately.
+    btn.addEventListener('click', () => choose(url));
     return btn;
 }
 
