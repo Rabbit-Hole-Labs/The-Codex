@@ -6,7 +6,7 @@
  * stored and then silently refused at render time.
  */
 import { validateIconValue } from '../../javascript/features/iconCache.js';
-import { expandQuery } from '../../javascript/features/iconPicker.js';
+import { expandQuery, expandWithVariants } from '../../javascript/features/iconPicker.js';
 
 // A tiny valid base64 PNG payload.
 const TINY_PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUg==';
@@ -84,5 +84,31 @@ describe('expandQuery (icon picker search candidates)', () => {
         expect(expandQuery('')).toEqual([]);
         expect(expandQuery('a')).toEqual([]);
         expect(expandQuery(null)).toEqual([]);
+    });
+});
+
+// Regression: only the base icon was offered — recolors never appeared,
+// because seeds/index matches were probed verbatim. Focused searches must
+// also probe each candidate's -light/-dark recolors (verified before shown).
+describe('expandWithVariants', () => {
+    it('appends -dark/-light recolor candidates after the base, deduped', () => {
+        expect(expandWithVariants(['github']))
+            .toEqual(['github', 'github-dark', 'github-light']);
+        expect(expandWithVariants(['github', 'github-light']))
+            .toEqual(['github', 'github-light', 'github-dark']);
+    });
+
+    it('does not expand candidates that are already recolors', () => {
+        expect(expandWithVariants(['github-light'])).toEqual(['github-light']);
+    });
+
+    it('skips expansion for broad result sets (probe-count bound)', () => {
+        const broad = Array.from({ length: 20 }, (_, i) => `app-${i}`);
+        expect(expandWithVariants(broad)).toEqual(broad);
+    });
+
+    it('tolerates empty input', () => {
+        expect(expandWithVariants([])).toEqual([]);
+        expect(expandWithVariants(null)).toEqual([]);
     });
 });
