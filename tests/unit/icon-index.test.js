@@ -6,8 +6,7 @@
 import {
     parseIndexPayload,
     searchIndex,
-    normalizeForMatch,
-    pickDisplaySlug
+    normalizeForMatch
 } from '../../javascript/features/iconIndex.js';
 
 describe('parseIndexPayload', () => {
@@ -35,7 +34,7 @@ describe('parseIndexPayload', () => {
             .toEqual(['pi-hole', 'uptime-kuma']);
     });
 
-    it('keeps -light/-dark theme variants (needed to know recolors exist)', () => {
+    it('keeps -light/-dark recolors (they are explicitly selectable results)', () => {
         const slugs = parseIndexPayload(['plex', 'plex-light', 'plex-dark', 'nightlight']);
         expect(slugs.sort()).toEqual(['nightlight', 'plex', 'plex-dark', 'plex-light']);
     });
@@ -92,30 +91,14 @@ describe('searchIndex', () => {
         expect(searchIndex('a', CATALOG)).toEqual([]);
     });
 
-    it('hides theme recolors of existing base icons from results', () => {
+    it('offers -light/-dark recolors as ordinary results, ranked after the base', () => {
         const catalog = ['github', 'github-light', 'github-dark', 'nightlight'];
-        const results = searchIndex('git', catalog);
-        expect(results).toEqual(['github']);
-        // ...but a -light slug with no base is a real icon, not a variant.
-        expect(searchIndex('night', catalog)).toEqual(['nightlight']);
-    });
-});
-
-describe('pickDisplaySlug', () => {
-    const CATALOG = ['github', 'github-light', 'github-dark', 'plex'];
-
-    it('prefers the -light recolor on the dark theme when it exists', () => {
-        expect(pickDisplaySlug('github', CATALOG, 'dark')).toBe('github-light');
-        expect(pickDisplaySlug('github', CATALOG, 'light')).toBe('github-dark');
-    });
-
-    it('keeps the base slug when no recolor exists', () => {
-        expect(pickDisplaySlug('plex', CATALOG, 'dark')).toBe('plex');
-    });
-
-    it('respects an explicitly chosen variant and missing catalogs', () => {
-        expect(pickDisplaySlug('github-light', CATALOG, 'light')).toBe('github-light');
-        expect(pickDisplaySlug('github', null, 'dark')).toBe('github');
+        const results = searchIndex('github', catalog);
+        expect(results[0]).toBe('github');
+        expect(results).toContain('github-light');
+        expect(results).toContain('github-dark');
+        // A direct query for a recolor ranks it first.
+        expect(searchIndex('github light', catalog)[0]).toBe('github-light');
     });
 });
 

@@ -70,8 +70,7 @@ export async function loadIconWithCache(link, options = {}) {
         allowFavicon = true,
         allowGenerated = true,
         timeout = CACHE_CONFIG.timeout,
-        respectCSP = true,
-        theme = null // 'dark' | 'light' — prefer the selfh.st recolor for the theme
+        respectCSP = true
     } = options;
 
     cacheStats.totalRequests++;
@@ -82,8 +81,8 @@ export async function loadIconWithCache(link, options = {}) {
     };
 
     try {
-        // Generate cache key (theme-sensitive: dark/light resolve differently)
-        const cacheKey = `${generateCacheKey(link)}:${theme || ''}`;
+        // Generate cache key
+        const cacheKey = generateCacheKey(link);
 
         // Check cache first
         const cachedIcon = getCachedIcon(cacheKey);
@@ -100,7 +99,7 @@ export async function loadIconWithCache(link, options = {}) {
 
         // 1. Try custom icon if available (data: URI or selfh.st/jsDelivr URL)
         if (preferCustom && link.icon) {
-            iconUrl = await loadCustomIcon(link.icon, compliantOptions.timeout, theme);
+            iconUrl = await loadCustomIcon(link.icon, compliantOptions.timeout);
             if (iconUrl) {
                 await cacheIcon(cacheKey, iconUrl, ICON_SOURCES.CUSTOM);
                 return iconUrl;
@@ -111,7 +110,7 @@ export async function loadIconWithCache(link, options = {}) {
         //    This is the primary source and works for internal/homelab apps
         //    without ever contacting the internal host.
         if (compliantOptions.allowSelfhst !== false) {
-            iconUrl = await loadSelfhstIcon(link, compliantOptions.timeout, theme);
+            iconUrl = await loadSelfhstIcon(link, compliantOptions.timeout);
             if (iconUrl) {
                 await cacheIcon(cacheKey, iconUrl, ICON_SOURCES.SELFHST);
                 return iconUrl;
@@ -153,10 +152,9 @@ export async function loadIconWithCache(link, options = {}) {
  * Loads custom icon with validation and timeout
  * @param {string} iconUrl - Custom icon URL
  * @param {number} timeout - Timeout in milliseconds
- * @param {string|null} theme - 'dark' | 'light' to prefer the selfh.st recolor
  * @returns {Promise<string|null>} - Validated icon URL or null
  */
-async function loadCustomIcon(iconUrl, timeout, theme = null) {
+async function loadCustomIcon(iconUrl, timeout) {
     try {
         const trimmed = String(iconUrl).trim();
 
@@ -177,18 +175,9 @@ async function loadCustomIcon(iconUrl, timeout, theme = null) {
             return null;
         }
 
-        const base = await testImageLoad(trimmed, timeout);
-        if (!base) return null;
-
-        // Monochrome library logos have theme recolors (github → github-light
-        // on dark). Prefer the recolor when it exists; the base always wins
-        // otherwise, so this can only improve contrast, never break an icon.
-        const variant = themedIconVariantUrl(trimmed, theme);
-        if (variant) {
-            const themed = await testImageLoad(variant, timeout);
-            if (themed) return themed;
-        }
-        return base;
+        // The stored value renders verbatim — nothing is ever substituted for
+        // it. Users pick -light/-dark recolors explicitly in the picker.
+        return await testImageLoad(trimmed, timeout);
 
     } catch (error) {
         console.warn('Invalid custom icon URL:', iconUrl, error);
@@ -256,53 +245,20 @@ export function selfhstIconUrl(slug) {
     return `${SELFHST_ICONS_BASE}/webp/${slug}.webp`;
 }
 
-// selfh.st publishes -light/-dark recolors for logos that are monochrome
-// (github-light is a white GitHub mark for dark backgrounds, etc.).
-const SELFHST_LIB_RE = /^(https:\/\/cdn\.jsdelivr\.net\/gh\/selfhst\/icons(?:@[\w.-]+)?\/(?:svg|png|webp)\/)([a-z0-9-]+)(\.(?:svg|png|webp))$/i;
-
-/**
- * For a selfh.st library URL, returns the URL of the theme-appropriate
- * recolor to TRY first: the -light variant on a dark theme, -dark on light.
- * Only monochrome logos have variants, so callers must fall back to the
- * original URL when the variant doesn't load.
- *
- * @param {string} url - Icon URL as stored on the link
- * @param {string} theme - 'dark' | 'light'
- * @returns {string|null} - Variant URL, or null when not applicable
- *   (non-library URL, unknown theme, or an explicitly picked -light/-dark
- *   variant, which is respected as-is)
- */
-export function themedIconVariantUrl(url, theme) {
-    if (theme !== 'dark' && theme !== 'light') return null;
-    const match = String(url || '').match(SELFHST_LIB_RE);
-    if (!match) return null;
-    const [, prefix, slug, ext] = match;
-    if (/-(light|dark)$/.test(slug)) return null;
-    return `${prefix}${slug}-${theme === 'dark' ? 'light' : 'dark'}${ext}`;
-}
-
 /**
  * Matches a link to an icon in the selfh.st/icons library by probing candidate
  * slugs; the first that resolves to a real icon wins. Works for internal/homelab
  * apps by name without ever contacting the internal host.
  * @param {Object} link - Link object
  * @param {number} timeout - Timeout in milliseconds
- * @param {string|null} theme - 'dark' | 'light' to prefer the theme recolor
  * @returns {Promise<string|null>} - Icon URL or null
  */
-async function loadSelfhstIcon(link, timeout, theme = null) {
+async function loadSelfhstIcon(link, timeout) {
     if (!link) return null;
     const slugs = selfhstCandidateSlugs(link);
     for (const slug of slugs) {
         const result = await testImageLoad(selfhstIconUrl(slug), timeout);
-        if (result) {
-            const variant = themedIconVariantUrl(result, theme);
-            if (variant) {
-                const themed = await testImageLoad(variant, timeout);
-                if (themed) return themed;
-            }
-            return result;
-        }
+        if (result) return result;
     }
     return null;
 }

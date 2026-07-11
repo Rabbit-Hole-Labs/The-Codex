@@ -81,25 +81,9 @@ export function parseIndexPayload(payload) {
         if (slug && slug.length >= 2) slugs.add(slug.toLowerCase());
     }
 
-    // Keep -light/-dark variant slugs: search filters them out of results,
-    // but their presence is how we know an icon has a theme recolor.
+    // Keep -light/-dark recolor slugs: they are ordinary, explicitly
+    // selectable choices in the picker (never auto-applied).
     return Array.from(slugs);
-}
-
-/**
- * Picks the slug to DISPLAY for the active theme: the -light recolor on a
- * dark theme (and -dark on light) when the catalog has one. Callers store
- * the base slug's URL — rendering re-applies this preference per theme.
- * @param {string} slug - Base slug chosen from search
- * @param {string[]|null} slugs - Catalog (null → no change)
- * @param {string} theme - 'dark' | 'light'
- * @returns {string}
- */
-export function pickDisplaySlug(slug, slugs, theme) {
-    if (!Array.isArray(slugs) || (theme !== 'dark' && theme !== 'light')) return slug;
-    if (/-(light|dark)$/.test(slug)) return slug;
-    const variant = `${slug}-${theme === 'dark' ? 'light' : 'dark'}`;
-    return slugs.includes(variant) ? variant : slug;
 }
 
 /**
@@ -118,14 +102,8 @@ export function searchIndex(query, slugs, options = {}) {
     if (!q || q.length < 2 || !Array.isArray(slugs)) return [];
 
     const aliasSet = new Set(aliases);
-    const catalogSet = new Set(slugs);
     const scored = [];
     for (const slug of slugs) {
-        // Theme recolors of an existing base icon aren't separate choices —
-        // the picker applies them automatically per theme.
-        const variant = slug.match(/^(.+)-(light|dark)$/);
-        if (variant && catalogSet.has(variant[1])) continue;
-
         const s = normalizeForMatch(slug);
         let score;
         if (s === q || aliasSet.has(slug)) score = 0;
