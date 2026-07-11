@@ -1112,14 +1112,17 @@ async function loadIconsWithCaching(links) {
                     if (!iconElement) return;
 
                     try {
-                        // Load icon with CSP-compliant caching
+                        // Load icon with CSP-compliant caching. Passing the
+                        // active theme prefers selfh.st -light/-dark recolors
+                        // so monochrome logos stay visible on both themes.
                         const iconUrl = await loadIconWithCache(link, {
                             preferCustom: true,
                             allowClearbit: true,
                             allowFavicon: true,
                             allowGenerated: true,
                             timeout: 3000,
-                            respectCSP: true // Enable CSP compliance
+                            respectCSP: true, // Enable CSP compliance
+                            theme: document.body.classList.contains('light') ? 'light' : 'dark'
                         });
 
                         if (iconUrl) {

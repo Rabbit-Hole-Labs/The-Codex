@@ -94,6 +94,7 @@ javascript/
 - Use `loadIconWithCache()` for efficient loading
 - **Icon Picker** (`features/iconPicker.js`): search the selfh.st library with probe-verified previews — only icons that actually loaded can be chosen; the custom-URL path is gated on host validation plus a live image load
 - **Icon catalog index** (`features/iconIndex.js`): fetched at runtime from pinned hosts (cdn.selfh.st / jsDelivr, see CSP `connect-src`), cached in `chrome.storage.local` for a week — enables ranked substring search ("vmware" → `vmware-esxi`, …); when unreachable the picker falls back to exact-slug probe matching
+- **Theme recolors**: selfh.st ships `-light`/`-dark` recolors for monochrome logos. Rendering prefers the theme-appropriate recolor (`themedIconVariantUrl()` in `iconCache.js`, verified by probe with base fallback); the picker displays the recolor but always **stores the base URL**, so tiles adapt when the theme changes. Never apply `border-radius` to `.tile-icon` — it masks/clips logo artwork
 - **Save-time validation**: `validateIconValue()` in `iconCache.js` is the single source of truth for what may be persisted as `link.icon` (`'default'`, `data:image` URIs, or https on selfh.st/jsDelivr). `addLink`/`editLink` throw on anything else; imports coerce invalid icons to `'default'`
 
 ## Data Schemas
