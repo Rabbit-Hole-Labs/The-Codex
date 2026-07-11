@@ -13,9 +13,9 @@
 import { toIconSlug } from './iconCache.js';
 import { debug } from '../core-systems/debug.js';
 
-// v2: the index now RETAINS -light/-dark variant slugs (needed to know which
-// icons have theme recolors); the key bump forces a refetch of v1 caches.
-const CACHE_KEY = 'selfhstIconIndexV2';
+// v3: directory-style Light/Dark FIELDS are now parsed into variant slugs
+// (v2 caches were built without them); the key bump forces a refetch.
+const CACHE_KEY = 'selfhstIconIndexV3';
 const CACHE_TTL = 7 * 24 * 60 * 60 * 1000; // refresh weekly
 const FETCH_TIMEOUT = 15000;
 
@@ -62,27 +62,49 @@ export function parseIndexPayload(payload) {
     if (!entries) return [];
 
     const slugs = new Set();
+    const add = (slug) => {
+        if (slug && slug.length >= 2) slugs.add(slug.toLowerCase());
+    };
+
+    // Directory-style entries describe recolors as FIELDS on the icon entry
+    // (e.g. Light: "Yes" or Light: "github-light"), not as separate entries —
+    // surface them as their own slugs so the picker can offer them.
+    const addVariantField = (entry, base, field, suffix) => {
+        const value = entry[field] ?? entry[field.toLowerCase()];
+        if (value == null) return;
+        const text = String(value).trim().toLowerCase();
+        if (!text || text === 'no' || text === 'false' || text === '0') return;
+        if (text === 'yes' || text === 'true' || text === '1') {
+            add(`${base}-${suffix}`);
+        } else {
+            add(toIconSlug(text)); // field carries the variant's own reference
+        }
+    };
+
     for (const entry of entries) {
-        let slug = null;
         if (typeof entry === 'string') {
             const file = entry.match(/(?:^|\/)webp\/([^/]+)\.webp$/i);
-            slug = file ? file[1] : toIconSlug(entry);
+            add(file ? file[1] : toIconSlug(entry));
         } else if (entry && typeof entry === 'object') {
             if (typeof entry.name === 'string' && /\.\w+$/.test(entry.name)) {
                 // File listing entry — only count each icon once (webp set).
                 const file = entry.name.match(/(?:^|\/)webp\/([^/]+)\.webp$/i);
-                slug = file ? file[1] : null;
+                add(file ? file[1] : null);
             } else {
                 const raw = entry.Reference || entry.reference || entry.slug ||
                     entry.Name || entry.name;
-                slug = raw ? toIconSlug(String(raw)) : null;
+                const slug = raw ? toIconSlug(String(raw)) : null;
+                if (slug) {
+                    add(slug);
+                    addVariantField(entry, slug, 'Light', 'light');
+                    addVariantField(entry, slug, 'Dark', 'dark');
+                }
             }
         }
-        if (slug && slug.length >= 2) slugs.add(slug.toLowerCase());
     }
 
-    // Keep -light/-dark recolor slugs: they are ordinary, explicitly
-    // selectable choices in the picker (never auto-applied).
+    // Recolor slugs are kept: they are ordinary, explicitly selectable
+    // choices in the picker (never auto-applied).
     return Array.from(slugs);
 }
 

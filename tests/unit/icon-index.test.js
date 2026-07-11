@@ -19,6 +19,24 @@ describe('parseIndexPayload', () => {
             .toEqual(['home-assistant', 'vmware-esxi']);
     });
 
+    // Directory entries describe recolors as FIELDS (Light/Dark), not as
+    // separate entries — they must surface as their own selectable slugs.
+    it('derives -light/-dark slugs from directory Light/Dark fields', () => {
+        const payload = [
+            { Reference: 'github', Light: 'Yes', Dark: 'Yes' },
+            { Reference: 'plex', Light: 'No' },
+            { Reference: 'sonarr' }
+        ];
+        expect(parseIndexPayload(payload).sort())
+            .toEqual(['github', 'github-dark', 'github-light', 'plex', 'sonarr']);
+    });
+
+    it('accepts variant references carried directly in the Light/Dark fields', () => {
+        const payload = [{ Reference: 'github', Light: 'github-light' }];
+        expect(parseIndexPayload(payload).sort())
+            .toEqual(['github', 'github-light']);
+    });
+
     it('parses jsDelivr flat file listings and counts each icon once', () => {
         const payload = { files: [
             { name: '/webp/plex.webp' },

@@ -4,6 +4,7 @@
  */
 
 import { debug } from '../core-systems/debug.js';
+import { loadStoredIcon } from './iconStore.js';
 
 // Icon cache storage
 let iconCache = new Map();
@@ -177,6 +178,11 @@ async function loadCustomIcon(iconUrl, timeout) {
 
         // The stored value renders verbatim — nothing is ever substituted for
         // it. Users pick -light/-dark recolors explicitly in the picker.
+        // Prefer the persistent byte-store (instant + offline); fall back to
+        // a plain network probe when byte-fetching isn't possible (CORS).
+        const stored = await loadStoredIcon(trimmed, timeout);
+        if (stored.data) return stored.data;
+        if (stored.notFound) return null;
         return await testImageLoad(trimmed, timeout);
 
     } catch (error) {
@@ -257,7 +263,14 @@ async function loadSelfhstIcon(link, timeout) {
     if (!link) return null;
     const slugs = selfhstCandidateSlugs(link);
     for (const slug of slugs) {
-        const result = await testImageLoad(selfhstIconUrl(slug), timeout);
+        const url = selfhstIconUrl(slug);
+        // Byte-store first: instant + offline once seen. A definite upstream
+        // 404 skips the probe (it would just repeat the miss); indeterminate
+        // failures (CORS/offline-but-HTTP-cached) still get the probe.
+        const stored = await loadStoredIcon(url, timeout);
+        if (stored.data) return stored.data;
+        if (stored.notFound) continue;
+        const result = await testImageLoad(url, timeout);
         if (result) return result;
     }
     return null;
@@ -280,6 +293,10 @@ async function loadGoogleFaviconIcon(siteUrl, timeout) {
             return null;
         }
         const googleUrl = `https://www.google.com/s2/favicons?domain=${encodeURIComponent(url.hostname)}&sz=128`;
+        // Google's favicon service may refuse cross-origin byte-fetches; the
+        // probe fallback keeps favicons working network-only in that case.
+        const stored = await loadStoredIcon(googleUrl, timeout);
+        if (stored.data) return stored.data;
         return await testImageLoad(googleUrl, timeout);
     } catch (error) {
         console.warn('Failed to build Google favicon URL:', error);

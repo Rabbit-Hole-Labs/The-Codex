@@ -22,6 +22,9 @@ import { debug } from '../core-systems/debug.js';
 const PROBE_TIMEOUT = 4000;
 const SEARCH_DEBOUNCE = 350;
 const RESULT_LIMIT = 24;
+// Focused searches (few candidates) also probe each candidate's -light/-dark
+// recolors, capped so broad queries don't fan out into 3x the probes.
+const VARIANT_EXPAND_MAX = 8;
 const DEFAULT_CUSTOM_NOTE = 'Allowed sources: selfh.st, jsDelivr, or a data: image URI. The preview must load before the icon can be used.';
 
 // Common self-hosted app nicknames/abbreviations → selfh.st slugs the naive
@@ -241,6 +244,32 @@ function resetCustomSection() {
 }
 
 /**
+ * Appends each base candidate's -light/-dark recolor slugs so users can pick
+ * a recolor deliberately — even when the catalog index doesn't list them.
+ * Every candidate is still probe-verified, so a recolor that doesn't exist
+ * simply never appears. Skipped for broad result sets to bound probe count.
+ * Exported for tests (pure).
+ * @param {string[]} candidates - Base candidate slugs, ranked
+ * @returns {string[]} - Candidates plus their recolor slugs
+ */
+export function expandWithVariants(candidates) {
+    if (!Array.isArray(candidates) || candidates.length === 0 ||
+        candidates.length > VARIANT_EXPAND_MAX) {
+        return candidates || [];
+    }
+    const expanded = [...candidates];
+    const push = (slug) => {
+        if (!expanded.includes(slug)) expanded.push(slug);
+    };
+    for (const slug of candidates) {
+        if (/-(light|dark)$/.test(slug)) continue;
+        push(`${slug}-dark`);
+        push(`${slug}-light`);
+    }
+    return expanded;
+}
+
+/**
  * Builds the candidate slug list for a query: ranked substring matches from
  * the catalog index when it's available, otherwise the probe-only expansion
  * (exact slug + hyphenless variant + nickname aliases).
@@ -257,7 +286,7 @@ async function collectCandidates(query, extraSeeds = []) {
     for (const seed of extraSeeds) {
         if (seed && !candidates.includes(seed)) candidates.push(seed);
     }
-    return { candidates, hasIndex: !!index };
+    return { candidates: expandWithVariants(candidates), hasIndex: !!index };
 }
 
 function noResultText(hasIndex) {
