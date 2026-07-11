@@ -293,10 +293,9 @@ async function loadGoogleFaviconIcon(siteUrl, timeout) {
             return null;
         }
         const googleUrl = `https://www.google.com/s2/favicons?domain=${encodeURIComponent(url.hostname)}&sz=128`;
-        // Google's favicon service may refuse cross-origin byte-fetches; the
-        // probe fallback keeps favicons working network-only in that case.
-        const stored = await loadStoredIcon(googleUrl, timeout);
-        if (stored.data) return stored.data;
+        // Network-only (no byte-store): Google's favicon service refuses
+        // cross-origin fetches, and every attempt spams an uncatchable CORS
+        // error to the console. <img> probing is exempt from CORS.
         return await testImageLoad(googleUrl, timeout);
     } catch (error) {
         console.warn('Failed to build Google favicon URL:', error);

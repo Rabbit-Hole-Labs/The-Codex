@@ -46,7 +46,14 @@ describe('isCacheableIconUrl', () => {
     it('accepts the pinned icon hosts over https', () => {
         expect(isCacheableIconUrl('https://cdn.jsdelivr.net/gh/selfhst/icons/webp/plex.webp')).toBe(true);
         expect(isCacheableIconUrl('https://cdn.selfh.st/icons/webp/plex.webp')).toBe(true);
-        expect(isCacheableIconUrl('https://www.google.com/s2/favicons?domain=x.com&sz=128')).toBe(true);
+    });
+
+    // Regression: Google's favicon service sends no CORS headers, so every
+    // byte-fetch attempt failed AND spammed an uncatchable CORS error to the
+    // console on each new tab. Favicons must stay on the <img>-probe path.
+    it('excludes the Google favicon service (CORS-refusing host)', () => {
+        expect(isCacheableIconUrl('https://www.google.com/s2/favicons?domain=x.com&sz=128')).toBe(false);
+        expect(isCacheableIconUrl('https://t3.gstatic.com/faviconV2?url=x')).toBe(false);
     });
 
     it('rejects other hosts, schemes, and non-URLs', () => {
