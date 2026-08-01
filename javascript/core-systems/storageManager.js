@@ -39,7 +39,7 @@ export async function loadLinks() {
                 
                 // Check if links is already an object (corrupted) before trying to parse
                 if (typeof data.links === 'object' && !Array.isArray(data.links)) {
-                    debugError('STORAGE_MANAGER: Storage corruption detected: links data is an object instead of string or array', {
+                    debugWarn('STORAGE_MANAGER: Storage corruption detected: links data is an object instead of string or array', {
                         dataType: typeof data.links,
                         dataKeys: Object.keys(data.links),
                         sampleData: JSON.stringify(data.links).substring(0, 200)
@@ -56,7 +56,7 @@ export async function loadLinks() {
                                 linksCount: links.length
                             });
                         } else {
-                            debugError('STORAGE_MANAGER: Storage corruption detected: parsed links data is not an array', {
+                            debugWarn('STORAGE_MANAGER: Storage corruption detected: parsed links data is not an array', {
                                 dataType: typeof parsedLinks,
                                 dataValue: typeof parsedLinks === 'object' ? JSON.stringify(parsedLinks).substring(0, 200) : parsedLinks
                             });
@@ -77,7 +77,7 @@ export async function loadLinks() {
                         linksCount: links.length
                     });
                 } else {
-                    debugError('STORAGE_MANAGER: Storage corruption detected: links data is of unexpected type', {
+                    debugWarn('STORAGE_MANAGER: Storage corruption detected: links data is of unexpected type', {
                         dataType: typeof data.links,
                         dataValue: typeof data.links === 'object' ? JSON.stringify(data.links).substring(0, 200) : data.links
                     });
@@ -99,7 +99,7 @@ export async function loadLinks() {
         try {
             if (data.categories) {
                 if (typeof data.categories === 'object' && !Array.isArray(data.categories)) {
-                    debugError('STORAGE_MANAGER: Categories corruption - is object instead of array');
+                    debugWarn('STORAGE_MANAGER: Categories corruption - is object instead of array');
                     categories = ['Default'];
                 } else if (typeof data.categories === 'string') {
                     try {
@@ -374,7 +374,7 @@ export async function loadCategories() {
             if (data.categories) {
                 // Check if categories is already an object (corrupted) before trying to parse
                 if (typeof data.categories === 'object' && !Array.isArray(data.categories)) {
-                    debugError('Storage corruption detected: categories data is an object instead of string or array', {
+                    debugWarn('Storage corruption detected: categories data is an object instead of string or array', {
                         dataType: typeof data.categories,
                         dataKeys: Object.keys(data.categories)
                     });
@@ -386,7 +386,7 @@ export async function loadCategories() {
                         if (Array.isArray(parsedCategories)) {
                             categories = parsedCategories;
                         } else {
-                            debugError('Storage corruption detected: parsed categories data is not an array', {
+                            debugWarn('Storage corruption detected: parsed categories data is not an array', {
                                 dataType: typeof parsedCategories,
                                 dataValue: parsedCategories
                             });
@@ -404,7 +404,7 @@ export async function loadCategories() {
                     // If it's already an array, use it directly
                     categories = data.categories;
                 } else {
-                    debugError('Storage corruption detected: categories data is of unexpected type', {
+                    debugWarn('Storage corruption detected: categories data is of unexpected type', {
                         dataType: typeof data.categories,
                         dataValue: data.categories
                     });
