@@ -1,3 +1,4 @@
+import { debug, debugError } from "./debug.js";
 import * as StorageManager from './storageManager.js';
 import { sanitizeUserInput, validateLink } from '../features/securityUtils.js';
 import { validateAndSanitizeUrl } from '../features/utils.js';
@@ -93,11 +94,11 @@ export async function addLink(state, name, url, category, icon, size = 'medium')
         // Save to storage
         await StorageManager.saveLinks(state.links);
 
-        console.log('Link added:', newLink);
+        debug('Link added:', newLink);
         return newLink;
 
     } catch (error) {
-        console.error('Error adding link:', error);
+        debugError('Error adding link:', error);
         throw new Error(`Failed to add link: ${error.message}`);
     }
 }
