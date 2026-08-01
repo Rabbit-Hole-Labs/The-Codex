@@ -4,7 +4,7 @@ import errorHandler from '../features/errorHandler.js';
 import { validateAndSanitizeUrl } from '../features/utils.js';
 import { sanitizeUserInput } from '../features/securityUtils.js';
 import { validateIconValue } from '../features/iconCache.js';
-import { debug } from './debug.js';
+import { debug, debugWarn, debugError } from './debug.js';
 const { ERROR_TYPES, ERROR_SEVERITY } = errorHandler;
 
 export async function loadLinks() {
@@ -39,7 +39,7 @@ export async function loadLinks() {
                 
                 // Check if links is already an object (corrupted) before trying to parse
                 if (typeof data.links === 'object' && !Array.isArray(data.links)) {
-                    console.warn('STORAGE_MANAGER: Storage corruption detected: links data is an object instead of string or array', {
+                    debugWarn('STORAGE_MANAGER: Storage corruption detected: links data is an object instead of string or array', {
                         dataType: typeof data.links,
                         dataKeys: Object.keys(data.links),
                         sampleData: JSON.stringify(data.links).substring(0, 200)
@@ -56,14 +56,14 @@ export async function loadLinks() {
                                 linksCount: links.length
                             });
                         } else {
-                            console.warn('STORAGE_MANAGER: Storage corruption detected: parsed links data is not an array', {
+                            debugWarn('STORAGE_MANAGER: Storage corruption detected: parsed links data is not an array', {
                                 dataType: typeof parsedLinks,
                                 dataValue: typeof parsedLinks === 'object' ? JSON.stringify(parsedLinks).substring(0, 200) : parsedLinks
                             });
                             links = [];
                         }
                     } catch (parseError) {
-                        console.error('STORAGE_MANAGER: Storage corruption detected: failed to parse links JSON', {
+                        debugError('STORAGE_MANAGER: Storage corruption detected: failed to parse links JSON', {
                             errorMessage: parseError.message,
                             errorStack: parseError.stack,
                             rawData: data.links.substring(0, 100) + (data.links.length > 100 ? '...' : '')
@@ -77,7 +77,7 @@ export async function loadLinks() {
                         linksCount: links.length
                     });
                 } else {
-                    console.warn('STORAGE_MANAGER: Storage corruption detected: links data is of unexpected type', {
+                    debugWarn('STORAGE_MANAGER: Storage corruption detected: links data is of unexpected type', {
                         dataType: typeof data.links,
                         dataValue: typeof data.links === 'object' ? JSON.stringify(data.links).substring(0, 200) : data.links
                     });
@@ -87,7 +87,7 @@ export async function loadLinks() {
                 debug('STORAGE_MANAGER: No links data found in storage');
             }
         } catch (validationError) {
-            console.error('STORAGE_MANAGER: Storage validation error: unexpected error during links validation', {
+            debugError('STORAGE_MANAGER: Storage validation error: unexpected error during links validation', {
                 errorMessage: validationError.message,
                 errorStack: validationError.stack
             });
@@ -99,14 +99,14 @@ export async function loadLinks() {
         try {
             if (data.categories) {
                 if (typeof data.categories === 'object' && !Array.isArray(data.categories)) {
-                    console.warn('STORAGE_MANAGER: Categories corruption - is object instead of array');
+                    debugWarn('STORAGE_MANAGER: Categories corruption - is object instead of array');
                     categories = ['Default'];
                 } else if (typeof data.categories === 'string') {
                     try {
                         const parsedCategories = JSON.parse(data.categories);
                         categories = Array.isArray(parsedCategories) ? parsedCategories : ['Default'];
                     } catch {
-                        console.warn('STORAGE_MANAGER: Failed to parse categories JSON');
+                        debugWarn('STORAGE_MANAGER: Failed to parse categories JSON');
                         categories = ['Default'];
                     }
                 } else if (Array.isArray(data.categories)) {
@@ -118,7 +118,7 @@ export async function loadLinks() {
                 categories.unshift('Default');
             }
         } catch (catError) {
-            console.error('STORAGE_MANAGER: Categories validation error', catError);
+            debugError('STORAGE_MANAGER: Categories validation error', catError);
             categories = ['Default'];
         }
 
@@ -147,7 +147,7 @@ export async function loadLinks() {
             categories: categories
         };
     } catch (error) {
-        console.error('STORAGE_MANAGER: Storage load error: failed to load data from storage', {
+        debugError('STORAGE_MANAGER: Storage load error: failed to load data from storage', {
             errorMessage: error.message,
             errorStack: error.stack
         });
@@ -218,7 +218,7 @@ export async function saveLinks(links) {
         try {
             await chrome.storage.sync.set({ links: linksString });
         } catch (syncError) {
-            console.warn('Sync storage failed, falling back to local storage', {
+            debugWarn('Sync storage failed, falling back to local storage', {
                 errorMessage: syncError.message,
                 errorStack: syncError.stack
             });
@@ -226,7 +226,7 @@ export async function saveLinks(links) {
             // Fallback to local storage
             try {
                 await chrome.storage.local.set({ links: linksString });
-                console.info('Successfully saved to local storage as fallback');
+                debug('Successfully saved to local storage as fallback');
             } catch (localError) {
                 const storageError = new CodexError(
                     'Failed to save links to both sync and local storage',
@@ -248,7 +248,7 @@ export async function saveLinks(links) {
 
         return true;
     } catch (error) {
-        console.error('Storage save error: failed to save links data', {
+        debugError('Storage save error: failed to save links data', {
             errorMessage: error.message,
             errorStack: error.stack
         });
@@ -277,7 +277,7 @@ export async function saveSettings(settings) {
 
         // Validate that we have something to save
         if (Object.keys(dataToSave).length === 0) {
-            console.warn('Settings save warning: no valid settings to save', {
+            debugWarn('Settings save warning: no valid settings to save', {
                 receivedSettings: settings
             });
             return true; // Not an error, just nothing to save
@@ -287,14 +287,14 @@ export async function saveSettings(settings) {
         try {
             await chrome.storage.sync.set(dataToSave);
         } catch (syncError) {
-            console.warn('Sync storage failed for settings, falling back to local storage', {
+            debugWarn('Sync storage failed for settings, falling back to local storage', {
                 errorMessage: syncError.message,
                 errorStack: syncError.stack
             });
             
             try {
                 await chrome.storage.local.set(dataToSave);
-                console.info('Successfully saved settings to local storage as fallback');
+                debug('Successfully saved settings to local storage as fallback');
             } catch (localError) {
                 const storageError = new CodexError(
                     'Failed to save settings to both sync and local storage',
@@ -316,7 +316,7 @@ export async function saveSettings(settings) {
 
         return true;
     } catch (error) {
-        console.error('Storage save error: failed to save settings data', {
+        debugError('Storage save error: failed to save settings data', {
             errorMessage: error.message,
             errorStack: error.stack
         });
@@ -338,7 +338,7 @@ export async function loadSettings() {
             defaultTileSize: data.defaultTileSize || 'medium'
         };
     } catch (error) {
-        console.error('Storage load error: failed to load settings data', {
+        debugError('Storage load error: failed to load settings data', {
             errorMessage: error.message,
             errorStack: error.stack
         });
@@ -350,10 +350,10 @@ export async function clearStorage() {
     try {
         await chrome.storage.sync.clear();
         await chrome.storage.local.clear();
-        console.info('Storage cleared successfully from both sync and local storage');
+        debug('Storage cleared successfully from both sync and local storage');
         return true;
     } catch (error) {
-        console.error('Storage clear error: failed to clear storage', {
+        debugError('Storage clear error: failed to clear storage', {
             errorMessage: error.message,
             errorStack: error.stack
         });
@@ -374,7 +374,7 @@ export async function loadCategories() {
             if (data.categories) {
                 // Check if categories is already an object (corrupted) before trying to parse
                 if (typeof data.categories === 'object' && !Array.isArray(data.categories)) {
-                    console.warn('Storage corruption detected: categories data is an object instead of string or array', {
+                    debugWarn('Storage corruption detected: categories data is an object instead of string or array', {
                         dataType: typeof data.categories,
                         dataKeys: Object.keys(data.categories)
                     });
@@ -386,14 +386,14 @@ export async function loadCategories() {
                         if (Array.isArray(parsedCategories)) {
                             categories = parsedCategories;
                         } else {
-                            console.warn('Storage corruption detected: parsed categories data is not an array', {
+                            debugWarn('Storage corruption detected: parsed categories data is not an array', {
                                 dataType: typeof parsedCategories,
                                 dataValue: parsedCategories
                             });
                             categories = ['Default'];
                         }
                     } catch (parseError) {
-                        console.error('Storage corruption detected: failed to parse categories JSON', {
+                        debugError('Storage corruption detected: failed to parse categories JSON', {
                             errorMessage: parseError.message,
                             errorStack: parseError.stack,
                             rawData: data.categories.substring(0, 100) + (data.categories.length > 100 ? '...' : '')
@@ -404,7 +404,7 @@ export async function loadCategories() {
                     // If it's already an array, use it directly
                     categories = data.categories;
                 } else {
-                    console.warn('Storage corruption detected: categories data is of unexpected type', {
+                    debugWarn('Storage corruption detected: categories data is of unexpected type', {
                         dataType: typeof data.categories,
                         dataValue: data.categories
                     });
@@ -412,7 +412,7 @@ export async function loadCategories() {
                 }
             }
         } catch (validationError) {
-            console.error('Storage validation error: unexpected error during categories validation', {
+            debugError('Storage validation error: unexpected error during categories validation', {
                 errorMessage: validationError.message,
                 errorStack: validationError.stack
             });
@@ -426,7 +426,7 @@ export async function loadCategories() {
 
         return categories;
     } catch (error) {
-        console.error('Storage load error: failed to load categories from storage', {
+        debugError('Storage load error: failed to load categories from storage', {
             errorMessage: error.message,
             errorStack: error.stack
         });
@@ -497,7 +497,7 @@ export async function saveCategories(categories) {
         try {
             await chrome.storage.sync.set({ categories: categoriesString });
         } catch (syncError) {
-            console.warn('Sync storage failed, falling back to local storage', {
+            debugWarn('Sync storage failed, falling back to local storage', {
                 errorMessage: syncError.message,
                 errorStack: syncError.stack
             });
@@ -505,7 +505,7 @@ export async function saveCategories(categories) {
             // Fallback to local storage
             try {
                 await chrome.storage.local.set({ categories: categoriesString });
-                console.info('Successfully saved to local storage as fallback');
+                debug('Successfully saved to local storage as fallback');
             } catch (localError) {
                 const storageError = new CodexError(
                     'Failed to save categories to both sync and local storage',
@@ -527,7 +527,7 @@ export async function saveCategories(categories) {
 
         return categories;
     } catch (error) {
-        console.error('Storage save error: failed to save categories data', {
+        debugError('Storage save error: failed to save categories data', {
             errorMessage: error.message,
             errorStack: error.stack
         });
@@ -552,7 +552,7 @@ export async function loadState(initialState = {}) {
             filteredLinks: linksData.links || []
         };
     } catch (error) {
-        console.error('Storage load error: failed to load complete state', {
+        debugError('Storage load error: failed to load complete state', {
             errorMessage: error.message,
             errorStack: error.stack
         });
@@ -594,10 +594,10 @@ export async function exportLinks(state) {
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
         
-        console.log('Links exported successfully');
+        debug('Links exported successfully');
         return true;
     } catch (error) {
-        console.error('Export error: failed to export links', {
+        debugError('Export error: failed to export links', {
             errorMessage: error.message,
             errorStack: error.stack
         });
@@ -704,10 +704,10 @@ export async function importLinks(state, file) {
             defaultTileSize: state.defaultTileSize
         });
 
-        console.log('Links imported successfully');
+        debug('Links imported successfully');
         return true;
     } catch (error) {
-        console.error('Import error: failed to import links', {
+        debugError('Import error: failed to import links', {
             errorMessage: error.message,
             errorStack: error.stack
         });
@@ -763,10 +763,10 @@ export async function importBookmarks(state) {
         await saveLinks(state.links);
         await saveCategories(state.categories);
 
-        console.log(`Imported ${newLinks.length} bookmarks`);
+        debug(`Imported ${newLinks.length} bookmarks`);
         return true;
     } catch (error) {
-        console.error('Import bookmarks error: failed to import bookmarks', {
+        debugError('Import bookmarks error: failed to import bookmarks', {
             errorMessage: error.message,
             errorStack: error.stack
         });
