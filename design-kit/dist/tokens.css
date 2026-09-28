@@ -1,0 +1,174 @@
+/*
+ * The Codex — Design Tokens
+ *
+ * Mirrors the extension's shared foundation (stylesheets/base.css): flat,
+ * calm, dark/light only. Opaque surfaces, thin borders, one muted accent.
+ * No glass, gradients, glow, or hover-lift — flattening a token flattens
+ * every surface at once.
+ *
+ * Tokens are scoped to `.codex-root` (applied by ThemeProvider) so importing
+ * the stylesheet never restyles the host page.
+ */
+
+/* ---- Dark theme tokens (default) ---- */
+.codex-root,
+.codex-root.dark {
+  --background-color: #0f0f1a;
+  --surface-color: #17172a;
+  --surface-elevated: #20203a;
+  --surface-hover: #2a2a48;
+
+  /* Accent (overridden by the [data-accent] presets below) */
+  --primary-color: #7480b3;
+  --primary-hover: #8b96c4;
+  --primary-light: rgba(116, 128, 179, 0.18);
+
+  /* Filled accent controls (primary buttons). Dark accents are light, so the
+     label is dark; every preset + hover clears WCAG AA 4.5:1 at 13px. */
+  --primary-fill: var(--primary-color);
+  --primary-fill-hover: var(--primary-hover);
+  --on-primary: #0f0f1a;
+
+  --secondary-color: #6b8fb0;
+  --secondary-hover: #7ea0be;
+  --secondary-light: rgba(107, 143, 176, 0.2);
+  --accent-color: #b0708a;
+  --accent-hover: #c0839c;
+  --accent-light: rgba(176, 112, 138, 0.2);
+
+  --on-background: #ffffff;
+  --on-surface: #f1f5f9;
+  --on-surface-variant: #94a3b8;
+  --on-surface-muted: #64748b;
+
+  --border-color: #2c2c46;
+  --border-hover: #3d3d5c;
+  --outline-color: var(--primary-color);
+
+  --tile-background: #17172a;
+  --tile-hover-background: #22223c;
+  --category-background: transparent;
+
+  --danger-color: #f43f5e;
+  --danger-hover: #e11d48;
+  /* Danger label on a neutral surface (--error-color is only ~4.3:1). */
+  --danger-text: #fb7185;
+  --error-color: #f43f5e;
+  --error-hover: #e11d48;
+  --success-color: #10b981;
+  --success-hover: #059669;
+  --warning-color: #f59e0b;
+  --warning-hover: #d97706;
+  --info-color: #06b6d4;
+  --info-hover: #0891b2;
+
+  /* Typography — Inter throughout; "display" is a heavier Inter. */
+  --font-family-display: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-family-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-size-xs: 0.75rem;
+  --font-size-sm: 0.875rem;
+  --font-size-base: 1rem;
+  --font-size-lg: 1.125rem;
+  --font-size-xl: 1.375rem;
+  --font-size-2xl: 1.75rem;
+  --font-size-3xl: 2.25rem;
+  --font-size-4xl: 3rem;
+  --font-weight-normal: 400;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+  --font-weight-bold: 700;
+
+  --radius-sm: 0.5rem;
+  --radius-md: 0.75rem;
+  --radius-lg: 1rem;
+  --radius-xl: 1.5rem;
+  --radius-2xl: 2rem;
+  --radius-full: 9999px;
+  /* Shared control radius so every button/field matches */
+  --radius-control: 8px;
+
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.25rem;
+  --space-6: 1.5rem;
+  --space-8: 2rem;
+  --space-10: 2.5rem;
+  --space-12: 3rem;
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 2px 6px rgba(0, 0, 0, 0.35);
+  --shadow-lg: 0 4px 14px rgba(0, 0, 0, 0.4);
+  --shadow-xl: 0 8px 24px rgba(0, 0, 0, 0.45);
+
+  /* Mirrors stylesheets/base.css (the runtime source of truth). */
+  --content-max: 1600px;
+}
+
+/* ---- Light theme tokens (soft, calm — no stark pure-white) ---- */
+.codex-root.light {
+  --background-color: #eceef2;
+  --surface-color: #f8f9fb;
+  --surface-elevated: #f1f3f7;
+  --surface-hover: #e7eaf0;
+
+  --primary-color: #5561a0;
+  --primary-hover: #46528c;
+  --primary-light: rgba(85, 97, 160, 0.12);
+
+  /* Light accents are dark, so the label is white (see dark tokens). */
+  --on-primary: #ffffff;
+
+  --secondary-color: #4a7a97;
+  --secondary-hover: #3d6883;
+  --secondary-light: rgba(74, 122, 151, 0.14);
+  --accent-color: #a35f77;
+  --accent-hover: #8c4f65;
+  --accent-light: rgba(163, 95, 119, 0.14);
+
+  --on-background: #1c2230;
+  --on-surface: #2a3242;
+  --on-surface-variant: #5b6675;
+  --on-surface-muted: #97a1b0;
+
+  --border-color: #dde0e7;
+  --border-hover: #c6cad4;
+
+  --tile-background: #f8f9fb;
+  --tile-hover-background: #eef0f4;
+  --category-background: transparent;
+
+  --error-color: #dc2626;
+  --error-hover: #b91c1c;
+  --danger-text: #b91c1c;
+  --danger-color: #dc2626;
+  --danger-hover: #b91c1c;
+  --success-color: #16a34a;
+  --success-hover: #15803d;
+  --warning-color: #d97706;
+  --warning-hover: #b45309;
+  --info-color: #0891b2;
+  --info-hover: #0e7490;
+
+  --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.06);
+  --shadow-md: 0 2px 6px rgba(15, 23, 42, 0.08);
+  --shadow-lg: 0 4px 14px rgba(15, 23, 42, 0.1);
+  --shadow-xl: 0 8px 24px rgba(15, 23, 42, 0.12);
+}
+
+/*
+ * Accent presets — recolor ONLY the single accent so the look stays calm.
+ * Applied via ThemeProvider's `accent` prop (data-accent attribute).
+ * Slate is the default (no attribute).
+ */
+.codex-root.dark[data-accent="blue"]    { --primary-color:#5b8cc4; --primary-hover:#74a3d8; --primary-light:rgba(91,140,196,.18); }
+.codex-root.light[data-accent="blue"]   { --primary-color:#3c6fa8; --primary-hover:#305d90; --primary-light:rgba(60,111,168,.12); }
+.codex-root.dark[data-accent="teal"]    { --primary-color:#4f9d94; --primary-hover:#66b3aa; --primary-light:rgba(79,157,148,.18); }
+.codex-root.light[data-accent="teal"]   { --primary-color:#2f8078; --primary-hover:#266861; --primary-light:rgba(47,128,120,.12); }
+.codex-root.dark[data-accent="violet"]  { --primary-color:#8b7cc8; --primary-hover:#a394d8; --primary-light:rgba(139,124,200,.18); }
+.codex-root.light[data-accent="violet"] { --primary-color:#6f5cc0; --primary-hover:#5c4aa6; --primary-light:rgba(111,92,192,.12); }
+.codex-root.dark[data-accent="amber"]   { --primary-color:#c19a5e; --primary-hover:#d4ad70; --primary-light:rgba(193,154,94,.18); }
+.codex-root.light[data-accent="amber"]  { --primary-color:#a67c3a; --primary-hover:#8c672e; --primary-light:rgba(166,124,58,.12);
+  /* #a67c3a is only 3.8:1 against white; fill buttons one step darker. */
+  --primary-fill:#8c672e; --primary-fill-hover:#765626; }

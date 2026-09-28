@@ -1,0 +1,8 @@
+{
+  "pkg": "@codex/design-kit",
+  "globalName": "CodexDesignKit",
+  "shape": "package",
+  "buildCmd": "npm --prefix design-kit run build",
+  "cssEntry": "design-kit/dist/styles.css",
+  "tokensGlob": "design-kit/dist/tokens.css"
+}

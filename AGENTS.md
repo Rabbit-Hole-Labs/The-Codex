@@ -1,13 +1,13 @@
-# CLAUDE.md
+# AGENTS.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance to Codex (Codex.ai/code) when working with code in this repository.
 
 ## Project Overview
 
 The Codex is a Chrome Extension (Manifest V3) that transforms the new tab page into a customizable dashboard with drag-and-drop tile management, advanced sync capabilities, and intelligent icon loading.
 
 > Conventions, patterns, code style, and security guidance live in [documentation/AGENTS.md](documentation/AGENTS.md).
-> Subfolder-specific guidance (plans, impl notes, kits, designs, refs) lives in [context/CLAUDE.md](context/CLAUDE.md).
+> Subfolder-specific guidance (plans, impl notes, kits, designs, refs) lives in [context/AGENTS.md](context/AGENTS.md).
 
 ## Development Commands
 
