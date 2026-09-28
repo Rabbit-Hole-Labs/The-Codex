@@ -1,10 +1,10 @@
 import * as React from 'react';
-import type { BaseTheme, ColorTheme } from './types';
+import type { Accent, BaseTheme } from './types.js';
 export interface ThemeProviderProps {
     /** Base light/dark mode. Defaults to `dark`. */
     theme?: BaseTheme;
-    /** Color theme layered on the base palette. Defaults to `default`. */
-    colorTheme?: ColorTheme;
+    /** Accent preset. Defaults to `slate`. */
+    accent?: Accent;
     /** Content styled by the Codex design tokens. */
     children?: React.ReactNode;
     /** Extra class names appended to the root wrapper. */
@@ -15,9 +15,9 @@ export interface ThemeProviderProps {
 /**
  * Root wrapper that establishes the Codex design tokens on its subtree.
  *
- * Every other Codex component must render inside a `ThemeProvider` — the base
- * (`dark`/`light`) and color-theme classes it applies are what define the
- * CSS custom properties (`--primary-color`, gradients, glow, glass) the
- * components read. Without it, components fall back to unstyled defaults.
+ * Every other Codex component must render inside a `ThemeProvider` — the
+ * `.codex-root` wrapper and its base (`dark`/`light`) class define the CSS
+ * custom properties the components read, and all component selectors are
+ * scoped beneath it. Without it, components render unstyled.
  */
-export declare function ThemeProvider({ theme, colorTheme, children, className, style, }: ThemeProviderProps): React.JSX.Element;
+export declare function ThemeProvider({ theme, accent, children, className, style, }: ThemeProviderProps): React.JSX.Element;

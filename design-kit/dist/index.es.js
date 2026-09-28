@@ -2,39 +2,77 @@
 import { jsx } from "react/jsx-runtime";
 function ThemeProvider({
   theme = "dark",
-  colorTheme = "default",
+  accent = "slate",
   children,
   className,
   style
 }) {
   const classes = ["codex-root", theme];
-  if (colorTheme && colorTheme !== "default") classes.push(colorTheme);
   if (className) classes.push(className);
-  return /* @__PURE__ */ jsx("div", { className: classes.join(" "), style, children });
+  return /* @__PURE__ */ jsx(
+    "div",
+    {
+      className: classes.join(" "),
+      "data-accent": accent !== "slate" ? accent : void 0,
+      style,
+      children
+    }
+  );
 }
 
 // src/LinkTile.tsx
+import * as React from "react";
 import { jsx as jsx2, jsxs } from "react/jsx-runtime";
+function safeHttpUrl(url) {
+  if (!url) return null;
+  try {
+    const parsed = new URL(url.trim());
+    return parsed.protocol === "http:" || parsed.protocol === "https:" ? parsed.href : null;
+  } catch {
+    return null;
+  }
+}
 function LinkTile({
   name,
   url,
   iconUrl,
   size = "medium",
-  hasBackgroundIcon = false,
   className,
   onClick
 }) {
+  const [iconFailed, setIconFailed] = React.useState(false);
+  React.useEffect(() => setIconFailed(false), [iconUrl]);
   const classes = ["link-tile", `size-${size}`];
-  if (hasBackgroundIcon) classes.push("has-background-icon");
   if (className) classes.push(className);
   const content = /* @__PURE__ */ jsxs("span", { className: "tile-content", children: [
-    iconUrl ? /* @__PURE__ */ jsx2("img", { className: "tile-icon", src: iconUrl, alt: "" }) : /* @__PURE__ */ jsx2("span", { className: "tile-placeholder", "aria-hidden": "true", children: name.charAt(0).toUpperCase() }),
+    iconUrl && !iconFailed ? /* @__PURE__ */ jsx2(
+      "img",
+      {
+        className: "tile-icon",
+        src: iconUrl,
+        alt: "",
+        loading: "lazy",
+        decoding: "async",
+        onError: () => setIconFailed(true)
+      }
+    ) : /* @__PURE__ */ jsx2("span", { className: "tile-placeholder", "aria-hidden": "true", children: name.charAt(0).toUpperCase() }),
     /* @__PURE__ */ jsx2("h3", { children: name })
   ] });
-  if (url) {
-    return /* @__PURE__ */ jsx2("a", { className: classes.join(" "), href: url, onClick, children: content });
+  const href = safeHttpUrl(url);
+  if (href) {
+    return /* @__PURE__ */ jsx2(
+      "a",
+      {
+        className: classes.join(" "),
+        href,
+        target: "_blank",
+        rel: "noopener noreferrer",
+        onClick,
+        children: content
+      }
+    );
   }
-  return /* @__PURE__ */ jsx2("div", { className: classes.join(" "), role: "button", tabIndex: 0, onClick, children: content });
+  return /* @__PURE__ */ jsx2("button", { type: "button", className: classes.join(" "), onClick, children: content });
 }
 
 // src/CategorySection.tsx
@@ -109,7 +147,7 @@ function Button({
   ...rest
 }) {
   const classes = ["codex-button"];
-  if (variant === "glass") classes.push("glass");
+  if (variant !== "secondary") classes.push(variant);
   if (className) classes.push(className);
   return /* @__PURE__ */ jsx5("button", { type, className: classes.join(" "), ...rest, children });
 }
@@ -118,5 +156,6 @@ export {
   CategorySection,
   LinkTile,
   SearchBar,
-  ThemeProvider
+  ThemeProvider,
+  safeHttpUrl
 };

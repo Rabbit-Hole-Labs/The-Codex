@@ -3,20 +3,21 @@ import * as React from 'react';
 export interface ButtonProps
   extends React.ButtonHTMLAttributes<HTMLButtonElement> {
   /**
-   * Visual style. `primary` (default) is the gradient pill with a sheen sweep;
-   * `glass` is the compact glassmorphic control used for icon buttons.
+   * Visual style. `primary` (default) fills with the accent; `secondary` is
+   * the neutral flat control used for icon buttons; `danger` reads as
+   * destructive.
    */
-  variant?: 'primary' | 'glass';
+  variant?: 'primary' | 'secondary' | 'danger';
   /** Button contents (label and/or icon). */
   children?: React.ReactNode;
 }
 
 /**
- * The Codex action button.
+ * The Codex action button: one flat shape everywhere, recolored by variant.
  *
- * `primary` renders the gradient pill with an animated sheen and glow — used
- * for the main call to action. `glass` renders the compact frosted control the
- * dashboard uses for icon-only actions (settings, theme, view toggles).
+ * `primary` is the main call to action; `secondary` is the neutral control
+ * the dashboard uses for icon-only actions (settings, theme, view toggles);
+ * `danger` is for destructive actions.
  */
 export function Button({
   variant = 'primary',
@@ -26,7 +27,7 @@ export function Button({
   ...rest
 }: ButtonProps): React.JSX.Element {
   const classes = ['codex-button'];
-  if (variant === 'glass') classes.push('glass');
+  if (variant !== 'secondary') classes.push(variant);
   if (className) classes.push(className);
   return (
     <button type={type} className={classes.join(' ')} {...rest}>

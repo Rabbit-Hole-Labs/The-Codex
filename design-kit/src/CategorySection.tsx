@@ -1,7 +1,7 @@
 import * as React from 'react';
 
 export interface CategorySectionProps {
-  /** Category heading, rendered with the gradient title treatment. */
+  /** Category heading, rendered with the accent-underlined heading. */
   title: string;
   /** `LinkTile` elements laid out in the grid. */
   children?: React.ReactNode;
@@ -15,11 +15,11 @@ export interface CategorySectionProps {
 }
 
 /**
- * A titled, glassmorphic container that groups related `LinkTile`s.
+ * A titled, flat section that groups related `LinkTile`s.
  *
- * Shows a gradient category heading with a pulsing accent bar, then lays its
- * children out in the responsive links grid (or a single-column list). Hover
- * lifts the whole card with an accent glow.
+ * Shows the category heading (accent bar + accent-tinted underline), then
+ * lays its children out in the responsive links grid (or a single-column
+ * list). Multi-column tile sizes collapse when the section is too narrow.
  */
 export function CategorySection({
   title,

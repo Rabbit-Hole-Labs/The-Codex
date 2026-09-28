@@ -2,29 +2,10 @@
 export type BaseTheme = 'dark' | 'light';
 
 /**
- * Codex color theme. Layers on top of the base theme to recolor the primary
- * accent, gradients, and glow. `default` keeps the base palette.
+ * Accent preset. Recolors only the single muted accent (`--primary-*`);
+ * `slate` is the default palette.
  */
-export type ColorTheme =
-  | 'default'
-  | 'ocean'
-  | 'cosmic'
-  | 'sunset'
-  | 'forest'
-  | 'fire'
-  | 'aurora'
-  | 'theme-purple'
-  | 'theme-pink'
-  | 'theme-green'
-  | 'theme-orange'
-  | 'theme-teal'
-  | 'theme-cyber'
-  | 'theme-focus'
-  | 'theme-dark-orange'
-  | 'theme-dark-purple'
-  | 'theme-dark-emerald'
-  | 'theme-dark-crimson'
-  | 'theme-dark-sapphire';
+export type Accent = 'slate' | 'blue' | 'teal' | 'violet' | 'amber';
 
 /** Tile footprint. Sizes map to fixed heights and grid spans. */
 export type TileSize =

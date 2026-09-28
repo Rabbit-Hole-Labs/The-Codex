@@ -1,72 +1,62 @@
 /*
  * The Codex — Design Tokens
  *
- * Ported verbatim from the Codex extension's stylesheets/styles.css, rescoped
- * from `body`/`:root` onto the `.codex-root` wrapper (rendered by ThemeProvider)
- * so the token system works inside a component tree rather than only on <body>.
+ * Mirrors the extension's shared foundation (stylesheets/base.css): flat,
+ * calm, dark/light only. Opaque surfaces, thin borders, one muted accent.
+ * No glass, gradients, glow, or hover-lift — flattening a token flattens
+ * every surface at once.
  *
- * Base = dark. `.codex-root.light` applies the light overrides. Color themes
- * layer on top as `.codex-root.dark.<theme>` / `.codex-root.light.<theme>`.
+ * Tokens are scoped to `.codex-root` (applied by ThemeProvider) so importing
+ * the stylesheet never restyles the host page.
  */
 
-.codex-root {
-  /* Vibrant Gradient Base */
+/* ---- Dark theme tokens (default) ---- */
+.codex-root,
+.codex-root.dark {
   --background-color: #0f0f1a;
-  --surface-color: rgba(255, 255, 255, 0.03);
-  --surface-elevated: rgba(255, 255, 255, 0.06);
-  --surface-hover: rgba(255, 255, 255, 0.08);
+  --surface-color: #17172a;
+  --surface-elevated: #20203a;
+  --surface-hover: #2a2a48;
 
-  /* Bold Accent Colors */
-  --primary-color: #8b5cf6;
-  --primary-hover: #a78bfa;
-  --primary-light: rgba(139, 92, 246, 0.2);
-  --secondary-color: #06b6d4;
-  --secondary-hover: #22d3ee;
-  --accent-color: #f43f5e;
-  --accent-hover: #fb7185;
+  /* Accent (overridden by the [data-accent] presets below) */
+  --primary-color: #7480b3;
+  --primary-hover: #8b96c4;
+  --primary-light: rgba(116, 128, 179, 0.18);
 
-  /* Text Colors */
+  --secondary-color: #6b8fb0;
+  --secondary-hover: #7ea0be;
+  --secondary-light: rgba(107, 143, 176, 0.2);
+  --accent-color: #b0708a;
+  --accent-hover: #c0839c;
+  --accent-light: rgba(176, 112, 138, 0.2);
+
   --on-background: #ffffff;
   --on-surface: #f1f5f9;
   --on-surface-variant: #94a3b8;
   --on-surface-muted: #64748b;
 
-  /* Borders with glow */
-  --border-color: rgba(255, 255, 255, 0.1);
-  --border-hover: rgba(255, 255, 255, 0.2);
+  --border-color: #2c2c46;
+  --border-hover: #3d3d5c;
+  --outline-color: var(--primary-color);
 
-  /* Tile Backgrounds with glass effect */
-  --tile-background: rgba(255, 255, 255, 0.04);
-  --tile-hover-background: rgba(255, 255, 255, 0.08);
-  --category-background: rgba(255, 255, 255, 0.02);
+  --tile-background: #17172a;
+  --tile-hover-background: #22223c;
+  --category-background: transparent;
 
-  /* Semantic Colors */
   --danger-color: #f43f5e;
   --danger-hover: #e11d48;
+  --error-color: #f43f5e;
+  --error-hover: #e11d48;
   --success-color: #10b981;
   --success-hover: #059669;
   --warning-color: #f59e0b;
   --warning-hover: #d97706;
   --info-color: #06b6d4;
+  --info-hover: #0891b2;
 
-  /* Bold Gradients */
-  --gradient-primary: linear-gradient(135deg, #8b5cf6 0%, #06b6d4 100%);
-  --gradient-accent: linear-gradient(135deg, #f43f5e 0%, #fb923c 100%);
-  --gradient-hero: linear-gradient(135deg, #8b5cf6 0%, #ec4899 50%, #f43f5e 100%);
-  --gradient-card: linear-gradient(135deg, rgba(139, 92, 246, 0.1) 0%, rgba(6, 182, 212, 0.1) 100%);
-  --gradient-glow: radial-gradient(ellipse at center, rgba(139, 92, 246, 0.3) 0%, transparent 70%);
-
-  /* Background Gradient Colors */
-  --bg-gradient-1: rgba(139, 92, 246, 0.12);
-  --bg-gradient-2: rgba(6, 182, 212, 0.12);
-  --bg-gradient-3: rgba(244, 63, 94, 0.08);
-
-  /* Title Glow Color */
-  --title-glow-color: rgba(139, 92, 246, 0.3);
-
-  /* Typography — Creative Mix */
-  --font-family-display: 'Space Grotesk', sans-serif;
-  --font-family-sans: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  /* Typography — Inter throughout; "display" is a heavier Inter. */
+  --font-family-display: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-family-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   --font-size-xs: 0.75rem;
   --font-size-sm: 0.875rem;
   --font-size-base: 1rem;
@@ -80,15 +70,15 @@
   --font-weight-semibold: 600;
   --font-weight-bold: 700;
 
-  /* Rounded Borders */
   --radius-sm: 0.5rem;
   --radius-md: 0.75rem;
   --radius-lg: 1rem;
   --radius-xl: 1.5rem;
   --radius-2xl: 2rem;
   --radius-full: 9999px;
+  /* Shared control radius so every button/field matches */
+  --radius-control: 8px;
 
-  /* Spacing */
   --space-1: 0.25rem;
   --space-2: 0.5rem;
   --space-3: 0.75rem;
@@ -99,485 +89,71 @@
   --space-10: 2.5rem;
   --space-12: 3rem;
 
-  /* Dramatic Shadows with Glow */
-  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.3);
-  --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.4);
-  --shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.5);
-  --shadow-xl: 0 16px 64px rgba(0, 0, 0, 0.6);
-  --shadow-glow-primary: 0 0 40px rgba(139, 92, 246, 0.4);
-  --shadow-glow-accent: 0 0 40px rgba(244, 63, 94, 0.4);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 2px 6px rgba(0, 0, 0, 0.35);
+  --shadow-lg: 0 4px 14px rgba(0, 0, 0, 0.4);
+  --shadow-xl: 0 8px 24px rgba(0, 0, 0, 0.45);
 
-  /* Glassmorphism */
-  --glass-blur: blur(20px);
-  --glass-bg: rgba(255, 255, 255, 0.05);
-  --glass-border: rgba(255, 255, 255, 0.1);
+  --content-max: 1080px;
 }
 
-/* Light Mode — Still Bold */
+/* ---- Light theme tokens (soft, calm — no stark pure-white) ---- */
 .codex-root.light {
-  --background-color: #f8fafc;
-  --surface-color: rgba(255, 255, 255, 0.8);
-  --surface-elevated: rgba(255, 255, 255, 0.9);
-  --surface-hover: rgba(255, 255, 255, 0.95);
+  --background-color: #eceef2;
+  --surface-color: #f8f9fb;
+  --surface-elevated: #f1f3f7;
+  --surface-hover: #e7eaf0;
 
-  --primary-color: #7c3aed;
-  --primary-hover: #6d28d9;
-  --primary-light: rgba(124, 58, 237, 0.1);
+  --primary-color: #5561a0;
+  --primary-hover: #46528c;
+  --primary-light: rgba(85, 97, 160, 0.12);
 
-  --on-background: #0f172a;
-  --on-surface: #1e293b;
-  --on-surface-variant: #475569;
-  --on-surface-muted: #94a3b8;
+  --secondary-color: #4a7a97;
+  --secondary-hover: #3d6883;
+  --secondary-light: rgba(74, 122, 151, 0.14);
+  --accent-color: #a35f77;
+  --accent-hover: #8c4f65;
+  --accent-light: rgba(163, 95, 119, 0.14);
 
-  --border-color: rgba(0, 0, 0, 0.1);
-  --border-hover: rgba(0, 0, 0, 0.2);
+  --on-background: #1c2230;
+  --on-surface: #2a3242;
+  --on-surface-variant: #5b6675;
+  --on-surface-muted: #97a1b0;
 
-  --tile-background: rgba(255, 255, 255, 0.7);
-  --tile-hover-background: rgba(255, 255, 255, 0.9);
-  --category-background: rgba(255, 255, 255, 0.5);
+  --border-color: #dde0e7;
+  --border-hover: #c6cad4;
 
-  --glass-bg: rgba(255, 255, 255, 0.7);
-  --glass-border: rgba(255, 255, 255, 0.5);
+  --tile-background: #f8f9fb;
+  --tile-hover-background: #eef0f4;
+  --category-background: transparent;
 
-  --shadow-glow-primary: 0 0 40px rgba(124, 58, 237, 0.2);
-  --shadow-glow-accent: 0 0 40px rgba(244, 63, 94, 0.2);
+  --error-color: #dc2626;
+  --error-hover: #b91c1c;
+  --danger-color: #dc2626;
+  --danger-hover: #b91c1c;
+  --success-color: #16a34a;
+  --success-hover: #15803d;
+  --warning-color: #d97706;
+  --warning-hover: #b45309;
+  --info-color: #0891b2;
+  --info-hover: #0e7490;
 
-  --bg-gradient-1: rgba(139, 92, 246, 0.08);
-  --bg-gradient-2: rgba(6, 182, 212, 0.08);
-  --bg-gradient-3: rgba(244, 63, 94, 0.05);
-
-  --title-glow-color: rgba(124, 58, 237, 0.2);
-}
-
-/* ── Color Theme Variants (split for proper light mode) ── */
-
-/* Ocean */
-.codex-root.dark.ocean {
-  --primary-color: #06b6d4;
-  --primary-hover: #0891b2;
-  --gradient-primary: linear-gradient(135deg, #06b6d4 0%, #10b981 100%);
-  --gradient-hero: linear-gradient(135deg, #06b6d4 0%, #10b981 50%, #22c55e 100%);
-  --shadow-glow-primary: 0 0 40px rgba(6, 182, 212, 0.4);
-  --bg-gradient-1: rgba(6, 182, 212, 0.12);
-  --bg-gradient-2: rgba(16, 185, 129, 0.12);
-  --bg-gradient-3: rgba(34, 197, 94, 0.08);
-  --title-glow-color: rgba(6, 182, 212, 0.3);
-}
-.codex-root.light.ocean {
-  --primary-color: #06b6d4;
-  --primary-hover: #0891b2;
-  --gradient-primary: linear-gradient(135deg, #06b6d4 0%, #10b981 100%);
-  --gradient-hero: linear-gradient(135deg, #06b6d4 0%, #10b981 50%, #22c55e 100%);
-  --bg-gradient-1: rgba(6, 182, 212, 0.06);
-  --bg-gradient-2: rgba(16, 185, 129, 0.06);
-  --bg-gradient-3: rgba(34, 197, 94, 0.04);
-  --title-glow-color: rgba(6, 182, 212, 0.3);
+  --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.06);
+  --shadow-md: 0 2px 6px rgba(15, 23, 42, 0.08);
+  --shadow-lg: 0 4px 14px rgba(15, 23, 42, 0.1);
+  --shadow-xl: 0 8px 24px rgba(15, 23, 42, 0.12);
 }
 
-/* Cosmic */
-.codex-root.dark.cosmic {
-  --primary-color: #8b5cf6;
-  --primary-hover: #7c3aed;
-  --gradient-primary: linear-gradient(135deg, #8b5cf6 0%, #06b6d4 100%);
-  --gradient-hero: linear-gradient(135deg, #8b5cf6 0%, #a855f7 50%, #06b6d4 100%);
-  --shadow-glow-primary: 0 0 40px rgba(139, 92, 246, 0.4);
-  --bg-gradient-1: rgba(139, 92, 246, 0.12);
-  --bg-gradient-2: rgba(6, 182, 212, 0.12);
-  --bg-gradient-3: rgba(168, 85, 247, 0.08);
-  --title-glow-color: rgba(139, 92, 246, 0.3);
-}
-.codex-root.light.cosmic {
-  --primary-color: #8b5cf6;
-  --primary-hover: #7c3aed;
-  --gradient-primary: linear-gradient(135deg, #8b5cf6 0%, #06b6d4 100%);
-  --gradient-hero: linear-gradient(135deg, #8b5cf6 0%, #a855f7 50%, #06b6d4 100%);
-  --bg-gradient-1: rgba(139, 92, 246, 0.06);
-  --bg-gradient-2: rgba(6, 182, 212, 0.06);
-  --bg-gradient-3: rgba(168, 85, 247, 0.04);
-  --title-glow-color: rgba(139, 92, 246, 0.3);
-}
-
-/* Sunset */
-.codex-root.dark.sunset {
-  --primary-color: #f97316;
-  --primary-hover: #ea580c;
-  --gradient-primary: linear-gradient(135deg, #f97316 0%, #ef4444 100%);
-  --gradient-hero: linear-gradient(135deg, #f97316 0%, #f43f5e 50%, #ef4444 100%);
-  --shadow-glow-primary: 0 0 40px rgba(249, 115, 22, 0.4);
-  --bg-gradient-1: rgba(249, 115, 22, 0.12);
-  --bg-gradient-2: rgba(239, 68, 68, 0.12);
-  --bg-gradient-3: rgba(244, 63, 94, 0.08);
-  --title-glow-color: rgba(249, 115, 22, 0.3);
-}
-.codex-root.light.sunset {
-  --primary-color: #f97316;
-  --primary-hover: #ea580c;
-  --gradient-primary: linear-gradient(135deg, #f97316 0%, #ef4444 100%);
-  --gradient-hero: linear-gradient(135deg, #f97316 0%, #f43f5e 50%, #ef4444 100%);
-  --bg-gradient-1: rgba(249, 115, 22, 0.06);
-  --bg-gradient-2: rgba(239, 68, 68, 0.06);
-  --bg-gradient-3: rgba(244, 63, 94, 0.04);
-  --title-glow-color: rgba(249, 115, 22, 0.3);
-}
-
-/* Forest */
-.codex-root.dark.forest {
-  --primary-color: #10b981;
-  --primary-hover: #059669;
-  --gradient-primary: linear-gradient(135deg, #10b981 0%, #22c55e 100%);
-  --gradient-hero: linear-gradient(135deg, #10b981 0%, #22c55e 50%, #14b8a6 100%);
-  --shadow-glow-primary: 0 0 40px rgba(16, 185, 129, 0.4);
-  --bg-gradient-1: rgba(16, 185, 129, 0.12);
-  --bg-gradient-2: rgba(34, 197, 94, 0.12);
-  --bg-gradient-3: rgba(20, 184, 166, 0.08);
-  --title-glow-color: rgba(16, 185, 129, 0.3);
-}
-.codex-root.light.forest {
-  --primary-color: #10b981;
-  --primary-hover: #059669;
-  --gradient-primary: linear-gradient(135deg, #10b981 0%, #22c55e 100%);
-  --gradient-hero: linear-gradient(135deg, #10b981 0%, #22c55e 50%, #14b8a6 100%);
-  --bg-gradient-1: rgba(16, 185, 129, 0.06);
-  --bg-gradient-2: rgba(34, 197, 94, 0.06);
-  --bg-gradient-3: rgba(20, 184, 166, 0.04);
-  --title-glow-color: rgba(16, 185, 129, 0.3);
-}
-
-/* Fire */
-.codex-root.dark.fire {
-  --primary-color: #ef4444;
-  --primary-hover: #dc2626;
-  --gradient-primary: linear-gradient(135deg, #ef4444 0%, #f97316 100%);
-  --gradient-hero: linear-gradient(135deg, #ef4444 0%, #f97316 50%, #fbbf24 100%);
-  --shadow-glow-primary: 0 0 40px rgba(239, 68, 68, 0.4);
-  --bg-gradient-1: rgba(239, 68, 68, 0.12);
-  --bg-gradient-2: rgba(249, 115, 22, 0.12);
-  --bg-gradient-3: rgba(251, 191, 36, 0.08);
-  --title-glow-color: rgba(239, 68, 68, 0.3);
-}
-.codex-root.light.fire {
-  --primary-color: #ef4444;
-  --primary-hover: #dc2626;
-  --gradient-primary: linear-gradient(135deg, #ef4444 0%, #f97316 100%);
-  --gradient-hero: linear-gradient(135deg, #ef4444 0%, #f97316 50%, #fbbf24 100%);
-  --bg-gradient-1: rgba(239, 68, 68, 0.06);
-  --bg-gradient-2: rgba(249, 115, 22, 0.06);
-  --bg-gradient-3: rgba(251, 191, 36, 0.04);
-  --title-glow-color: rgba(239, 68, 68, 0.3);
-}
-
-/* Aurora */
-.codex-root.dark.aurora {
-  --primary-color: #ec4899;
-  --primary-hover: #db2777;
-  --gradient-primary: linear-gradient(135deg, #ec4899 0%, #8b5cf6 100%);
-  --gradient-hero: linear-gradient(135deg, #ec4899 0%, #8b5cf6 50%, #06b6d4 100%);
-  --shadow-glow-primary: 0 0 40px rgba(236, 72, 153, 0.4);
-  --bg-gradient-1: rgba(236, 72, 153, 0.12);
-  --bg-gradient-2: rgba(139, 92, 246, 0.12);
-  --bg-gradient-3: rgba(6, 182, 212, 0.08);
-  --title-glow-color: rgba(236, 72, 153, 0.3);
-}
-.codex-root.light.aurora {
-  --primary-color: #ec4899;
-  --primary-hover: #db2777;
-  --gradient-primary: linear-gradient(135deg, #ec4899 0%, #8b5cf6 100%);
-  --gradient-hero: linear-gradient(135deg, #ec4899 0%, #8b5cf6 50%, #06b6d4 100%);
-  --bg-gradient-1: rgba(236, 72, 153, 0.06);
-  --bg-gradient-2: rgba(139, 92, 246, 0.06);
-  --bg-gradient-3: rgba(6, 182, 212, 0.04);
-  --title-glow-color: rgba(236, 72, 153, 0.3);
-}
-
-/* Theme Purple */
-.codex-root.dark.theme-purple {
-  --primary-color: #a855f7;
-  --primary-hover: #9333ea;
-  --gradient-primary: linear-gradient(135deg, #a855f7 0%, #ec4899 100%);
-  --gradient-hero: linear-gradient(135deg, #a855f7 0%, #ec4899 50%, #f43f5e 100%);
-  --shadow-glow-primary: 0 0 40px rgba(168, 85, 247, 0.4);
-  --bg-gradient-1: rgba(168, 85, 247, 0.12);
-  --bg-gradient-2: rgba(236, 72, 153, 0.12);
-  --bg-gradient-3: rgba(244, 63, 94, 0.08);
-  --title-glow-color: rgba(168, 85, 247, 0.3);
-}
-.codex-root.light.theme-purple {
-  --primary-color: #a855f7;
-  --primary-hover: #9333ea;
-  --gradient-primary: linear-gradient(135deg, #a855f7 0%, #ec4899 100%);
-  --gradient-hero: linear-gradient(135deg, #a855f7 0%, #ec4899 50%, #f43f5e 100%);
-  --bg-gradient-1: rgba(168, 85, 247, 0.06);
-  --bg-gradient-2: rgba(236, 72, 153, 0.06);
-  --bg-gradient-3: rgba(244, 63, 94, 0.04);
-  --title-glow-color: rgba(168, 85, 247, 0.3);
-}
-
-/* Theme Pink */
-.codex-root.dark.theme-pink {
-  --primary-color: #ec4899;
-  --primary-hover: #db2777;
-  --gradient-primary: linear-gradient(135deg, #ec4899 0%, #f59e0b 100%);
-  --gradient-hero: linear-gradient(135deg, #ec4899 0%, #f59e0b 50%, #f43f5e 100%);
-  --shadow-glow-primary: 0 0 40px rgba(236, 72, 153, 0.4);
-  --bg-gradient-1: rgba(236, 72, 153, 0.12);
-  --bg-gradient-2: rgba(245, 158, 11, 0.12);
-  --bg-gradient-3: rgba(244, 63, 94, 0.08);
-  --title-glow-color: rgba(236, 72, 153, 0.3);
-}
-.codex-root.light.theme-pink {
-  --primary-color: #ec4899;
-  --primary-hover: #db2777;
-  --gradient-primary: linear-gradient(135deg, #ec4899 0%, #f59e0b 100%);
-  --gradient-hero: linear-gradient(135deg, #ec4899 0%, #f59e0b 50%, #f43f5e 100%);
-  --bg-gradient-1: rgba(236, 72, 153, 0.06);
-  --bg-gradient-2: rgba(245, 158, 11, 0.06);
-  --bg-gradient-3: rgba(244, 63, 94, 0.04);
-  --title-glow-color: rgba(236, 72, 153, 0.3);
-}
-
-/* Theme Green */
-.codex-root.dark.theme-green {
-  --primary-color: #10b981;
-  --primary-hover: #059669;
-  --gradient-primary: linear-gradient(135deg, #10b981 0%, #3b82f6 100%);
-  --gradient-hero: linear-gradient(135deg, #10b981 0%, #3b82f6 50%, #8b5cf6 100%);
-  --shadow-glow-primary: 0 0 40px rgba(16, 185, 129, 0.4);
-  --bg-gradient-1: rgba(16, 185, 129, 0.12);
-  --bg-gradient-2: rgba(59, 130, 246, 0.12);
-  --bg-gradient-3: rgba(139, 92, 246, 0.08);
-  --title-glow-color: rgba(16, 185, 129, 0.3);
-}
-.codex-root.light.theme-green {
-  --primary-color: #10b981;
-  --primary-hover: #059669;
-  --gradient-primary: linear-gradient(135deg, #10b981 0%, #3b82f6 100%);
-  --gradient-hero: linear-gradient(135deg, #10b981 0%, #3b82f6 50%, #8b5cf6 100%);
-  --bg-gradient-1: rgba(16, 185, 129, 0.06);
-  --bg-gradient-2: rgba(59, 130, 246, 0.06);
-  --bg-gradient-3: rgba(139, 92, 246, 0.04);
-  --title-glow-color: rgba(16, 185, 129, 0.3);
-}
-
-/* Theme Orange */
-.codex-root.dark.theme-orange {
-  --primary-color: #f97316;
-  --primary-hover: #ea580c;
-  --gradient-primary: linear-gradient(135deg, #f97316 0%, #ef4444 100%);
-  --gradient-hero: linear-gradient(135deg, #f97316 0%, #ef4444 50%, #ec4899 100%);
-  --shadow-glow-primary: 0 0 40px rgba(249, 115, 22, 0.4);
-  --bg-gradient-1: rgba(249, 115, 22, 0.12);
-  --bg-gradient-2: rgba(239, 68, 68, 0.12);
-  --bg-gradient-3: rgba(236, 72, 153, 0.08);
-  --title-glow-color: rgba(249, 115, 22, 0.3);
-}
-.codex-root.light.theme-orange {
-  --primary-color: #f97316;
-  --primary-hover: #ea580c;
-  --gradient-primary: linear-gradient(135deg, #f97316 0%, #ef4444 100%);
-  --gradient-hero: linear-gradient(135deg, #f97316 0%, #ef4444 50%, #ec4899 100%);
-  --bg-gradient-1: rgba(249, 115, 22, 0.06);
-  --bg-gradient-2: rgba(239, 68, 68, 0.06);
-  --bg-gradient-3: rgba(236, 72, 153, 0.04);
-  --title-glow-color: rgba(249, 115, 22, 0.3);
-}
-
-/* Theme Teal */
-.codex-root.dark.theme-teal {
-  --primary-color: #14b8a6;
-  --primary-hover: #0d9488;
-  --gradient-primary: linear-gradient(135deg, #14b8a6 0%, #8b5cf6 100%);
-  --gradient-hero: linear-gradient(135deg, #14b8a6 0%, #8b5cf6 50%, #ec4899 100%);
-  --shadow-glow-primary: 0 0 40px rgba(20, 184, 166, 0.4);
-  --bg-gradient-1: rgba(20, 184, 166, 0.12);
-  --bg-gradient-2: rgba(139, 92, 246, 0.12);
-  --bg-gradient-3: rgba(236, 72, 153, 0.08);
-  --title-glow-color: rgba(20, 184, 166, 0.3);
-}
-.codex-root.light.theme-teal {
-  --primary-color: #14b8a6;
-  --primary-hover: #0d9488;
-  --gradient-primary: linear-gradient(135deg, #14b8a6 0%, #8b5cf6 100%);
-  --gradient-hero: linear-gradient(135deg, #14b8a6 0%, #8b5cf6 50%, #ec4899 100%);
-  --bg-gradient-1: rgba(20, 184, 166, 0.06);
-  --bg-gradient-2: rgba(139, 92, 246, 0.06);
-  --bg-gradient-3: rgba(236, 72, 153, 0.04);
-  --title-glow-color: rgba(20, 184, 166, 0.3);
-}
-
-/* Dark Orange (dark-only background shift) */
-.codex-root.dark.theme-dark-orange {
-  --primary-color: #fb923c;
-  --primary-hover: #f97316;
-  --gradient-primary: linear-gradient(135deg, #fb923c 0%, #fbbf24 100%);
-  --gradient-hero: linear-gradient(135deg, #fb923c 0%, #fbbf24 50%, #ef4444 100%);
-  --background-color: #0c0a09;
-  --surface-color: rgba(28, 25, 23, 0.9);
-  --surface-elevated: rgba(41, 37, 36, 0.9);
-  --tile-background: rgba(28, 25, 23, 0.9);
-  --category-background: rgba(28, 25, 23, 0.8);
-  --shadow-glow-primary: 0 0 40px rgba(251, 146, 60, 0.4);
-  --bg-gradient-1: rgba(251, 146, 60, 0.12);
-  --bg-gradient-2: rgba(251, 191, 36, 0.12);
-  --bg-gradient-3: rgba(239, 68, 68, 0.08);
-  --title-glow-color: rgba(251, 146, 60, 0.3);
-}
-.codex-root.light.theme-dark-orange {
-  --primary-color: #fb923c;
-  --primary-hover: #f97316;
-  --gradient-primary: linear-gradient(135deg, #fb923c 0%, #fbbf24 100%);
-  --gradient-hero: linear-gradient(135deg, #fb923c 0%, #fbbf24 50%, #ef4444 100%);
-  --bg-gradient-1: rgba(251, 146, 60, 0.08);
-  --bg-gradient-2: rgba(251, 191, 36, 0.08);
-  --bg-gradient-3: rgba(239, 68, 68, 0.05);
-  --title-glow-color: rgba(251, 146, 60, 0.3);
-}
-
-/* Dark Purple */
-.codex-root.dark.theme-dark-purple {
-  --primary-color: #a855f7;
-  --primary-hover: #9333ea;
-  --gradient-primary: linear-gradient(135deg, #a855f7 0%, #ec4899 100%);
-  --gradient-hero: linear-gradient(135deg, #a855f7 0%, #ec4899 50%, #f43f5e 100%);
-  --background-color: #0f0c14;
-  --surface-color: rgba(30, 21, 39, 0.9);
-  --surface-elevated: rgba(45, 31, 58, 0.9);
-  --tile-background: rgba(30, 21, 39, 0.9);
-  --category-background: rgba(30, 21, 39, 0.8);
-  --shadow-glow-primary: 0 0 40px rgba(168, 85, 247, 0.4);
-  --bg-gradient-1: rgba(168, 85, 247, 0.12);
-  --bg-gradient-2: rgba(236, 72, 153, 0.12);
-  --bg-gradient-3: rgba(244, 63, 94, 0.08);
-  --title-glow-color: rgba(168, 85, 247, 0.3);
-}
-.codex-root.light.theme-dark-purple {
-  --primary-color: #a855f7;
-  --primary-hover: #9333ea;
-  --gradient-primary: linear-gradient(135deg, #a855f7 0%, #ec4899 100%);
-  --gradient-hero: linear-gradient(135deg, #a855f7 0%, #ec4899 50%, #f43f5e 100%);
-  --bg-gradient-1: rgba(168, 85, 247, 0.08);
-  --bg-gradient-2: rgba(236, 72, 153, 0.08);
-  --bg-gradient-3: rgba(244, 63, 94, 0.05);
-  --title-glow-color: rgba(168, 85, 247, 0.3);
-}
-
-/* Dark Emerald */
-.codex-root.dark.theme-dark-emerald {
-  --primary-color: #10b981;
-  --primary-hover: #059669;
-  --gradient-primary: linear-gradient(135deg, #10b981 0%, #06b6d4 100%);
-  --gradient-hero: linear-gradient(135deg, #10b981 0%, #06b6d4 50%, #8b5cf6 100%);
-  --background-color: #0a0f0d;
-  --surface-color: rgba(20, 37, 30, 0.9);
-  --surface-elevated: rgba(31, 56, 48, 0.9);
-  --tile-background: rgba(20, 37, 30, 0.9);
-  --category-background: rgba(20, 37, 30, 0.8);
-  --shadow-glow-primary: 0 0 40px rgba(16, 185, 129, 0.4);
-  --bg-gradient-1: rgba(16, 185, 129, 0.12);
-  --bg-gradient-2: rgba(6, 182, 212, 0.12);
-  --bg-gradient-3: rgba(139, 92, 246, 0.08);
-  --title-glow-color: rgba(16, 185, 129, 0.3);
-}
-.codex-root.light.theme-dark-emerald {
-  --primary-color: #10b981;
-  --primary-hover: #059669;
-  --gradient-primary: linear-gradient(135deg, #10b981 0%, #06b6d4 100%);
-  --gradient-hero: linear-gradient(135deg, #10b981 0%, #06b6d4 50%, #8b5cf6 100%);
-  --bg-gradient-1: rgba(16, 185, 129, 0.08);
-  --bg-gradient-2: rgba(6, 182, 212, 0.08);
-  --bg-gradient-3: rgba(139, 92, 246, 0.05);
-  --title-glow-color: rgba(16, 185, 129, 0.3);
-}
-
-/* Dark Crimson */
-.codex-root.dark.theme-dark-crimson {
-  --primary-color: #ef4444;
-  --primary-hover: #dc2626;
-  --gradient-primary: linear-gradient(135deg, #ef4444 0%, #f97316 100%);
-  --gradient-hero: linear-gradient(135deg, #ef4444 0%, #f97316 50%, #fbbf24 100%);
-  --background-color: #0f0808;
-  --surface-color: rgba(31, 21, 21, 0.9);
-  --surface-elevated: rgba(47, 32, 32, 0.9);
-  --tile-background: rgba(31, 21, 21, 0.9);
-  --category-background: rgba(31, 21, 21, 0.8);
-  --shadow-glow-primary: 0 0 40px rgba(239, 68, 68, 0.4);
-  --bg-gradient-1: rgba(239, 68, 68, 0.12);
-  --bg-gradient-2: rgba(249, 115, 22, 0.12);
-  --bg-gradient-3: rgba(251, 191, 36, 0.08);
-  --title-glow-color: rgba(239, 68, 68, 0.3);
-}
-.codex-root.light.theme-dark-crimson {
-  --primary-color: #ef4444;
-  --primary-hover: #dc2626;
-  --gradient-primary: linear-gradient(135deg, #ef4444 0%, #f97316 100%);
-  --gradient-hero: linear-gradient(135deg, #ef4444 0%, #f97316 50%, #fbbf24 100%);
-  --bg-gradient-1: rgba(239, 68, 68, 0.08);
-  --bg-gradient-2: rgba(249, 115, 22, 0.08);
-  --bg-gradient-3: rgba(251, 191, 36, 0.05);
-  --title-glow-color: rgba(239, 68, 68, 0.3);
-}
-
-/* Dark Sapphire */
-.codex-root.dark.theme-dark-sapphire {
-  --primary-color: #3b82f6;
-  --primary-hover: #2563eb;
-  --gradient-primary: linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%);
-  --gradient-hero: linear-gradient(135deg, #3b82f6 0%, #8b5cf6 50%, #ec4899 100%);
-  --background-color: #080b14;
-  --surface-color: rgba(17, 24, 39, 0.9);
-  --surface-elevated: rgba(31, 41, 55, 0.9);
-  --tile-background: rgba(17, 24, 39, 0.9);
-  --category-background: rgba(17, 24, 39, 0.8);
-  --shadow-glow-primary: 0 0 40px rgba(59, 130, 246, 0.4);
-  --bg-gradient-1: rgba(59, 130, 246, 0.12);
-  --bg-gradient-2: rgba(139, 92, 246, 0.12);
-  --bg-gradient-3: rgba(236, 72, 153, 0.08);
-  --title-glow-color: rgba(59, 130, 246, 0.3);
-}
-.codex-root.light.theme-dark-sapphire {
-  --primary-color: #3b82f6;
-  --primary-hover: #2563eb;
-  --gradient-primary: linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%);
-  --gradient-hero: linear-gradient(135deg, #3b82f6 0%, #8b5cf6 50%, #ec4899 100%);
-  --bg-gradient-1: rgba(59, 130, 246, 0.08);
-  --bg-gradient-2: rgba(139, 92, 246, 0.08);
-  --bg-gradient-3: rgba(236, 72, 153, 0.05);
-  --title-glow-color: rgba(59, 130, 246, 0.3);
-}
-
-/* Cyber (same in both modes) */
-.codex-root.dark.theme-cyber,
-.codex-root.light.theme-cyber {
-  --primary-color: #06b6d4;
-  --primary-hover: #0891b2;
-  --gradient-primary: linear-gradient(135deg, #06b6d4 0%, #10b981 100%);
-  --gradient-hero: linear-gradient(135deg, #06b6d4 0%, #10b981 50%, #22c55e 100%);
-  --shadow-glow-primary: 0 0 40px rgba(6, 182, 212, 0.4);
-  --bg-gradient-1: rgba(6, 182, 212, 0.12);
-  --bg-gradient-2: rgba(16, 185, 129, 0.12);
-  --bg-gradient-3: rgba(34, 197, 94, 0.08);
-  --title-glow-color: rgba(6, 182, 212, 0.3);
-}
-
-/* Focus — productive variant */
-.codex-root.dark.theme-focus {
-  --primary-color: #0d9488;
-  --primary-hover: #14b8a6;
-  --gradient-primary: linear-gradient(135deg, #0d9488 0%, #14b8a6 100%);
-  --gradient-hero: linear-gradient(135deg, #0d9488 0%, #f97316 50%, #14b8a6 100%);
-  --shadow-glow-primary: 0 0 40px rgba(13, 148, 136, 0.4);
-  --bg-gradient-1: rgba(13, 148, 136, 0.12);
-  --bg-gradient-2: rgba(20, 184, 166, 0.12);
-  --bg-gradient-3: rgba(249, 115, 22, 0.08);
-  --title-glow-color: rgba(13, 148, 136, 0.3);
-}
-.codex-root.light.theme-focus {
-  --primary-color: #0d9488;
-  --primary-hover: #14b8a6;
-  --gradient-primary: linear-gradient(135deg, #0d9488 0%, #14b8a6 100%);
-  --gradient-hero: linear-gradient(135deg, #0d9488 0%, #f97316 50%, #14b8a6 100%);
-  --bg-gradient-1: rgba(13, 148, 136, 0.06);
-  --bg-gradient-2: rgba(20, 184, 166, 0.06);
-  --bg-gradient-3: rgba(249, 115, 22, 0.04);
-  --shadow-glow-primary: 0 0 40px rgba(13, 148, 136, 0.06);
-  --title-glow-color: rgba(13, 148, 136, 0.3);
-}
+/*
+ * Accent presets — recolor ONLY the single accent so the look stays calm.
+ * Applied via ThemeProvider's `accent` prop (data-accent attribute).
+ * Slate is the default (no attribute).
+ */
+.codex-root.dark[data-accent="blue"]    { --primary-color:#5b8cc4; --primary-hover:#74a3d8; --primary-light:rgba(91,140,196,.18); }
+.codex-root.light[data-accent="blue"]   { --primary-color:#3c6fa8; --primary-hover:#305d90; --primary-light:rgba(60,111,168,.12); }
+.codex-root.dark[data-accent="teal"]    { --primary-color:#4f9d94; --primary-hover:#66b3aa; --primary-light:rgba(79,157,148,.18); }
+.codex-root.light[data-accent="teal"]   { --primary-color:#2f8078; --primary-hover:#266861; --primary-light:rgba(47,128,120,.12); }
+.codex-root.dark[data-accent="violet"]  { --primary-color:#8b7cc8; --primary-hover:#a394d8; --primary-light:rgba(139,124,200,.18); }
+.codex-root.light[data-accent="violet"] { --primary-color:#6f5cc0; --primary-hover:#5c4aa6; --primary-light:rgba(111,92,192,.12); }
+.codex-root.dark[data-accent="amber"]   { --primary-color:#c19a5e; --primary-hover:#d4ad70; --primary-light:rgba(193,154,94,.18); }
+.codex-root.light[data-accent="amber"]  { --primary-color:#a67c3a; --primary-hover:#8c672e; --primary-light:rgba(166,124,58,.12); }

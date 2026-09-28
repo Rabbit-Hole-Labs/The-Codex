@@ -14,8 +14,8 @@ export interface SearchBarProps {
 }
 
 /**
- * The dashboard search field: a pill-shaped, glassmorphic input with a leading
- * magnifier icon that glows and scales up on focus.
+ * The dashboard search field: a flat input with a leading magnifier icon and
+ * an accent focus ring.
  *
  * Use at the top of the dashboard to filter tiles by name.
  */
