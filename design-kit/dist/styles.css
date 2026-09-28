@@ -1,0 +1,8 @@
+/*
+ * The Codex — stylesheet entry.
+ * The @import closure below is the full styling surface the design system ships:
+ * remote brand fonts, design tokens, and component styles.
+ */
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&display=swap');
+@import './tokens.css';
+@import './components.css';
