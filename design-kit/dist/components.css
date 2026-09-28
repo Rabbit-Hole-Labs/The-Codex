@@ -108,14 +108,14 @@
 }
 
 .codex-root .codex-button.primary {
-  background: var(--primary-color);
-  border-color: var(--primary-color);
-  color: #fff;
+  background: var(--primary-fill);
+  border-color: var(--primary-fill);
+  color: var(--on-primary);
 }
 
 .codex-root .codex-button.primary:hover {
-  background: var(--primary-hover);
-  border-color: var(--primary-hover);
+  background: var(--primary-fill-hover);
+  border-color: var(--primary-fill-hover);
 }
 
 .codex-root .codex-button.danger {
@@ -199,7 +199,11 @@
   overflow: hidden;
 }
 
-.codex-root .link-tile:hover {
+.codex-root .link-tile.is-static {
+  cursor: default;
+}
+
+.codex-root .link-tile:not(.is-static):hover {
   background: var(--tile-hover-background);
   border-color: var(--primary-color);
 }
@@ -328,7 +332,8 @@
 .codex-root .link-tile.size-tall .tile-placeholder { width: 52px; height: 52px; }
 
 .codex-root .link-tile.size-square {
-  height: 148px;
+  /* Width comes from the grid track; let aspect-ratio derive the height. */
+  height: auto;
   aspect-ratio: 1;
 }
 
@@ -351,9 +356,10 @@
 
 /* ── Narrow containers: collapse multi-track spans so wide/giant/tall tiles
    never create an implicit second track (and get clipped) when the grid only
-   fits one 180px column. The container query covers narrow embeds; the
-   viewport query mirrors the extension's 768px breakpoint for tiles rendered
-   outside a CategorySection. ── */
+   fits one 180px column. Inside a CategorySection the container query uses
+   the section's real width, so tablets keep their wide/giant footprints; the
+   viewport query (the extension's 768px breakpoint) only covers grids that
+   are NOT in a CategorySection and so have no size container. ── */
 @container (max-width: 375px) {
   .codex-root .link-tile.size-wide,
   .codex-root .link-tile.size-giant {
@@ -367,13 +373,13 @@
 }
 
 @media (max-width: 768px) {
-  .codex-root .link-tile.size-wide,
-  .codex-root .link-tile.size-giant {
+  .codex-root :not(.category-section) > .links-grid > .link-tile.size-wide,
+  .codex-root :not(.category-section) > .links-grid > .link-tile.size-giant {
     grid-column: span 1;
   }
 
-  .codex-root .link-tile.size-tall,
-  .codex-root .link-tile.size-giant {
+  .codex-root :not(.category-section) > .links-grid > .link-tile.size-tall,
+  .codex-root :not(.category-section) > .links-grid > .link-tile.size-giant {
     grid-row: span 1;
   }
 }
@@ -398,12 +404,29 @@
   }
 }
 
-@media (prefers-contrast: high) {
+@media (prefers-contrast: more) {
   .codex-root {
     --border-color: currentColor;
   }
 
   .codex-root .link-tile {
     border-width: 2px;
+  }
+}
+
+/* Forced colors (Windows High Contrast): the UA repaints colors, so keep
+   tiles and buttons outlined and focus rings visible in system colors. */
+@media (forced-colors: active) {
+  .codex-root .link-tile,
+  .codex-root .codex-button,
+  .codex-root .search-input {
+    border: 1px solid CanvasText;
+  }
+
+  .codex-root .link-tile:focus-visible,
+  .codex-root .codex-button:focus-visible,
+  .codex-root .search-input:focus {
+    outline: 2px solid Highlight;
+    outline-offset: 2px;
   }
 }

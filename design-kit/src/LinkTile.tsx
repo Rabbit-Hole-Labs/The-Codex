@@ -1,13 +1,14 @@
 import * as React from 'react';
+import { validateAndSanitizeUrl } from '../../javascript/features/utils.js';
 import type { TileSize } from './types.js';
 
 export interface LinkTileProps {
   /** Site name shown under the icon. */
   name: string;
   /**
-   * Destination URL. Rendered as an anchor (opening in a new tab) when it is
-   * a valid `http:`/`https:` URL; any other scheme (`javascript:`, `data:`,
-   * …) is dropped and the tile renders as a button instead.
+   * Destination URL. Rendered as an anchor (opening in a new tab) only when it
+   * passes the extension's `validateAndSanitizeUrl()` policy: `http:`/`https:`
+   * and not a blocked shortener/suspicious domain. Anything else is dropped.
    */
   url?: string;
   /**
@@ -20,27 +21,22 @@ export interface LinkTileProps {
   /** Extra class names. */
   className?: string;
   /**
-   * Click handler. Fires for anchor tiles too; without a `url` the tile is a
-   * native `<button>`, so Enter/Space activate it.
+   * Click handler. Fires for anchor tiles too. Without a usable `url` the
+   * tile is a native `<button>` (Enter/Space activate it); with neither a
+   * usable `url` nor `onClick` it renders as static, non-interactive content.
    */
   onClick?: React.MouseEventHandler<HTMLElement>;
 }
 
 /**
- * Returns `url` normalized if it parses as an absolute `http:`/`https:` URL,
- * otherwise `null`. Mirrors the extension's `validateAndSanitizeUrl()` scheme
- * allowlist so dangerous schemes never reach an `href`.
+ * Returns `url` normalized if the extension's `validateAndSanitizeUrl()`
+ * accepts it (http/https only, blocked domains rejected), otherwise `null`.
+ * This is the single URL policy shared with every extension tile renderer.
  */
 export function safeHttpUrl(url: string | undefined): string | null {
   if (!url) return null;
-  try {
-    const parsed = new URL(url.trim());
-    return parsed.protocol === 'http:' || parsed.protocol === 'https:'
-      ? parsed.href
-      : null;
-  } catch {
-    return null;
-  }
+  const safe = validateAndSanitizeUrl(url);
+  return safe === '#' ? null : safe;
 }
 
 /**
@@ -98,9 +94,14 @@ export function LinkTile({
       </a>
     );
   }
-  return (
-    <button type="button" className={classes.join(' ')} onClick={onClick}>
-      {content}
-    </button>
-  );
+  if (onClick) {
+    return (
+      <button type="button" className={classes.join(' ')} onClick={onClick}>
+        {content}
+      </button>
+    );
+  }
+  // No action: don't put a dead control in the tab order.
+  classes.push('is-static');
+  return <div className={classes.join(' ')}>{content}</div>;
 }

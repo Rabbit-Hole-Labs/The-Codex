@@ -22,15 +22,47 @@ function ThemeProvider({
 
 // src/LinkTile.tsx
 import * as React from "react";
+
+// ../javascript/features/utils.js
+function validateAndSanitizeUrl(url) {
+  if (!url || typeof url !== "string") {
+    return "#";
+  }
+  try {
+    const trimmedUrl = url.trim();
+    const urlObj = new URL(trimmedUrl);
+    const allowedSchemes = ["http:", "https:"];
+    if (!allowedSchemes.includes(urlObj.protocol)) {
+      console.warn(`Blocked dangerous URL scheme: ${urlObj.protocol}`);
+      return "#";
+    }
+    const suspiciousDomains = [
+      "bit.ly",
+      "tinyurl.com",
+      "short.link",
+      "suspicious-domain.com",
+      "malware.com",
+      "phishing.com",
+      "fake-site.com"
+    ];
+    const hostname = urlObj.hostname.toLowerCase();
+    if (suspiciousDomains.some((domain) => hostname.includes(domain))) {
+      console.warn(`Blocked suspicious domain: ${hostname}`);
+      return "#";
+    }
+    return urlObj.href;
+  } catch (error) {
+    console.warn(`Invalid URL format: ${url}`, error);
+    return "#";
+  }
+}
+
+// src/LinkTile.tsx
 import { jsx as jsx2, jsxs } from "react/jsx-runtime";
 function safeHttpUrl(url) {
   if (!url) return null;
-  try {
-    const parsed = new URL(url.trim());
-    return parsed.protocol === "http:" || parsed.protocol === "https:" ? parsed.href : null;
-  } catch {
-    return null;
-  }
+  const safe = validateAndSanitizeUrl(url);
+  return safe === "#" ? null : safe;
 }
 function LinkTile({
   name,
@@ -72,7 +104,11 @@ function LinkTile({
       }
     );
   }
-  return /* @__PURE__ */ jsx2("button", { type: "button", className: classes.join(" "), onClick, children: content });
+  if (onClick) {
+    return /* @__PURE__ */ jsx2("button", { type: "button", className: classes.join(" "), onClick, children: content });
+  }
+  classes.push("is-static");
+  return /* @__PURE__ */ jsx2("div", { className: classes.join(" "), children: content });
 }
 
 // src/CategorySection.tsx

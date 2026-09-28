@@ -23,6 +23,12 @@
   --primary-hover: #8b96c4;
   --primary-light: rgba(116, 128, 179, 0.18);
 
+  /* Filled accent controls (primary buttons). Dark accents are light, so the
+     label is dark; every preset + hover clears WCAG AA 4.5:1 at 13px. */
+  --primary-fill: var(--primary-color);
+  --primary-fill-hover: var(--primary-hover);
+  --on-primary: #0f0f1a;
+
   --secondary-color: #6b8fb0;
   --secondary-hover: #7ea0be;
   --secondary-light: rgba(107, 143, 176, 0.2);
@@ -108,6 +114,9 @@
   --primary-hover: #46528c;
   --primary-light: rgba(85, 97, 160, 0.12);
 
+  /* Light accents are dark, so the label is white (see dark tokens). */
+  --on-primary: #ffffff;
+
   --secondary-color: #4a7a97;
   --secondary-hover: #3d6883;
   --secondary-light: rgba(74, 122, 151, 0.14);
@@ -156,4 +165,6 @@
 .codex-root.dark[data-accent="violet"]  { --primary-color:#8b7cc8; --primary-hover:#a394d8; --primary-light:rgba(139,124,200,.18); }
 .codex-root.light[data-accent="violet"] { --primary-color:#6f5cc0; --primary-hover:#5c4aa6; --primary-light:rgba(111,92,192,.12); }
 .codex-root.dark[data-accent="amber"]   { --primary-color:#c19a5e; --primary-hover:#d4ad70; --primary-light:rgba(193,154,94,.18); }
-.codex-root.light[data-accent="amber"]  { --primary-color:#a67c3a; --primary-hover:#8c672e; --primary-light:rgba(166,124,58,.12); }
+.codex-root.light[data-accent="amber"]  { --primary-color:#a67c3a; --primary-hover:#8c672e; --primary-light:rgba(166,124,58,.12);
+  /* #a67c3a is only 3.8:1 against white; fill buttons one step darker. */
+  --primary-fill:#8c672e; --primary-fill-hover:#765626; }

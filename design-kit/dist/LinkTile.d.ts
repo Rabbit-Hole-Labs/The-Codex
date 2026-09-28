@@ -4,9 +4,9 @@ export interface LinkTileProps {
     /** Site name shown under the icon. */
     name: string;
     /**
-     * Destination URL. Rendered as an anchor (opening in a new tab) when it is
-     * a valid `http:`/`https:` URL; any other scheme (`javascript:`, `data:`,
-     * …) is dropped and the tile renders as a button instead.
+     * Destination URL. Rendered as an anchor (opening in a new tab) only when it
+     * passes the extension's `validateAndSanitizeUrl()` policy: `http:`/`https:`
+     * and not a blocked shortener/suspicious domain. Anything else is dropped.
      */
     url?: string;
     /**
@@ -19,15 +19,16 @@ export interface LinkTileProps {
     /** Extra class names. */
     className?: string;
     /**
-     * Click handler. Fires for anchor tiles too; without a `url` the tile is a
-     * native `<button>`, so Enter/Space activate it.
+     * Click handler. Fires for anchor tiles too. Without a usable `url` the
+     * tile is a native `<button>` (Enter/Space activate it); with neither a
+     * usable `url` nor `onClick` it renders as static, non-interactive content.
      */
     onClick?: React.MouseEventHandler<HTMLElement>;
 }
 /**
- * Returns `url` normalized if it parses as an absolute `http:`/`https:` URL,
- * otherwise `null`. Mirrors the extension's `validateAndSanitizeUrl()` scheme
- * allowlist so dangerous schemes never reach an `href`.
+ * Returns `url` normalized if the extension's `validateAndSanitizeUrl()`
+ * accepts it (http/https only, blocked domains rejected), otherwise `null`.
+ * This is the single URL policy shared with every extension tile renderer.
  */
 export declare function safeHttpUrl(url: string | undefined): string | null;
 /**
