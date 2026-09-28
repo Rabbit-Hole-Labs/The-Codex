@@ -123,9 +123,10 @@
 }
 
 .codex-root .codex-button.danger:hover {
+  /* --error-hover, not --error-color: white on #f43f5e is only 3.7:1. */
   color: #fff;
-  background: var(--error-color);
-  border-color: var(--error-color);
+  background: var(--error-hover);
+  border-color: var(--error-hover);
 }
 
 .codex-root .codex-button:disabled {
@@ -278,8 +279,10 @@
   gap: var(--space-4);
 }
 
-.codex-root .links-grid.list-view .tile-icon,
-.codex-root .links-grid.list-view .tile-placeholder {
+/* Extra .link-tile beats the per-size icon rules below, so list rows keep a
+   uniform 32px icon whatever the tile's size. */
+.codex-root .links-grid.list-view .link-tile .tile-icon,
+.codex-root .links-grid.list-view .link-tile .tile-placeholder {
   width: 32px;
   height: 32px;
 }
@@ -360,15 +363,34 @@
    the section's real width, so tablets keep their wide/giant footprints; the
    viewport query (the extension's 768px breakpoint) only covers grids that
    are NOT in a CategorySection and so have no size container. ── */
-@container (max-width: 375px) {
-  .codex-root .link-tile.size-wide,
-  .codex-root .link-tile.size-giant {
-    grid-column: span 1;
-  }
+/* One column fits below 2 × 180px + 16px gap = 376px (desktop tracks)... */
+@media (min-width: 481px) {
+  @container (max-width: 375px) {
+    .codex-root .link-tile.size-wide,
+    .codex-root .link-tile.size-giant {
+      grid-column: span 1;
+    }
 
-  .codex-root .link-tile.size-tall,
-  .codex-root .link-tile.size-giant {
-    grid-row: span 1;
+    .codex-root .link-tile.size-tall,
+    .codex-root .link-tile.size-giant {
+      grid-row: span 1;
+    }
+  }
+}
+
+/* ...and below 2 × 150px + 12px gap = 312px once the ≤480px viewport rule
+   shrinks the tracks, so two-column phones keep wide/giant footprints. */
+@media (max-width: 480px) {
+  @container (max-width: 311px) {
+    .codex-root .link-tile.size-wide,
+    .codex-root .link-tile.size-giant {
+      grid-column: span 1;
+    }
+
+    .codex-root .link-tile.size-tall,
+    .codex-root .link-tile.size-giant {
+      grid-row: span 1;
+    }
   }
 }
 
