@@ -104,6 +104,16 @@ function safeIconUrl(iconUrl) {
   const result = validateIconValue(iconUrl);
   return result.valid && result.value !== "default" ? result.value : null;
 }
+function initialOf(name) {
+  const trimmed = name.trim();
+  if (!trimmed) return "";
+  let first;
+  if (typeof Intl !== "undefined" && "Segmenter" in Intl) {
+    const seg = new Intl.Segmenter(void 0, { granularity: "grapheme" });
+    first = seg.segment(trimmed)[Symbol.iterator]().next().value?.segment;
+  }
+  return (first ?? Array.from(trimmed)[0] ?? "").toUpperCase();
+}
 function LinkTile({
   name,
   url,
@@ -128,7 +138,7 @@ function LinkTile({
         decoding: "async",
         onError: () => setIconFailed(true)
       }
-    ) : /* @__PURE__ */ jsx2("span", { className: "tile-placeholder", "aria-hidden": "true", children: name.charAt(0).toUpperCase() }),
+    ) : /* @__PURE__ */ jsx2("span", { className: "tile-placeholder", "aria-hidden": "true", children: initialOf(name) }),
     /* @__PURE__ */ jsx2("h3", { children: name })
   ] });
   const href = safeHttpUrl(url);

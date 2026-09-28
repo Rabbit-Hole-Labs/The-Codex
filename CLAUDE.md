@@ -85,7 +85,7 @@ javascript/
 - Flat, calm design; dark/light only (the multi–color-theme system was removed).
 - Design tokens live in each stylesheet's `:root` (surfaces, borders, one muted accent). Flattening a token flattens every surface at once — no glass, gradients, glow, or hover-lift.
 - Base themes: `dark`, `light` (`body.dark` / `body.light`).
-- Shared content width: both the new tab and the manage page use `--content-max: 1080px` so the two surfaces line up.
+- Shared content width: both the new tab and the manage page use `--content-max: 1600px` (defined in `stylesheets/base.css`; the design kit mirrors it) so the two surfaces line up.
 - Tile sizes: `compact`, `small`, `medium`, `large`, `square`, `wide`, `tall`, `giant`
 
 ### Icon Loading

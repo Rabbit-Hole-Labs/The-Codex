@@ -241,7 +241,9 @@
   height: 32px;
   border-radius: var(--radius-control);
   background: var(--primary-light);
-  color: var(--primary-color);
+  /* Accent-colored initials fall below 4.5:1 on the tinted fill for some
+     presets (dark slate, light amber); the surface text color clears it. */
+  color: var(--on-surface);
   display: flex;
   align-items: center;
   justify-content: center;

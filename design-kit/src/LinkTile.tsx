@@ -54,6 +54,22 @@ export function safeIconUrl(iconUrl: string | undefined): string | null {
 }
 
 /**
+ * First user-perceived character of `name`, uppercased. Uses grapheme
+ * segmentation where available (falls back to the first code point) so
+ * emoji and other non-BMP initials never split into a lone surrogate.
+ */
+function initialOf(name: string): string {
+  const trimmed = name.trim();
+  if (!trimmed) return '';
+  let first: string | undefined;
+  if (typeof Intl !== 'undefined' && 'Segmenter' in Intl) {
+    const seg = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
+    first = seg.segment(trimmed)[Symbol.iterator]().next().value?.segment;
+  }
+  return (first ?? Array.from(trimmed)[0] ?? '').toUpperCase();
+}
+
+/**
  * A single dashboard tile linking to a site.
  *
  * Renders the flat Codex tile: the site icon (or an initial placeholder)
@@ -88,7 +104,7 @@ export function LinkTile({
         />
       ) : (
         <span className="tile-placeholder" aria-hidden="true">
-          {name.charAt(0).toUpperCase()}
+          {initialOf(name)}
         </span>
       )}
       <h3>{name}</h3>
