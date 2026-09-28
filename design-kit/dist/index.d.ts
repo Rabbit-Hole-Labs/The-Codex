@@ -1,6 +1,6 @@
 export { ThemeProvider } from './ThemeProvider.js';
 export type { ThemeProviderProps } from './ThemeProvider.js';
-export { LinkTile, safeHttpUrl } from './LinkTile.js';
+export { LinkTile, safeHttpUrl, safeIconUrl } from './LinkTile.js';
 export type { LinkTileProps } from './LinkTile.js';
 export { CategorySection } from './CategorySection.js';
 export type { CategorySectionProps } from './CategorySection.js';

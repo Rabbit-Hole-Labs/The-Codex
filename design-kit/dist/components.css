@@ -67,7 +67,8 @@
 }
 
 .codex-root .search-input::placeholder {
-  color: var(--on-surface-muted);
+  /* --on-surface-variant, not -muted: muted is below 4.5:1 on the input. */
+  color: var(--on-surface-variant);
 }
 
 /* ── Buttons: one flat shape; variants recolor it ── */
@@ -119,7 +120,7 @@
 }
 
 .codex-root .codex-button.danger {
-  color: var(--error-color);
+  color: var(--danger-text);
 }
 
 .codex-root .codex-button.danger:hover {

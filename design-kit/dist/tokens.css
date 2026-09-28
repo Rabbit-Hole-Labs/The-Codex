@@ -51,6 +51,8 @@
 
   --danger-color: #f43f5e;
   --danger-hover: #e11d48;
+  /* Danger label on a neutral surface (--error-color is only ~4.3:1). */
+  --danger-text: #fb7185;
   --error-color: #f43f5e;
   --error-hover: #e11d48;
   --success-color: #10b981;
@@ -100,7 +102,8 @@
   --shadow-lg: 0 4px 14px rgba(0, 0, 0, 0.4);
   --shadow-xl: 0 8px 24px rgba(0, 0, 0, 0.45);
 
-  --content-max: 1080px;
+  /* Mirrors stylesheets/base.css (the runtime source of truth). */
+  --content-max: 1600px;
 }
 
 /* ---- Light theme tokens (soft, calm — no stark pure-white) ---- */
@@ -138,6 +141,7 @@
 
   --error-color: #dc2626;
   --error-hover: #b91c1c;
+  --danger-text: #b91c1c;
   --danger-color: #dc2626;
   --danger-hover: #b91c1c;
   --success-color: #16a34a;

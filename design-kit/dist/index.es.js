@@ -23,6 +23,41 @@ function ThemeProvider({
 // src/LinkTile.tsx
 import * as React from "react";
 
+// ../javascript/features/iconPolicy.js
+var ALLOWED_ICON_HOSTS = ["cdn.jsdelivr.net", "selfh.st"];
+function validateIconValue(value) {
+  const trimmed = String(value ?? "").trim();
+  if (!trimmed || trimmed === "default") {
+    return { valid: true, value: "default" };
+  }
+  if (/^data:/i.test(trimmed)) {
+    return validateDataUrl(trimmed) ? { valid: true, value: trimmed } : { valid: false, reason: "Data-URI icons must be base64 PNG, JPEG, GIF, or SVG under 100KB." };
+  }
+  let url;
+  try {
+    url = new URL(trimmed);
+  } catch {
+    return { valid: false, reason: "Icon must be a full https:// URL or a data: image URI." };
+  }
+  const host = url.hostname.toLowerCase();
+  const hostAllowed = url.protocol === "https:" && ALLOWED_ICON_HOSTS.some((h) => host === h || host.endsWith("." + h));
+  if (!hostAllowed) {
+    return {
+      valid: false,
+      reason: `Icons can only load from selfh.st or jsDelivr \u2014 "${host}" would be blocked by the extension's security policy. Use the Icon picker, or paste a data: image URI.`
+    };
+  }
+  return { valid: true, value: trimmed };
+}
+function validateDataUrl(dataUrl) {
+  try {
+    const dataUrlRegex = /^data:image\/(png|jpg|jpeg|gif|svg\+xml);base64,[A-Za-z0-9+/]+=*$/;
+    return dataUrlRegex.test(dataUrl) && dataUrl.length < 1e5;
+  } catch {
+    return false;
+  }
+}
+
 // ../javascript/features/utils.js
 function validateAndSanitizeUrl(url) {
   if (!url || typeof url !== "string") {
@@ -64,6 +99,11 @@ function safeHttpUrl(url) {
   const safe = validateAndSanitizeUrl(url);
   return safe === "#" ? null : safe;
 }
+function safeIconUrl(iconUrl) {
+  if (!iconUrl) return null;
+  const result = validateIconValue(iconUrl);
+  return result.valid && result.value !== "default" ? result.value : null;
+}
 function LinkTile({
   name,
   url,
@@ -76,12 +116,13 @@ function LinkTile({
   React.useEffect(() => setIconFailed(false), [iconUrl]);
   const classes = ["link-tile", `size-${size}`];
   if (className) classes.push(className);
+  const iconSrc = safeIconUrl(iconUrl);
   const content = /* @__PURE__ */ jsxs("span", { className: "tile-content", children: [
-    iconUrl && !iconFailed ? /* @__PURE__ */ jsx2(
+    iconSrc && !iconFailed ? /* @__PURE__ */ jsx2(
       "img",
       {
         className: "tile-icon",
-        src: iconUrl,
+        src: iconSrc,
         alt: "",
         loading: "lazy",
         decoding: "async",
@@ -193,5 +234,6 @@ export {
   LinkTile,
   SearchBar,
   ThemeProvider,
-  safeHttpUrl
+  safeHttpUrl,
+  safeIconUrl
 };

@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { validateIconValue } from '../../javascript/features/iconPolicy.js';
 import { validateAndSanitizeUrl } from '../../javascript/features/utils.js';
 import type { TileSize } from './types.js';
 
@@ -12,8 +13,10 @@ export interface LinkTileProps {
    */
   url?: string;
   /**
-   * Icon image URL, rendered verbatim. When omitted — or when the image fails
-   * to load — a placeholder shows the first letter of `name`.
+   * Icon image URL, rendered verbatim when it passes the extension's
+   * `validateIconValue()` policy (a `data:image` URI, or https on
+   * selfh.st/jsDelivr). When omitted, rejected, or the image fails to load,
+   * a placeholder shows the first letter of `name`.
    */
   iconUrl?: string;
   /** Tile footprint. Defaults to `medium`. */
@@ -40,6 +43,17 @@ export function safeHttpUrl(url: string | undefined): string | null {
 }
 
 /**
+ * Returns `iconUrl` if the extension's `validateIconValue()` accepts it as a
+ * concrete icon (not `'default'`), otherwise `null`. Keeps arbitrary hosts —
+ * trackers, internal-network origins — out of `<img src>`.
+ */
+export function safeIconUrl(iconUrl: string | undefined): string | null {
+  if (!iconUrl) return null;
+  const result = validateIconValue(iconUrl);
+  return result.valid && result.value !== 'default' ? result.value : null;
+}
+
+/**
  * A single dashboard tile linking to a site.
  *
  * Renders the flat Codex tile: the site icon (or an initial placeholder)
@@ -60,12 +74,13 @@ export function LinkTile({
   const classes = ['link-tile', `size-${size}`];
   if (className) classes.push(className);
 
+  const iconSrc = safeIconUrl(iconUrl);
   const content = (
     <span className="tile-content">
-      {iconUrl && !iconFailed ? (
+      {iconSrc && !iconFailed ? (
         <img
           className="tile-icon"
-          src={iconUrl}
+          src={iconSrc}
           alt=""
           loading="lazy"
           decoding="async"
