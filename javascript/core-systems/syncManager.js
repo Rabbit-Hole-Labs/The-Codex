@@ -2,7 +2,7 @@
 // Handles conflict resolution, versioning, and improved sync strategies
 
 import { debug, debugWarn, debugError } from './debug.js';
-import { parseStoredArray, pendingSyncKey, cloudValueFingerprint, PENDING_SYNC_FIELDS } from './storageFormat.js';
+import { parseStoredArray, pendingSyncKey, PENDING_SYNC_FIELDS } from './storageFormat.js';
 
 // Confirm-dialog text for the destructive manual sync actions, shared by the
 // new-tab pill and the manage page's Sync tab so both describe the same thing.
@@ -44,6 +44,37 @@ function pick(source, keys) {
         if (source?.[key] !== undefined) picked[key] = source[key];
     }
     return picked;
+}
+
+// A stored value in a canonical form for comparing content: JSON-encoded
+// lists are parsed and object keys sorted, so a re-serialization with a
+// different key order still counts as the same value.
+function canonical(value) {
+    if (typeof value === 'string') {
+        const list = parseStoredArray(value);
+        if (list) return canonical(list);
+        return value;
+    }
+    if (Array.isArray(value)) return value.map(canonical);
+    if (value && typeof value === 'object') {
+        return Object.fromEntries(Object.keys(value).sort().map(key => [key, canonical(value[key])]));
+    }
+    return value ?? null;
+}
+
+function sameStoredValue(a, b) {
+    return JSON.stringify(canonical(a)) === JSON.stringify(canonical(b));
+}
+
+// Whether the cloud still holds the value a pending-sync marker recorded.
+// A marker without a readable recorded value can't tell, so it never matches.
+function markerMatchesCloud(marker, cloudValue) {
+    if (typeof marker?.cloud !== 'string') return false;
+    try {
+        return sameStoredValue(JSON.parse(marker.cloud), cloudValue);
+    } catch {
+        return false;
+    }
 }
 
 // links/categories as stored: JSON strings, upgrading raw arrays from older builds.
@@ -213,6 +244,14 @@ export class SyncManager {
         this.lastSyncTime = null;
         try {
             await chrome.storage.local.remove(['lastSyncTime', 'syncStatus']);
+            // Saves that fell back to local before the clear must not be
+            // uploaded over it: drop their recorded cloud value, so the next
+            // Sync now treats them as superseded (kept as a backup, not pushed).
+            const markerKeys = PENDING_SYNC_FIELDS.map(pendingSyncKey);
+            const markers = await chrome.storage.local.get(markerKeys);
+            const invalidated = Object.fromEntries(Object.entries(markers)
+                .map(([key, marker]) => [key, { since: marker?.since }]));
+            if (Object.keys(invalidated).length > 0) await chrome.storage.local.set(invalidated);
         } catch (error) {
             debugError('Failed to reset sync status after a remote clear:', error);
         }
@@ -385,11 +424,12 @@ export class SyncManager {
                 throw validationError;
             }
 
-            // A local copy that may hold data the cloud never had is backed up
-            // before it's replaced; no backup, no replacement.
-            if (resolution.stashLocal) {
-                await this.stashLocalCopy(inputs.local);
-            }
+            // Local values the cloud doesn't have, dropped without being
+            // uploaded, are backed up before they're replaced: no backup, no
+            // replacement. The user is told once the sync succeeds.
+            const setAsideCopy = resolution.setAside
+                ? await this.storeSetAside(resolution.setAside, inputs.local, { data: resolvedData, cloud: inputs.cloud })
+                : null;
 
             // Write what changed in the cloud (nothing when the cloud wins: that
             // write would only cost write quota and could overwrite a change
@@ -419,22 +459,32 @@ export class SyncManager {
 
             const syncedItemsCount = (parseStoredArray(resolvedData.links) ?? []).length;
 
+            let warning;
+            if (setAsideCopy) {
+                this.downloadBackupFile(setAsideCopy);
+                warning = `${resolution.setAside.reason} A copy was saved on this device and downloaded as a `
+                    + 'backup file (restore it with Import on the Manage page).';
+            }
+
             this.notifyListeners('syncComplete', {
                 time: this.lastSyncTime,
                 itemsSynced: syncedItemsCount,
                 strategy: strategy,
-                metadata: metadata
+                metadata: metadata,
+                warning
             });
 
             debug(`Sync completed successfully. Synced ${syncedItemsCount} items.`);
 
+            const result = { success: true, time: this.lastSyncTime, itemsSynced: syncedItemsCount, warning };
+
             // Process queued sync requests
             while (this.syncQueue.length > 0) {
                 const resolve = this.syncQueue.shift();
-                resolve({ success: true, time: this.lastSyncTime, itemsSynced: syncedItemsCount });
+                resolve(result);
             }
 
-            return { success: true, time: this.lastSyncTime, itemsSynced: syncedItemsCount };
+            return result;
 
         } catch (error) {
             debugError('Sync failed:', error);
@@ -478,7 +528,7 @@ export class SyncManager {
             throw Object.assign(error, { area: 'local' });
         }
         try {
-            cloud = await chrome.storage.sync.get(['links', 'categories', ...SETTINGS_KEYS]);
+            cloud = await chrome.storage.sync.get(['links', 'categories', ...SETTINGS_KEYS, SYNC_CLEARED_AT_KEY]);
         } catch (error) {
             throw Object.assign(error, { area: 'sync' });
         }
@@ -490,45 +540,62 @@ export class SyncManager {
     // manual sync and usually stale. Never let that snapshot win just because
     // the metadata versions match — after any manual sync they always do.
     //
-    // Returns { source, data, syncItems, staleMarkers, stashLocal }:
+    // Returns { source, data, syncItems, staleMarkers, setAside }:
     //   data          links/categories this device's local copy becomes
     //   syncItems     what to write to sync (null: nothing)
     //   staleMarkers  pending-sync fields the cloud has since superseded
-    //   stashLocal    back up the local copy before it's replaced
+    //   setAside      { fields, reason } when local values that the cloud doesn't
+    //                 have are dropped without being uploaded; syncData keeps a
+    //                 copy and tells the user (null otherwise)
     resolveSyncData({ local, cloud, metadata }, { forceStrategy = null, strategy = this.conflictResolutionStrategy } = {}) {
-        const fromCloud = (extra = {}) => ({
+        const fromCloud = () => ({
             source: 'cloud',
             data: { links: cloud.links ?? '[]', categories: cloud.categories ?? '["Default"]' },
-            syncItems: null,
-            ...extra
+            syncItems: null
         });
         const fromLocal = () => ({ source: 'local', data: encodeLists(local), syncItems: encodeLists(local) });
-        const merged = (options) => {
-            const data = this.mergeData(local, cloud, metadata, options);
+        const merged = (localSide, options) => {
+            const data = this.mergeData(localSide, cloud, metadata, options);
             return { source: 'merged', data, syncItems: data };
         };
+        const differs = (field) => local[field] !== undefined && !sameStoredValue(local[field], cloud[field]);
 
-        // Saves that fell back to local are pending while the cloud still holds
-        // the value it had when they failed; if anything wrote the field since,
-        // the local copy is superseded.
+        // A save that fell back to local is pending while the cloud still holds
+        // the value it had when the save failed, and wasn't cleared since. If
+        // the field was written since (this device or another), or that can't
+        // be told (no recorded value), the local copy is superseded.
+        const clearedAt = cloud[SYNC_CLEARED_AT_KEY];
         const pendingFields = [];
         const staleMarkers = [];
         for (const field of PENDING_SYNC_FIELDS) {
             const marker = local[pendingSyncKey(field)];
             if (!marker) continue;
-            const stillPending = marker.cloud === undefined || marker.cloud === cloudValueFingerprint(cloud[field]);
+            const stillPending = markerMatchesCloud(marker, cloud[field])
+                && !(clearedAt && marker.since <= clearedAt);
             (stillPending ? pendingFields : staleMarkers).push(field);
         }
+        // Superseded values are set aside, and take no part in a merge.
+        const setAside = new Set(staleMarkers.filter(differs));
+        let reason = 'Changes saved only on this device were replaced by newer data from the cloud.';
+        const current = { ...local };
+        for (const field of staleMarkers) delete current[field];
 
         let result;
         if (forceStrategy === 'remote') {
             // Explicit pull: honor it whatever the versions say.
             if (!holdsData(cloud)) throw new Error('The cloud has no links or categories to pull.');
             result = fromCloud();
+            const discarded = pendingFields.filter(differs);
+            if (discarded.length > 0) {
+                discarded.forEach(field => setAside.add(field));
+                reason = 'Force pull replaced changes saved only on this device.';
+            }
         } else if (forceStrategy === 'local') {
-            // Explicit push: honor it whatever the versions say.
+            // Explicit push: honor it whatever the versions say. Nothing local
+            // is dropped, so nothing is set aside.
             if (!holdsData(local)) throw new Error('This device has no local copy to push.');
             result = fromLocal();
+            setAside.clear();
         } else if (pendingFields.length > 0) {
             // This device's own newer edits: push them (an empty list too).
             const localLists = encodeLists(local);
@@ -538,20 +605,25 @@ export class SyncManager {
                 data: { ...fromCloud().data, ...pick(localLists, pendingFields) },
                 syncItems
             };
-        } else if (!metadata.local.version && holdsData(local)) {
-            if (!local.deviceId) {
-                // This device's first sync, and nothing shows it ever synced: its
-                // local data predates sync, so merge it in rather than lose it.
-                // With an empty cloud this is a plain migration.
-                debug('First sync on this device; merging local data into sync');
-                result = merged({ preferRemote: true });
+        } else if (!metadata.local.version && holdsData(current)) {
+            // This device's first sync. Its local data never came from the
+            // cloud — it predates sync, or is a save that fell back to local —
+            // so merge it in rather than lose it (with an empty cloud, a plain
+            // migration). Except when the cloud has no links and was cleared:
+            // a SYNC_CLEARED_AT_KEY stamp, or an empty area with no sync
+            // metadata on a device that has a deviceId (what the previous
+            // release's clear left). A deviceId alone proves nothing (the Sync
+            // tab creates one), so this can also be genuine local data: keep
+            // the cleared cloud and set the local links aside, visibly.
+            const cloudCleared = clearedAt !== undefined || (!metadata.remote.version && !!local.deviceId);
+            if (!hasEntries(cloud.links) && cloudCleared) {
+                debug('Cloud was cleared; setting this device\'s local links aside');
+                result = fromCloud();
+                ['links', 'categories'].filter(differs).forEach(field => setAside.add(field));
+                reason = 'This device had links that are not in the cloud. They were not uploaded because the cloud was cleared.';
             } else {
-                // A device that synced before (it has a deviceId) but has no
-                // sync metadata: the previous release's Clear sync data removed
-                // the metadata and left the snapshot. Respect the clear, and back
-                // the snapshot up before replacing it.
-                debug('Local snapshot left by an earlier clear; keeping the cloud');
-                result = fromCloud({ stashLocal: true });
+                debug('First sync on this device; merging local data into sync');
+                result = merged(current, { preferRemote: true });
             }
         } else if (!forceStrategy && metadata.local.version === metadata.remote.version) {
             debug('No version conflict; using sync storage data');
@@ -563,31 +635,69 @@ export class SyncManager {
             // device's snapshot) apply only when chosen explicitly.
             debug('Conflict detected, resolving with strategy:', strategy);
             if (strategy === 'local') result = fromLocal();
-            else if (strategy === 'merge') result = merged();
+            else if (strategy === 'merge') result = merged(current);
             else result = fromCloud();
         }
-        return { stashLocal: false, ...result, staleMarkers };
+        return {
+            ...result,
+            staleMarkers,
+            setAside: setAside.size > 0 ? { fields: [...setAside], reason } : null
+        };
     }
 
-    // Back up a local copy that is about to be replaced (see resolveSyncData).
-    async stashLocalCopy(local) {
+    // Keep local values a sync is about to drop without uploading: stored in
+    // chrome.storage.local[SYNC_BACKUP_KEY] before anything is replaced (throws
+    // if that fails). The copy is importable: the kept data with this device's
+    // values for the set-aside fields.
+    async storeSetAside({ fields, reason }, local, kept) {
+        const backup = {
+            links: parseStoredArray(fields.includes('links') ? local.links : kept.data.links) ?? [],
+            categories: parseStoredArray(fields.includes('categories') ? local.categories : kept.data.categories) ?? ['Default'],
+            ...pick(kept.cloud, SETTINGS_KEYS),
+            ...pick(local, SETTINGS_KEYS.filter(key => fields.includes(key))),
+            exportDate: new Date().toISOString(),
+            reason
+        };
         try {
-            await this.storeBackup({
-                links: parseStoredArray(local.links) ?? [],
-                categories: parseStoredArray(local.categories) ?? ['Default'],
-                ...pick(local, SETTINGS_KEYS),
-                exportDate: new Date().toISOString(),
-                reason: 'Local copy replaced by the cloud: left over from an earlier Clear sync data'
-            });
+            await this.storeBackup(backup);
         } catch (error) {
-            throw new Error(`Could not back up this device's local copy, so it was not replaced (${error.message}).`);
+            throw new Error(`Could not back up this device's local changes, so they were not replaced (${error.message}).`);
+        }
+        return backup;
+    }
+
+    // Offer a backup as a downloaded file (the manage page's Import reads its
+    // top-level links/categories/settings). Returns false when the download
+    // can't be started; a cancelled or blocked one can't be detected.
+    downloadBackupFile(backup) {
+        try {
+            const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `the-codex-backup-${new Date().toISOString().slice(0, 10)}.json`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+            return true;
+        } catch (error) {
+            debugWarn('Could not download the backup file:', error);
+            return false;
         }
     }
 
     // Save a backup to chrome.storage.local[SYNC_BACKUP_KEY]; the backup it
     // replaces moves to SYNC_PREVIOUS_BACKUP_KEY.
+    // An identical backup (e.g. a retried clear) is not stored again, so it
+    // can't rotate the older one out.
     async storeBackup(backup) {
         const { [SYNC_BACKUP_KEY]: previous } = await chrome.storage.local.get(SYNC_BACKUP_KEY);
+        const content = ({ exportDate, reason, ...rest }) => rest;
+        if (previous && sameStoredValue(content(previous), content(backup))) {
+            debug('Backup unchanged; keeping the stored ones');
+            return;
+        }
         const toStore = { [SYNC_BACKUP_KEY]: backup };
         if (previous) toStore[SYNC_PREVIOUS_BACKUP_KEY] = previous;
         await chrome.storage.local.set(toStore);
@@ -632,17 +742,25 @@ export class SyncManager {
 
         const localLinks = parseStoredArray(localData.links) ?? [];
         const syncLinks = parseStoredArray(syncData.links) ?? [];
+        const isLink = (link) => link !== null && typeof link === 'object';
         const sameLink = (a, b) => (a.id != null && a.id === b.id) || a.url === b.url;
         const remoteWins = preferRemote ?? metadata.remote.lastModified > metadata.local.lastModified;
 
-        const merged = localLinks.map(link => ({ ...link }));
+        // Each local link matches at most one remote link, so two distinct
+        // remote links sharing an id or URL can't collapse into one. Entries
+        // that aren't objects are kept as they are (validation reports them).
+        const merged = localLinks.map(link => (isLink(link) ? { ...link } : link));
         const localCount = merged.length;
+        const matched = new Set();
         syncLinks.forEach(link => {
-            const existing = merged.findIndex((m, i) => i < localCount && sameLink(m, link));
+            const existing = isLink(link)
+                ? merged.findIndex((m, i) => i < localCount && !matched.has(i) && isLink(m) && sameLink(m, link))
+                : -1;
             if (existing === -1) {
-                merged.push({ ...link });
-            } else if (remoteWins) {
-                merged[existing] = { ...link };
+                merged.push(isLink(link) ? { ...link } : link);
+            } else {
+                matched.add(existing);
+                if (remoteWins) merged[existing] = { ...link };
             }
         });
 
@@ -926,10 +1044,10 @@ export class SyncManager {
 
     // Back up before a clear: first to chrome.storage.local[SYNC_BACKUP_KEY]
     // (the previous backup moves to SYNC_PREVIOUS_BACKUP_KEY), then as a
-    // download in the manage page's export format so it can be restored with
-    // Import. The top level holds what Sync now would keep — this device's
-    // pending saves, a first sync's merge, otherwise the cloud — and the raw
-    // copies are kept as cloudCopy and deviceLocalCopy. Throws if the stored
+    // downloaded file. Its top level, which the manage page's Import restores,
+    // holds what Sync now would keep — this device's pending saves, a first
+    // sync's merge, otherwise the cloud — and both raw copies are included as
+    // cloudCopy and deviceLocalCopy. Throws if the stored
     // copy can't be written; resolves to the download's result. The stored
     // copy is what makes this safe: a cancelled or blocked download raises no
     // error, so the download alone can't gate the clear.
@@ -975,10 +1093,7 @@ export class SyncManager {
             throw new Error(`Could not save a backup on this device, so sync data was not cleared (${error.message}).`);
         }
 
-        // Lazy import: storageManager imports this module, so a static import
-        // would be circular.
-        const { exportLinks } = await import('./storageManager.js');
-        return exportLinks(backup);
+        return this.downloadBackupFile(backup);
     }
 
     // Clear all sync data (for troubleshooting). chrome.storage.sync is shared

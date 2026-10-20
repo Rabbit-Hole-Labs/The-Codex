@@ -96,8 +96,8 @@ async function init() {
 
         // Initialize sync status indicator
         syncStatusIndicator.init('sync-status-container');
-        syncManager.addSyncListener((event) => {
-            if (event === 'syncCleared') handleSyncCleared();
+        syncManager.addSyncListener((event, data) => {
+            if (event === 'syncCleared') handleSyncCleared(data);
         });
 
         // Load and apply current theme settings to management page
@@ -708,14 +708,24 @@ function setupCategoryReorder() {
 }
 
 // Start the application
-// After Clear sync data (on this device or another), drop the deleted links
-// from the list: it renders from filteredLinks, which nothing else recomputes
-// here. (The manage page's state handling is reworked in Phase 0.3.)
-export function handleSyncCleared() {
-    safeUpdateState(
-        { links: [], categories: ['Default'], filteredLinks: [], currentPage: 1 },
-        { validate: false, skipPersistence: true }
-    );
+// After Clear sync data, refresh the list: it renders from filteredLinks,
+// which nothing else recomputes here. A clear from this page empties the links;
+// a remote clear has already reached state.links through stateManager's
+// onChanged (with any newer edit from the same batch), so only the filtered
+// list is re-derived from it. (The manage page's state handling is reworked in
+// Phase 0.3.)
+export function handleSyncCleared({ remote = false } = {}) {
+    if (remote) {
+        const { links } = getState();
+        const category = document.getElementById('filterCategory')?.value ?? 'all';
+        const filteredLinks = category === 'all' ? [...links] : links.filter(link => link.category === category);
+        safeUpdateState({ filteredLinks, currentPage: 1 }, { validate: false, skipPersistence: true });
+    } else {
+        safeUpdateState(
+            { links: [], categories: ['Default'], filteredLinks: [], currentPage: 1 },
+            { validate: false, skipPersistence: true }
+        );
+    }
     UIManager.renderLinks(getState());
 }
 

@@ -18,7 +18,8 @@ export class SyncStatusIndicator {
             syncing: { text: 'Syncing...', class: 'sync-progress' },
             error: { text: 'Sync Error', class: 'sync-error' },
             offline: { text: 'Offline', class: 'sync-offline' },
-            pending: { text: 'Changes Pending', class: 'sync-pending' }
+            pending: { text: 'Changes Pending', class: 'sync-pending' },
+            attention: { text: 'Synced: see backup', class: 'sync-pending' }
         };
     }
 
@@ -180,7 +181,14 @@ export class SyncStatusIndicator {
                 this.updateStatus('syncing');
                 break;
             case 'syncComplete':
-                this.updateStatus('synced');
+                if (data?.warning) {
+                    // Local data was set aside instead of uploaded: say so.
+                    this.updateStatus('attention');
+                    this.statusElement.title = data.warning;
+                    console.warn('Sync:', data.warning);
+                } else {
+                    this.updateStatus('synced');
+                }
                 this.updateLastSyncTime(data.time);
                 break;
             case 'initialized':
@@ -197,10 +205,14 @@ export class SyncStatusIndicator {
                 this.showQuotaError(data);
                 break;
             case 'syncCleared':
-                // The pill runs on both the new tab and the manage page: drop
-                // this page's in-memory links too, so its next save can't
-                // re-upload what was just cleared.
-                updateState({ links: [], categories: ['Default'], filteredLinks: [] }, { validate: false, skipPersistence: true });
+                // A clear from this page: drop the page's in-memory links too
+                // (the pill runs on the new tab and the manage page), so its next
+                // save can't re-upload what was just cleared. A remote clear has
+                // already reached the state through stateManager's onChanged —
+                // with any newer edit from the same batch — so leave it alone.
+                if (!data?.remote) {
+                    updateState({ links: [], categories: ['Default'], filteredLinks: [] }, { validate: false, skipPersistence: true });
+                }
                 this.updateStatus('notsynced');
                 break;
         }
@@ -226,6 +238,7 @@ export class SyncStatusIndicator {
         iconElement.textContent = '';
         textElement.textContent = state.text;
         this.statusElement.className = `sync-status ${state.class}`;
+        this.statusElement.title = '';
     }
 
     // Update last sync time

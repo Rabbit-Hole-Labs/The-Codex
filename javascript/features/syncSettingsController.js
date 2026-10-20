@@ -546,6 +546,7 @@ export class SyncSettingsController {
                 break;
             case 'syncComplete':
                 this.addLogEntry('success', `Sync completed - ${data.itemsSynced || 0} items synced`);
+                if (data.warning) this.addLogEntry('warning', data.warning);
                 this.updateSyncStatus();
                 break;
             case 'syncError':

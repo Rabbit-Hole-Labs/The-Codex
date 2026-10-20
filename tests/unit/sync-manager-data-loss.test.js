@@ -179,7 +179,55 @@ describe('Regression: SyncManager must not revert cloud data', () => {
         });
     });
 
+    describe('mergeData', () => {
+        const meta = { local: { lastModified: 0 }, remote: { lastModified: 1 } };
+
+        test('two distinct cloud links sharing an id or URL both survive', () => {
+            const local = { links: JSON.stringify([{ id: 'x', name: 'A', url: 'https://a.example/', category: 'Default' }]) };
+            const cloud = { links: JSON.stringify([
+                { id: 'x', name: 'A', url: 'https://a.example/', category: 'Default' },
+                { id: 'x', name: 'B', url: 'https://b.example/', category: 'Default' },
+                { id: 'y', name: 'A again', url: 'https://a.example/', category: 'Default' }
+            ]) };
+
+            const merged = JSON.parse(syncManager.mergeData(local, cloud, meta).links);
+
+            expect(merged.map((l) => l.name).sort()).toEqual(['A', 'A again', 'B']);
+        });
+
+        test('does not throw on entries that are not objects', () => {
+            const local = { links: JSON.stringify([null, link(1)]) };
+            const cloud = { links: JSON.stringify([link(1), null]) };
+
+            expect(() => syncManager.mergeData(local, cloud, meta)).not.toThrow();
+            expect(JSON.parse(syncManager.mergeData(local, cloud, meta).links)).toEqual([null, link(1), null]);
+        });
+    });
+
     describe('first sync on a device that has never synced', () => {
+        test('does not bring back links deleted after a save that fell back', async () => {
+            fake.seed('sync', { links: JSON.stringify([link(1), link(2)]), categories: '["Default"]' });
+            await withSyncWritesFailing(() => saveLinks([link(1), link(2), link(3)]));
+            // Another device deletes link 2.
+            await chrome.storage.sync.set({ links: JSON.stringify([link(1)]) });
+
+            const result = await syncManager.syncData();
+
+            expect(result.success).toBe(true);
+            expect(stored(fake, 'sync', 'links')).toEqual([link(1)]);
+            expect(stored(fake, 'local', 'links')).toEqual([link(1)]);
+            expect(fake.dump('local')[SYNC_BACKUP_KEY].links).toEqual([link(1), link(2), link(3)]);
+        });
+
+        test('does not undo another device\'s clear with a save that fell back', async () => {
+            fake.seed('sync', { links: JSON.stringify([link(1), link(2)]), categories: '["Default"]' });
+            await withSyncWritesFailing(() => saveLinks([link(1), link(2), link(3)]));
+            await chrome.storage.sync.set({ links: '[]', categories: '["Default"]', syncClearedAt: Date.now() + 1 });
+
+            expect((await syncManager.syncData()).success).toBe(true);
+            expect(stored(fake, 'sync', 'links')).toEqual([]);
+        });
+
         test('merges its local-only links into a non-empty cloud instead of dropping them', async () => {
             fake.seed('sync', {
                 links: JSON.stringify([link(1), link(2)]),
@@ -329,11 +377,53 @@ describe('Regression: SyncManager must not revert cloud data', () => {
             deviceId: 'device_old'
         });
 
-        expect((await syncManager.syncData()).success).toBe(true);
+        const createObjectURL = URL.createObjectURL;
+        URL.createObjectURL = jest.fn(() => 'blob:set-aside');
+        const click = jest.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+        try {
+            const result = await syncManager.syncData();
 
+            expect(result.success).toBe(true);
+            expect(result.warning).toMatch(/not uploaded because the cloud was cleared/);
+            expect(events.find((e) => e.event === 'syncComplete').data.warning).toBe(result.warning);
+            expect(click).toHaveBeenCalledTimes(1); // downloaded as a backup file
+        } finally {
+            URL.createObjectURL = createObjectURL;
+            click.mockRestore();
+        }
         expect(fake.dump('sync').links).toBeUndefined();
         expect(stored(fake, 'local', 'links')).toEqual([]);
         expect(fake.dump('local')[SYNC_BACKUP_KEY].links).toEqual([link(1), link(2)]);
+    });
+
+    test('a deviceId created by the Sync tab does not stop a first sync from merging local links', async () => {
+        const local = [10, 11, 12, 13, 14].map(link);
+        fake.seed('sync', { links: JSON.stringify([link(1)]), categories: '["Default"]' });
+        fake.seed('local', { links: JSON.stringify(local), categories: '["Default"]' });
+        // Opening the Sync tab runs updateDiagnostics(), which creates a deviceId.
+        const { SyncSettingsController } = await import('../../javascript/features/syncSettingsController.js');
+        await new SyncSettingsController().updateDiagnostics();
+        expect(fake.dump('local').deviceId).toBeDefined();
+
+        const result = await syncManager.syncData();
+
+        expect(result.success).toBe(true);
+        expect(result.warning).toBeUndefined();
+        const ids = stored(fake, 'sync', 'links').map((l) => l.id).sort();
+        expect(ids).toEqual(['link_1', 'link_10', 'link_11', 'link_12', 'link_13', 'link_14']);
+        expect(stored(fake, 'local', 'links')).toHaveLength(6);
+    });
+
+    test('a never-synced device sets its local links aside when the cloud was cleared', async () => {
+        fake.seed('sync', { links: '[]', categories: '["Default"]', syncMetadata: { version: 0, lastModified: 0 }, syncClearedAt: 500 });
+        fake.seed('local', { links: JSON.stringify([link(1)]), categories: '["Default"]' });
+
+        const result = await syncManager.syncData();
+
+        expect(result.success).toBe(true);
+        expect(result.warning).toMatch(/cloud was cleared/);
+        expect(stored(fake, 'sync', 'links')).toEqual([]);
+        expect(fake.dump('local')[SYNC_BACKUP_KEY].links).toEqual([link(1)]);
     });
 
     test('force pull empties a local field the cloud does not have', async () => {
@@ -378,16 +468,65 @@ describe('Regression: SyncManager must not revert cloud data', () => {
             expect(fake.dump('local')['pendingSyncSince.theme']).toBeUndefined();
         });
 
-        test('lose to a newer cloud value written after them', async () => {
+        test('lose to a newer cloud value written after them, and are set aside', async () => {
             await withSyncWritesFailing(() => saveLinks([link(1), link(2)]));
             // Another device (or a later save here) writes the cloud afterwards.
             await chrome.storage.sync.set({ links: JSON.stringify([link(3)]) });
 
-            expect((await syncManager.syncData()).success).toBe(true);
+            const result = await syncManager.syncData();
 
+            expect(result.success).toBe(true);
+            expect(result.warning).toMatch(/replaced by newer data from the cloud/);
             expect(stored(fake, 'sync', 'links')).toEqual([link(3)]);
             expect(stored(fake, 'local', 'links')).toEqual([link(3)]);
+            expect(fake.dump('local')[SYNC_BACKUP_KEY].links).toEqual([link(1), link(2)]);
             expect(fake.dump('local')['pendingSyncSince.links']).toBeUndefined();
+        });
+
+        test('are still pushed when the cloud value was only re-serialized', async () => {
+            await withSyncWritesFailing(() => saveLinks([link(1), link(2)]));
+            // Same links, different key order.
+            const reordered = [link(1)].map(({ url, id, category, name }) => ({ url, id, category, name }));
+            await chrome.storage.sync.set({ links: JSON.stringify(reordered) });
+
+            expect((await syncManager.syncData()).success).toBe(true);
+            expect(stored(fake, 'sync', 'links')).toEqual([link(1), link(2)]);
+        });
+
+        test('with no recorded cloud value are treated as superseded and set aside', async () => {
+            fake.seed('local', { links: JSON.stringify([link(1), link(9)]), 'pendingSyncSince.links': { since: 1 } });
+
+            const result = await syncManager.syncData();
+
+            expect(result.warning).toBeDefined();
+            expect(stored(fake, 'sync', 'links')).toEqual([link(1)]);
+            expect(fake.dump('local')[SYNC_BACKUP_KEY].links).toEqual([link(1), link(9)]);
+        });
+
+        test('are set aside, not discarded, by a force pull', async () => {
+            await withSyncWritesFailing(() => saveLinks([link(1), link(2)]));
+
+            const result = await syncManager.forcePullFromRemote();
+
+            expect(result.success).toBe(true);
+            expect(result.warning).toMatch(/Force pull replaced/);
+            expect(stored(fake, 'local', 'links')).toEqual([link(1)]);
+            expect(fake.dump('local')[SYNC_BACKUP_KEY].links).toEqual([link(1), link(2)]);
+        });
+
+        test('are not uploaded over a clear from another device', async () => {
+            const { saveSettings } = await import('../../javascript/core-systems/storageManager.js');
+            await chrome.storage.sync.set({ theme: 'dark' });
+            await withSyncWritesFailing(() => saveSettings({ theme: 'light' }));
+            // The other device's clear: theme is reset to 'dark', i.e. unchanged here.
+            await chrome.storage.sync.set({ links: '[]', categories: '["Default"]', theme: 'dark', syncClearedAt: Date.now() + 1 });
+            await flushAsyncWork();
+
+            const result = await syncManager.syncData();
+
+            expect(result.success).toBe(true);
+            expect(fake.dump('sync').theme).toBe('dark');
+            expect(result.warning).toBeDefined();
         });
 
         test('stay pending when the push is over quota, and the failure is reported', async () => {
@@ -640,6 +779,8 @@ describe('Regression: SyncManager must not revert cloud data', () => {
 
             const backup = JSON.parse(await readBlob(backupBlob));
             expect(backup.links).toEqual([link(1), link(2)]); // what Import restores
+            expect(backup.cloudCopy.links).toEqual([link(1)]); // both copies are in the file
+            expect(backup.deviceLocalCopy.links).toEqual([link(1), link(2)]);
             const stored = fake.dump('local')[SYNC_BACKUP_KEY];
             expect(stored.cloudCopy.links).toEqual([link(1)]);
             expect(stored.deviceLocalCopy.links).toEqual([link(1), link(2)]);
@@ -667,6 +808,21 @@ describe('Regression: SyncManager must not revert cloud data', () => {
             await flushAsyncWork();
 
             expect(events.filter((e) => e.event === 'syncCleared')).toHaveLength(1);
+        });
+
+        test('retried failed clears do not rotate the earlier backup out', async () => {
+            fake.seed('sync', { links: JSON.stringify([link(1)]), categories: '["Default"]' });
+            URL.createObjectURL = jest.fn(() => 'blob:backup');
+            await syncManager.clearSyncData();
+            await saveLinks([link(2)]);
+
+            const failing = { message: 'This request exceeds the MAX_WRITE_OPERATIONS_PER_MINUTE quota.' };
+            await withSyncWritesFailing(() => syncManager.clearSyncData(), failing.message);
+            await withSyncWritesFailing(() => syncManager.clearSyncData(), failing.message);
+
+            const local = fake.dump('local');
+            expect(local[SYNC_BACKUP_KEY].links).toEqual([link(2)]);
+            expect(local[SYNC_PREVIOUS_BACKUP_KEY].links).toEqual([link(1)]);
         });
 
         test('aborts when the backup cannot be saved to chrome.storage.local', async () => {
@@ -752,6 +908,38 @@ describe('Regression: sync pill reflects manual sync failures', () => {
         expect(getState().links).toEqual([]);
         expect(getState().filteredLinks).toEqual([]);
         expect(indicator.statusElement.textContent).toContain('Not synced');
+    });
+
+    test('a remote clear arriving with a newer edit keeps that edit', async () => {
+        const { safeUpdateState, getState } = await import('../../javascript/core-systems/stateManager.js');
+        safeUpdateState({ links: [link(1)], filteredLinks: [link(1)] }, { validate: false, skipPersistence: true });
+
+        // This device was asleep: the other device's clear and its next edit
+        // arrive in one batch.
+        await chrome.storage.sync.set({
+            links: JSON.stringify([link(5)]),
+            categories: '["Default"]',
+            syncClearedAt: Date.now()
+        });
+        await flushAsyncWork();
+
+        expect(getState().links).toEqual([link(5)]);
+        expect(indicator.statusElement.textContent).toContain('Not synced');
+
+        document.body.innerHTML += `
+            <div id="linksContainer"></div>
+            <span id="pageInfo"></span><button id="prevPage"></button><button id="nextPage"></button>`;
+        const { handleSyncCleared } = await import('../../javascript/entry-points/manageScript.js');
+        handleSyncCleared({ remote: true });
+        expect(getState().filteredLinks).toEqual([link(5)]);
+        expect(document.getElementById('linksContainer').children).toHaveLength(1);
+    });
+
+    test('a sync that set local data aside says so on the pill', () => {
+        indicator.handleSyncEvent('syncComplete', { time: Date.now(), warning: 'Local links were set aside.' });
+
+        expect(indicator.statusElement.textContent).toContain('see backup');
+        expect(indicator.statusElement.title).toBe('Local links were set aside.');
     });
 
     test('the manage page drops the cleared rows from its list', async () => {
