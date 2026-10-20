@@ -55,7 +55,6 @@ The extension follows a modular architecture with clearly defined components:
 ## Development
 ### Build/Run Commands
 - Test suite: `npm test` (runs all tests with Jest)
-- Critical bug tests: `npm run test:critical-bugs`
 - Unit tests: `npm run test:unit`
 - Integration tests: `npm run test:integration`
 - Watch mode: `npm run test:watch`

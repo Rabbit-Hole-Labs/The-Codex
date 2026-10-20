@@ -78,6 +78,29 @@ describe('Storage Manager Functionality', () => {
       expect(result.view).toBe('list');
     });
 
+    test.each([
+      ['an object', { corrupted: 'x' }],
+      ['JSON that is not an array', '{"a":1}'],
+      ['invalid JSON', 'not json'],
+      ['a number', 42],
+      ['a boolean', true]
+    ])('should recover to empty links when stored links is %s', async (_label, corruptLinks) => {
+      // Corrupted links value alongside a valid setting
+      mockChromeStorage.sync.get.mockResolvedValue({
+        links: corruptLinks,
+        theme: 'light'
+      });
+      mockChromeStorage.local.get.mockResolvedValue({});
+
+      const { loadLinks } = await import('../../javascript/core-systems/storageManager.js');
+
+      const result = await loadLinks();
+
+      // Links reset to an empty array; other settings are kept
+      expect(result.links).toEqual([]);
+      expect(result.theme).toBe('light');
+    });
+
     test('should save valid link data to storage', async () => {
       // Mock successful save
       mockChromeStorage.sync.set.mockResolvedValue();

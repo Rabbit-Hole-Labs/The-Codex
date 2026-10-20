@@ -82,7 +82,7 @@ describe('uiManager', () => {
     beforeEach(async () => {
         setupTestDOM();
         jest.resetModules();
-        UIManager = await import('../javascript/core-systems/uiManager.js');
+        UIManager = await import('../../javascript/core-systems/uiManager.js');
     });
 
     describe('Pagination', () => {

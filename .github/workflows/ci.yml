@@ -1,0 +1,66 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  # PR runs share a group per PR ref, so a new push cancels the superseded run.
+  # Each push to main gets its own group (by commit SHA): main runs are never
+  # cancelled or queued behind one another.
+  group: ci-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  lint-and-test:
+    name: Lint and test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - run: npm ci
+      - run: npm run lint
+      - run: npm test -- --ci --coverage
+
+  manifest-version:
+    # Every PR must bump manifest.json "version" (normally the 4th component)
+    # above the base branch's, so a tester can tell from chrome://extensions
+    # which build they're running and parallel PRs can't move it backwards.
+    name: Manifest version bumped
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      # Default persist-credentials: the fetch below needs the token.
+      - uses: actions/checkout@v7
+
+      - name: Require manifest.json version above the base branch
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          git fetch --no-tags --depth=1 origin "$BASE_REF"
+          git show FETCH_HEAD:manifest.json > "$RUNNER_TEMP/base-manifest.json"
+          node - "$RUNNER_TEMP/base-manifest.json" <<'EOF'
+          const fs = require("fs");
+          const read = (file) => JSON.parse(fs.readFileSync(file, "utf8")).version;
+          const base = read(process.argv[2]);
+          const pr = read("manifest.json");
+          const [b, p] = [base, pr].map((v) => v.split(".").map(Number));
+          let cmp = 0;
+          for (let i = 0; i < 4 && cmp === 0; i++) cmp = Math.sign((p[i] || 0) - (b[i] || 0));
+          console.log(`${process.env.BASE_REF}: ${base}, this PR: ${pr}`);
+          if (cmp <= 0) {
+            console.log(`::error file=manifest.json::manifest.json version ${pr} must be greater than ${base} on ${process.env.BASE_REF}. Bump the 4th component.`);
+            process.exit(1);
+          }
+          EOF

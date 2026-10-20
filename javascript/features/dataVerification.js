@@ -49,7 +49,7 @@ export class DataVerification {
                 processed.parsed.links = JSON.parse(rawData.links);
                 processed.summary.linkCount = processed.parsed.links.length;
             }
-        } catch (e) {
+        } catch {
             processed.parsed.linksError = 'Failed to parse links';
         }
 
@@ -58,7 +58,7 @@ export class DataVerification {
                 processed.parsed.categories = JSON.parse(rawData.categories);
                 processed.summary.categoryCount = processed.parsed.categories.length;
             }
-        } catch (e) {
+        } catch {
             processed.parsed.categoriesError = 'Failed to parse categories';
         }
 
@@ -309,7 +309,7 @@ export class DataVerification {
                 // Validate URL format
                 try {
                     new URL(link.url);
-                } catch (e) {
+                } catch {
                     validation.errors.push(`Link ${index}: Invalid URL format: ${link.url}`);
                     validation.isValid = false;
                 }

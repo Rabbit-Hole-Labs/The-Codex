@@ -12,15 +12,12 @@ The Codex is a Chrome Extension (Manifest V3) that transforms the new tab page i
 ## Development Commands
 
 ```bash
-# Run all tests
+# Run all tests (tests/unit + tests/integration)
 npm test
 
 # Run specific test suites
 npm run test:unit        # Unit tests only
 npm run test:integration # Integration tests
-npm run test:e2e         # End-to-end tests
-npm run test:critical-bugs # Critical bug regression tests
-npm run test:regression  # Regression tests
 
 # Run a single test file
 npm test -- tests/unit/state-management.test.js
@@ -31,7 +28,7 @@ npm test -- --testNamePattern="should validate state"
 # Development
 npm run test:watch       # Watch mode for development
 npm run test:coverage    # Generate coverage report
-npm run lint             # Run ESLint
+npm run lint             # Run ESLint (CI gate: must exit 0)
 npm run lint:fix         # Auto-fix lint issues
 
 # Load extension in Chrome
@@ -152,8 +149,9 @@ CodexConsole.localData() // View raw local data
 
 ## Testing
 
-- Jest with jsdom environment for unit/integration tests
-- Mock Chrome APIs in [tests/setup.js](tests/setup.js)
+- Jest with jsdom environment; suites live in `tests/unit/` and `tests/integration/` (the two scripts together cover everything `npm test` runs)
+- [tests/setup.js](tests/setup.js) only exposes `jest` as a global — it does not mock Chrome APIs; each suite stubs `global.chrome` itself
 - Test files follow `*.test.js` naming
-- Real Chrome tests in [tests/real-chrome-tests/](tests/real-chrome-tests/) directory
-- ESLint configured with browser and Chrome extension globals
+- Real Chrome tests in [tests/real-chrome-tests/](tests/real-chrome-tests/) directory (manual harness; not run by npm scripts or CI)
+- ESLint ([eslint.config.mjs](eslint.config.mjs)) uses per-directory globals — extension pages: browser + `chrome`; service worker: serviceworker + `chrome`; tests: jest + browser + node; root tooling: node — and ignores `.claude/**` so nested worktrees are never linted
+- CI ([.github/workflows/ci.yml](.github/workflows/ci.yml)) runs `npm ci`, `npm run lint` and `npm test -- --ci --coverage` on every PR and push to `main`, and fails a PR whose `manifest.json` version is not greater than the base branch's

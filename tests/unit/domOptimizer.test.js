@@ -13,7 +13,7 @@ describe('domOptimizer', () => {
         container.id = 'links';
         document.body.appendChild(container);
 
-        const mod = await import('../javascript/features/domOptimizer.js');
+        const mod = await import('../../javascript/features/domOptimizer.js');
         domOptimizer = mod.default;
     });
 

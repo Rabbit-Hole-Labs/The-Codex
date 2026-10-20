@@ -28,7 +28,7 @@ describe('SyncStatusIndicator', () => {
     beforeEach(async () => {
         jest.resetModules();
         setupDOM();
-        const mod = await import('../javascript/features/syncStatusIndicator.js');
+        const mod = await import('../../javascript/features/syncStatusIndicator.js');
         SyncStatusIndicator = mod.SyncStatusIndicator;
     });
 
@@ -47,7 +47,7 @@ describe('SyncStatusIndicator', () => {
 
         test('states have text and class properties', () => {
             const indicator = new SyncStatusIndicator();
-            for (const [key, state] of Object.entries(indicator.states)) {
+            for (const state of Object.values(indicator.states)) {
                 expect(state).toHaveProperty('text');
                 expect(state).toHaveProperty('class');
                 expect(typeof state.text).toBe('string');
