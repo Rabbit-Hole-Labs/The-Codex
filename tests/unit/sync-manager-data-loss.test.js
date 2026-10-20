@@ -772,6 +772,96 @@ describe('Regression: SyncManager must not revert cloud data', () => {
             expect(fake.dump('sync').syncMetadata).toEqual(meta);
         });
 
+        test('a first sync with one write left is applied whole, data and version together', async () => {
+            fake.seed('sync', { links: JSON.stringify([link(9)]), categories: '["Default"]' });
+            fake.seed('local', { links: JSON.stringify([link(1), link(2)]), categories: '["Default"]' });
+            for (let i = 0; i < 119; i++) await chrome.storage.sync.set({ theme: 'dark' }); // 1 of 120 left
+
+            const result = await syncManager.syncData();
+
+            expect(result.success).toBe(true);
+            const local = fake.dump('local');
+            expect(local.syncMetadata.version).toBe(fake.dump('sync').syncMetadata.version);
+            expect(stored(fake, 'sync', 'links').map((l) => l.id).sort()).toEqual(['link_1', 'link_2', 'link_9']);
+        });
+
+        test('a first sync whose write is rejected changes nothing, local or cloud', async () => {
+            fake.seed('sync', { links: JSON.stringify([link(9)]), categories: '["Default"]' });
+            fake.seed('local', { links: JSON.stringify([link(1), link(2)]), categories: '["Default"]' });
+            for (let i = 0; i < 120; i++) await chrome.storage.sync.set({ theme: 'dark' }); // none left
+
+            const result = await syncManager.syncData();
+
+            expect(result.success).toBe(false);
+            const errors = events.filter((e) => e.event === 'syncError');
+            expect(errors).toHaveLength(1);
+            expect(errors[0].data.type).toBe('rate_limited');
+            expect(stored(fake, 'local', 'links')).toEqual([link(1), link(2)]);
+            expect(fake.dump('local').syncMetadata).toBeUndefined();
+            expect(fake.dump('local').deviceId).toBeUndefined();
+            expect(stored(fake, 'sync', 'links')).toEqual([link(9)]);
+            expect(fake.dump('sync').syncMetadata).toBeUndefined();
+        });
+
+        test('a force pull whose sync write is rejected leaves the pending edit in place', async () => {
+            fake.seed('sync', { links: JSON.stringify([link(1)]), categories: '["Default"]' });
+            await syncManager.syncData();
+            await withSyncWritesFailing(() => saveLinks([link(1), link(2)]));
+            const stampBefore = fake.dump('local').syncResolvedAt;
+
+            const result = await withSyncWritesFailing(
+                () => syncManager.forcePullFromRemote(),
+                'This request exceeds the MAX_WRITE_OPERATIONS_PER_MINUTE quota.'
+            );
+
+            expect(result.success).toBe(false);
+            expect(stored(fake, 'local', 'links')).toEqual([link(1), link(2)]);
+            expect(fake.dump('local')['pendingSyncSince.links']).toBeDefined();
+            expect(fake.dump('local').syncResolvedAt).toBe(stampBefore); // open pages aren't told to reload
+        });
+
+        test('force push does not upload a stale, unmarked local setting', async () => {
+            // e.g. written by an older build's fallback, with no pending marker
+            fake.seed('sync', { links: JSON.stringify([link(1)]), categories: '["Default"]', theme: 'dark' });
+            fake.seed('local', { links: JSON.stringify([link(1)]), categories: '["Default"]', theme: 'light' });
+
+            expect((await syncManager.forcePushToRemote()).success).toBe(true);
+            expect(fake.dump('sync').theme).toBe('dark');
+        });
+
+        test('a settings save that reaches sync drops the stale local copy of that setting', async () => {
+            const { saveSettings } = await import('../../javascript/core-systems/storageManager.js');
+            await withSyncWritesFailing(() => saveSettings({ theme: 'light' }));
+            expect(fake.dump('local').theme).toBe('light');
+
+            await saveSettings({ theme: 'dark' });
+
+            expect(fake.dump('local').theme).toBeUndefined();
+            expect(fake.dump('local')['pendingSyncSince.theme']).toBeUndefined();
+        });
+
+        test('a save that falls back while a sync runs is not overwritten by it', async () => {
+            const meta = { version: 100, lastModified: 100 };
+            fake.seed('sync', { links: JSON.stringify([link(1)]), categories: '["Default"]', syncMetadata: meta });
+            fake.seed('local', { links: JSON.stringify([link(1)]), categories: '["Default"]', syncMetadata: meta });
+            const realGet = chrome.storage.sync.get;
+            let injected = false;
+            chrome.storage.sync.get = async (keys) => {
+                const result = await realGet(keys);
+                if (!injected && [].concat(keys ?? []).includes('syncMetadata')) {
+                    injected = true;
+                    await new Promise((resolve) => setTimeout(resolve, 5));
+                    await withSyncWritesFailing(() => saveLinks([link(1), link(2)]));
+                }
+                return result;
+            };
+
+            expect((await syncManager.syncData()).success).toBe(true);
+
+            expect(stored(fake, 'local', 'links')).toEqual([link(1), link(2)]);
+            expect(fake.dump('local')['pendingSyncSince.links']).toBeDefined();
+        });
+
         test('a junk entry in the cloud links does not fail every Sync now', async () => {
             const meta = { version: 100, lastModified: 100 };
             fake.seed('sync', { links: JSON.stringify([null, link(1)]), categories: '["Default"]', syncMetadata: meta });

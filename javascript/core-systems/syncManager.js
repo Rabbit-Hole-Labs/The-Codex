@@ -48,6 +48,10 @@ function pick(source, keys) {
     return picked;
 }
 
+function newDeviceId() {
+    return `device_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+}
+
 // A stored value in a canonical form for comparing content: JSON-encoded
 // lists are parsed and object keys sorted, so a re-serialization with a
 // different key order still counts as the same value.
@@ -215,6 +219,9 @@ export const SYNC_PREVIOUS_BACKUP_KEY = 'syncBackupBeforeClearPrevious';
 // (kept apart from the clear backups, so one can't rotate the other out).
 export const SYNC_SET_ASIDE_KEY = 'syncSetAside';
 export const SYNC_PREVIOUS_SET_ASIDE_KEY = 'syncSetAsidePrevious';
+// A set-aside copy already downloaded for a sync that hasn't completed yet, so
+// a retry doesn't download it again; moved to SYNC_SET_ASIDE_KEY on success.
+const SYNC_SET_ASIDE_PARKED_KEY = 'syncSetAsideInProgress';
 // chrome.storage.sync key stamped by clearSyncData(); compared for equality only.
 export { SYNC_CLEARED_AT_KEY };
 
@@ -429,7 +436,7 @@ export class SyncManager {
             const { deviceId } = await chrome.storage.local.get(['deviceId']);
             if (deviceId) return deviceId;
 
-            const newId = `device_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+            const newId = newDeviceId();
             await chrome.storage.local.set({ deviceId: newId });
             return newId;
         } catch (error) {
@@ -460,6 +467,7 @@ export class SyncManager {
 
             // Read both storages. Abort if either fails: without knowing what
             // the cloud holds, any write could wipe it.
+            const readAt = Date.now();
             let inputs;
             try {
                 inputs = await this.readSyncInputs();
@@ -498,43 +506,33 @@ export class SyncManager {
                 throw validationError;
             }
 
-            // Local entries the cloud lacks, dropped without being uploaded, are
-            // stored and downloaded before they're replaced: no backup, no
-            // replacement.
-            if (resolution.setAside) {
-                await this.storeSetAside(resolution.setAside, inputs, resolvedData);
+            // Nothing changes until the cloud has accepted this sync. Local
+            // entries the cloud lacks that are dropped without being uploaded are
+            // downloaded first (no backup, no replacement). Then the changed
+            // fields and the new version go to sync in ONE write, which Chrome
+            // applies all-or-nothing: a rejected write (quota, rate limit) leaves
+            // both areas as they were. Only then is this device's copy updated.
+            const parkedSetAside = resolution.setAside
+                ? await this.prepareSetAside(resolution.setAside, inputs, resolvedData)
+                : null;
+
+            const now = Date.now();
+            const newMetadata = { version: now, lastModified: now, deviceId: inputs.local.deviceId ?? newDeviceId() };
+            const cloudResult = await this.writeCloud(resolution.syncItems, newMetadata);
+            if (!cloudResult.syncSaved) {
+                // Already reported: fail, with nothing changed.
+                throw Object.assign(new Error(cloudResult.error), { reported: true });
             }
 
-            // Write what changed in the cloud (nothing when the cloud wins: that
-            // write would only cost write quota and could overwrite a change
-            // another device made meanwhile), then this device's local copy.
-            const saveResult = await this.saveResolvedData(resolvedData, { syncItems: resolution.syncItems });
-            if (!saveResult.syncSaved) {
-                // The cloud was not updated (quota, rate limit, …; already
-                // reported): fail, keep pending markers, don't stamp metadata.
-                throw Object.assign(new Error(saveResult.error), { reported: true });
+            if (parkedSetAside) {
+                await this.commitSetAside(parkedSetAside);
             }
-
-            // Local links/categories now match what was kept, and pushed,
-            // superseded or set-aside fields are no longer pending.
-            await this.settleLocalFields([
-                'links', 'categories', ...resolution.settled, ...Object.keys(resolution.syncItems ?? {})
-            ]);
-
-            // Update sync metadata. If it can't be written, the versions would
-            // disagree with what happened: report the sync as failed.
-            const metadataResult = await this.updateSyncMetadata('both');
-            if (!metadataResult.success) {
-                const event = syncStorageErrorEvent(metadataResult.error);
-                throw new Error(`Could not record the sync: ${event.message} (${metadataResult.error})`);
-            }
-
-            // Update last sync time, and tell every open page to reload what
-            // storage holds now (stateManager): when the cloud won there was no
-            // sync write, so no sync onChanged reaches pages still holding
-            // discarded local data.
-            this.lastSyncTime = Date.now();
-            await chrome.storage.local.set({ lastSyncTime: this.lastSyncTime, [SYNC_RESOLVED_AT_KEY]: Date.now() });
+            // Local links/categories become what was kept, and pushed,
+            // superseded or set-aside fields stop being pending.
+            await this.writeLocal(resolvedData, newMetadata, {
+                readAt,
+                settle: ['links', 'categories', ...resolution.settled, ...Object.keys(resolution.syncItems ?? {})]
+            });
 
             const syncedItemsCount = (parseStoredArray(resolvedData.links) ?? []).length;
             const warning = resolution.setAside
@@ -637,12 +635,15 @@ export class SyncManager {
             data: { links: cloud.links ?? '[]', categories: cloud.categories ?? '["Default"]' },
             syncItems: null
         });
-        // This device's whole local copy: lists plus any settings it holds
-        // (only ever written by a save that fell back to local).
+        // This device's local copy: its lists plus the settings it holds that
+        // are still marked pending. An unmarked local setting is stale (its
+        // save reached sync later, or an older build wrote it) and would revert
+        // a newer choice on every device.
+        const markedSettings = SETTINGS_KEYS.filter(key => local[pendingSyncKey(key)] !== undefined);
         const fromLocal = () => ({
             source: 'local',
             data: encodeLists(local),
-            syncItems: { ...encodeLists(local), ...pick(local, SETTINGS_KEYS) }
+            syncItems: { ...encodeLists(local), ...pick(local, markedSettings) }
         });
         const merged = (localSide, options) => {
             const data = this.mergeData(localSide, cloud, metadata, options);
@@ -682,7 +683,7 @@ export class SyncManager {
             settled.push(...pendingFields);
         } else if (forceStrategy === 'local') {
             // Explicit push: honor it whatever the versions say.
-            if (!holdsData(local) && Object.keys(pick(local, SETTINGS_KEYS)).length === 0) {
+            if (!holdsData(local) && Object.keys(pick(local, markedSettings)).length === 0) {
                 throw new Error('This device has no local copy to push.');
             }
             result = fromLocal();
@@ -769,29 +770,46 @@ export class SyncManager {
         };
     }
 
-    // Keep local entries a sync is about to drop without uploading, before
-    // anything is replaced: downloaded as a backup file, then stored in
-    // chrome.storage.local[SYNC_SET_ASIDE_KEY]. Throws if either step fails,
-    // so nothing is replaced without a copy the user can restore. A retry
-    // with the same content (already downloaded and stored) does neither again.
-    async storeSetAside(setAside, inputs, kept) {
+    // Before a sync drops local entries without uploading them: download a copy
+    // (throws if that fails, so nothing is replaced). The copy is parked in
+    // chrome.storage.local, so a retry after a rejected sync write doesn't
+    // download it again; commitSetAside() keeps it once the sync went through.
+    async prepareSetAside(setAside, inputs, kept) {
         const backup = {
             ...this.setAsideCopy(setAside, inputs, kept),
             exportDate: new Date().toISOString(),
             reason: setAside.reason
         };
-        const { [SYNC_SET_ASIDE_KEY]: latest } = await chrome.storage.local.get(SYNC_SET_ASIDE_KEY);
-        if (latest?.downloaded && sameStoredValue(backupContent(latest), backupContent(backup))) {
-            debug('Set-aside copy unchanged and already downloaded');
-            return;
+        const { [SYNC_SET_ASIDE_PARKED_KEY]: parked } = await chrome.storage.local.get(SYNC_SET_ASIDE_PARKED_KEY);
+        if (parked?.downloaded && sameStoredValue(backupContent(parked), backupContent(backup))) {
+            debug('Set-aside copy already downloaded for an earlier attempt');
+            return parked;
         }
         if (!this.downloadBackupFile(backup)) {
             throw new Error('Could not download a backup of this device\'s local changes, so they were not replaced.');
         }
+        const downloaded = { ...backup, downloaded: true };
         try {
-            await this.storeBackup({ ...backup, downloaded: true }, { key: SYNC_SET_ASIDE_KEY, previousKey: SYNC_PREVIOUS_SET_ASIDE_KEY });
+            await chrome.storage.local.set({ [SYNC_SET_ASIDE_PARKED_KEY]: downloaded });
+        } catch (error) {
+            debugWarn('Could not park the set-aside copy (a retry would download it again):', error);
+        }
+        return downloaded;
+    }
+
+    // After the sync write succeeded: keep the set-aside copy in
+    // chrome.storage.local[SYNC_SET_ASIDE_KEY] (rotating the previous one)
+    // before this device's local copy is replaced.
+    async commitSetAside(backup) {
+        try {
+            await this.storeBackup(backup, { key: SYNC_SET_ASIDE_KEY, previousKey: SYNC_PREVIOUS_SET_ASIDE_KEY });
         } catch (error) {
             throw new Error(`Could not back up this device's local changes, so they were not replaced (${error.message}).`);
+        }
+        try {
+            await chrome.storage.local.remove(SYNC_SET_ASIDE_PARKED_KEY);
+        } catch (error) {
+            debugWarn('Could not clear the parked set-aside copy:', error);
         }
     }
 
@@ -917,77 +935,64 @@ export class SyncManager {
         return mergedData;
     }
 
-    // Write `syncItems` to sync storage (if any), then the resolved lists to
-    // this device's local copy. Returns { syncSaved: boolean, error?: string };
-    // syncSaved is false when the sync write failed, so callers can report the
-    // sync as failed.
-    async saveResolvedData(data, { syncItems = null } = {}) {
+    // The cloud side of a sync: the changed fields plus the new version in one
+    // chrome.storage.sync.set, which Chrome applies all-or-nothing. Fields not
+    // in syncItems are left as they are. Returns { syncSaved, error }.
+    async writeCloud(syncItems, metadata) {
         try {
-            debug('Saving resolved data...', {
-                hasLinks: !!data.links,
-                hasCategories: !!data.categories,
-                syncKeys: Object.keys(syncItems ?? {})
-            });
-
-            // Sync first: it is the primary storage and the copy every device
-            // reads. If it fails, the sync did not happen, and this device's
-            // local data (e.g. saves that fell back to local) stays untouched.
-            // Only defined fields are written: a missing one is left as is.
-            const toSync = pick(syncItems, Object.keys(syncItems ?? {}));
-            if (Object.keys(toSync).length > 0) {
-                try {
-                    await chrome.storage.sync.set(toSync);
-                    debug('Data saved to sync storage successfully');
-                } catch (syncError) {
-                    debugWarn('Failed to save to sync storage:', {
-                        errorMessage: syncError.message,
-                        errorStack: syncError.stack
-                    });
-                    const event = syncStorageErrorEvent(syncError.message);
-                    this.reportSyncError(syncError, event);
-                    return { syncSaved: false, error: `${event.message} (${syncError.message})` };
-                }
-            }
-
-            // Then this device's local copy, all of it: a field the result
-            // lacks becomes empty rather than keeping a stale value.
-            try {
-                await chrome.storage.local.set({
-                    links: data.links ?? JSON.stringify([]),
-                    categories: data.categories ?? JSON.stringify(['Default'])
-                });
-                debug('Data saved to local storage successfully');
-            } catch (localError) {
-                debugError('Failed to save to local storage:', {
-                    errorMessage: localError.message,
-                    errorStack: localError.stack
-                });
-                this.reportSyncError(localError, {
-                    type: 'local_storage_error',
-                    message: 'Failed to save data to local storage',
-                    details: localError.message,
-                    recommendation: 'Please check your storage permissions and available space.'
-                });
-                throw localError;
-            }
-
+            await chrome.storage.sync.set({ ...pick(syncItems, Object.keys(syncItems ?? {})), syncMetadata: metadata });
+            debug('Sync data and version saved to sync storage');
             return { syncSaved: true };
-        } catch (error) {
-            debugError('Failed to save resolved data:', {
-                errorMessage: error.message,
-                errorStack: error.stack,
-                data: data
+        } catch (syncError) {
+            debugWarn('Failed to save to sync storage:', {
+                errorMessage: syncError.message,
+                errorStack: syncError.stack
             });
-            if (!error.reported) {
-                this.reportSyncError(error, {
-                    type: 'save_failure',
-                    message: 'Failed to save sync data',
-                    details: error.message,
-                    recommendation: 'Please try again later. If the problem persists, contact support.'
-                });
-            }
-            throw error; // Re-throw to be handled by caller
+            const event = syncStorageErrorEvent(syncError.message);
+            this.reportSyncError(syncError, event);
+            return { syncSaved: false, error: `${event.message} (${syncError.message})` };
         }
+    }
+
+    // This device's side, once the cloud has accepted the sync: the kept lists
+    // (a field the result lacks becomes empty rather than stale) and the new
+    // version in one write; then the settled fields; then the stamp that makes
+    // open pages reload. A save that fell back to local while this sync ran is
+    // newer than what the sync read, so that field is left alone, marker
+    // included, for the next sync.
+    async writeLocal(data, metadata, { readAt, settle }) {
+        const markers = await chrome.storage.local.get(PENDING_SYNC_FIELDS.map(pendingSyncKey));
+        const savedDuringSync = PENDING_SYNC_FIELDS.filter(field => (markers[pendingSyncKey(field)]?.since ?? 0) > readAt);
+        const lists = {
+            links: data.links ?? JSON.stringify([]),
+            categories: data.categories ?? JSON.stringify(['Default'])
+        };
+        for (const field of savedDuringSync) delete lists[field];
+
+        try {
+            await chrome.storage.local.set({ ...lists, syncMetadata: metadata, deviceId: metadata.deviceId });
+            debug('Data saved to local storage successfully');
+        } catch (localError) {
+            debugError('Failed to save to local storage:', {
+                errorMessage: localError.message,
+                errorStack: localError.stack
+            });
+            this.reportSyncError(localError, {
+                type: 'local_storage_error',
+                message: 'Failed to save data to local storage',
+                details: localError.message,
+                recommendation: 'Please check your storage permissions and available space.'
+            });
+            throw localError;
+        }
+
+        await this.settleLocalFields(settle.filter(field => !savedDuringSync.includes(field)));
+
+        // Tell every open page to reload what storage holds now
+        // (stateManager): when the cloud won there was no data written to
+        // sync, so no sync onChanged reaches pages still holding discarded data.
+        this.lastSyncTime = Date.now();
+        await chrome.storage.local.set({ lastSyncTime: this.lastSyncTime, [SYNC_RESOLVED_AT_KEY]: this.lastSyncTime });
     }
 
     // Validate sync data structure with enhanced validation

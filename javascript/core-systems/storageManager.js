@@ -27,10 +27,12 @@ async function pendingSyncMarkers(fields) {
     return markers;
 }
 
-// A field that reached sync is no longer pending.
-async function clearPendingSync(fields) {
+// A field that reached sync is no longer pending. For settings, also drop the
+// local copy a failed save left behind: it is stale now, and a later Force
+// push must not upload it over this newer value.
+async function clearPendingSync(fields, { localCopies = false } = {}) {
     try {
-        await chrome.storage.local.remove(fields.map(pendingSyncKey));
+        await chrome.storage.local.remove([...fields.map(pendingSyncKey), ...(localCopies ? fields : [])]);
     } catch (error) {
         debugWarn('Failed to clear pending-sync markers', { errorMessage: error.message });
     }
@@ -316,7 +318,7 @@ export async function saveSettings(settings) {
         // Try sync storage first, fallback to local
         try {
             await chrome.storage.sync.set(dataToSave);
-            await clearPendingSync(Object.keys(dataToSave));
+            await clearPendingSync(Object.keys(dataToSave), { localCopies: true });
         } catch (syncError) {
             debugWarn('Sync storage failed for settings, falling back to local storage', {
                 errorMessage: syncError.message,
