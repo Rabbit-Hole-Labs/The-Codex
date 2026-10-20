@@ -790,6 +790,19 @@ describe('package-extension', () => {
                 .toEqual([]);
         });
 
+        test("a lone '*' source matches HTTP(S), WS(S) and the extension's own URLs, not data: or blob:", () => {
+            const csp = parseCsp('img-src *; connect-src *');
+            expect(cspAllows(csp, 'img-src', 'https://x.example/a.png')).toBe(true);
+            expect(cspAllows(csp, 'img-src', 'http://x.example:8080/a.png')).toBe(true);
+            expect(cspAllows(csp, 'connect-src', 'wss://x.example/socket')).toBe(true);
+            expect(cspAllows(csp, 'img-src', 'chrome-extension://bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb/x.png')).toBe(true);
+            expect(cspAllows(csp, 'img-src', 'data:image/png;base64,AAAA')).toBe(false);
+            expect(cspAllows(csp, 'img-src', 'blob:https://x.example/0')).toBe(false);
+            writeFixture(root, fixtureFiles({ 'manifest.json': withCsp(CSP.replace("img-src 'self' data: https://*.cdn.example", 'img-src * data:')),
+                'popup.html': page('<img src="https://x.example/a.png"><img src="assets/icons/icon128.png">') }));
+            expect(() => buildPackage({ root, outDir: out })).not.toThrow();
+        });
+
         test('a source without a port only matches the default port', () => {
             const csp = parseCsp('img-src https://cdn.jsdelivr.net https://alt.example:8443');
             expect(cspAllows(csp, 'img-src', 'https://cdn.jsdelivr.net/x.png')).toBe(true);

@@ -896,6 +896,9 @@ export function cspAllows(csp, directive, url) {
 function sourceMatches(source, parsed) {
     const scheme = parsed.protocol;
     if (source.startsWith("'")) return false; // 'self' (the extension), 'none', nonces, hashes, keywords
+    // A lone '*' matches HTTP(S) and WS(S) URLs and the page's own scheme, chrome-extension: here
+    // (CSP3; Chrome includes ws/wss). data:, blob: and other schemes must be listed.
+    if (source === '*') return /^(https?|wss?|chrome-extension):$/.test(scheme);
     if (/^[a-z][a-z0-9+.-]*:$/.test(source)) {
         return source === scheme || (source === 'http:' && scheme === 'https:') || (source === 'ws:' && scheme === 'wss:');
     }
@@ -936,7 +939,7 @@ function cspAllowsSelf(csp, directive, path, extensionId) {
     const sources = sourcesFor(csp, directive);
     if (!sources) return true;
     const url = new URL(`chrome-extension://${extensionId || 'unknown-extension-id'}/${path.split('/').map(encodeURIComponent).join('/')}`);
-    return sources.some((source) => source === "'self'" || source === 'chrome-extension:' ||
+    return sources.some((source) => source === "'self'" || source === '*' || source === 'chrome-extension:' ||
         (source.startsWith('chrome-extension://') && sourceMatches(source, url)));
 }
 
