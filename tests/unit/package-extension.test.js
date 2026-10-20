@@ -680,6 +680,39 @@ describe('package-extension', () => {
         expect(buildError(dnr(good, { enabled: 'yes' }))).toContain('declarative_net_request.rule_resources[0] needs a string id, a boolean enabled and a string path');
     });
 
+    test('a classic <script> given as the extension\'s own URL must compile as a classic script', () => {
+        const id = extensionIdFromKey(MANIFEST.key);
+        expect(buildError({ 'popup.html': `<script src="chrome-extension://${id}/javascript/features/side.js"></script><script type="module" src="javascript/entry-points/popup.js"></script>`,
+            'javascript/features/side.js': 'export const x = 1;\n' }))
+            .toContain('javascript/features/side.js runs as a classic script');
+    });
+
+    test('legacy numeric references in the C1 range map like browsers do (&#x80; is €)', () => {
+        writeFixture(root, fixtureFiles({ 'assets/\u20ac.png': 'png', 'popup.html': '<img src="assets/&#x80;.png"><script type="module" src="javascript/entry-points/popup.js"></script>' }));
+        expect(buildPackage({ root, outDir: out }).warnings).toEqual([]);
+    });
+
+    test('modules must import JavaScript (or JSON/CSS with a matching type attribute)', () => {
+        expect(buildError({ 'javascript/features/a.js': "import './payload.txt';\nexport const a = 1;\n", 'javascript/features/payload.txt': 'x' }))
+            .toContain("javascript/features/a.js: module \"./payload.txt\" resolves to javascript/features/payload.txt, which Chrome's module loader rejects (not JavaScript)");
+        writeFixture(root, fixtureFiles({ 'javascript/features/a.js': "import data from './data.json' with { type: 'json' };\nexport const a = data;\n", 'javascript/features/data.json': '{}' }));
+        expect(() => buildPackage({ root, outDir: out })).not.toThrow();
+    });
+
+    test('an MV3 background needs a service worker', () => {
+        expect(validateManifest({ ...MANIFEST, background: { type: 'module' } })).toContain('background.service_worker is required in MV3');
+    });
+
+    test('<meta http-equiv=refresh> targets are checked', () => {
+        expect(buildError({ 'popup.html': '<meta http-equiv="refresh" content="0; url=missing.html"><script type="module" src="javascript/entry-points/popup.js"></script>' }))
+            .toContain('popup.html references missing.html');
+    });
+
+    test('only ASCII whitespace is trimmed around URLs (U+00A0 is part of the URL)', () => {
+        expect(buildError({ 'popup.html': '<img src="&nbsp;assets/icons/icon128.png"><script type="module" src="javascript/entry-points/popup.js"></script>' }))
+            .toContain('popup.html references \u00a0assets/icons/icon128.png');
+    });
+
     test('a scalar or non-string icon value is rejected instead of dropped', () => {
         expect(buildError({ 'manifest.json': JSON.stringify({ ...MANIFEST, action: { default_popup: 'popup.html', default_icon: 5 } }) }))
             .toContain('manifest "action" has an unexpected shape');
@@ -923,6 +956,31 @@ describe('package-extension', () => {
             expect(message).toContain('popup.html loads https://evil.example/post, which the manifest CSP blocks (form-action)');
             writeFixture(root, fixtureFiles({ 'manifest.json': withCsp("default-src 'self'; script-src 'self'; object-src 'none'; img-src 'self' data:; style-src 'self' https://fonts.example.com"), 'popup.html': page('<form action="https://ok.example/post"></form>') }));
             expect(() => buildPackage({ root, outDir: out })).not.toThrow(); // default-src doesn't govern form-action
+        });
+
+        test("other extensions' URLs are checked against the CSP", () => {
+            expect(buildError({ 'manifest.json': withCsp(CSP.replace("img-src 'self' data:", "img-src 'self'")), 'popup.html': page('<img src="chrome-extension://bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb/x.png">') }))
+                .toContain('popup.html loads chrome-extension://bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb/x.png, which the manifest CSP blocks (img-src)');
+        });
+
+        test('inline styles allowed by a nonce or hash pass; style attributes need unsafe-hashes', () => {
+            const css = '.a { color: red }';
+            const attrCss = 'color: red';
+            const hash = (text) => createHash('sha256').update(text).digest('base64');
+            writeFixture(root, fixtureFiles({ 'manifest.json': withCsp(CSP.replace("style-src 'self'", "style-src 'self' 'nonce-Ab9'")), 'popup.html': page(`<style nonce="Ab9">${css}</style>`) }));
+            expect(() => buildPackage({ root, outDir: out })).not.toThrow();
+            writeFixture(root, fixtureFiles({ 'manifest.json': withCsp(CSP.replace("style-src 'self'", `style-src 'self' 'unsafe-hashes' 'sha256-${hash(attrCss)}'`)), 'popup.html': page(`<div style="${attrCss}"></div>`) }));
+            expect(() => buildPackage({ root, outDir: out })).not.toThrow();
+            expect(buildError({ 'manifest.json': withCsp(CSP.replace("style-src 'self'", `style-src 'self' 'sha256-${hash(attrCss)}'`)), 'popup.html': page(`<div style="${attrCss}"></div>`) }))
+                .toContain('popup.html uses inline styles');
+        });
+
+        test('element-specific directives (script-src-elem) take precedence', () => {
+            expect(buildError({
+                'manifest.json': JSON.stringify({ ...MANIFEST, sandbox: { pages: ['assets/s.html'] }, content_security_policy: { sandbox: "sandbox allow-scripts; script-src 'self'; script-src-elem 'none'" } }),
+                'assets/s.html': '<script src="s.js"></script>',
+                'assets/s.js': 'console.log(1);\n'
+            })).toContain("assets/s.html loads assets/s.js, which the sandbox CSP blocks (script-src doesn't allow 'self')");
         });
 
         test('content_security_policy must be the MV3 object form', () => {
