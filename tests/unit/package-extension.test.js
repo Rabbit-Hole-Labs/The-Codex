@@ -18,6 +18,7 @@ import {
     cspAllows,
     cssRefs,
     cssUnescape,
+    extensionIdFromKey,
     parseCsp,
     scanHtml,
     srcsetUrls,
@@ -561,6 +562,45 @@ describe('package-extension', () => {
         })).toContain('assets/Options.HTML references assets/missing.png');
     });
 
+    test('the extension ID is derived from the manifest key like Chrome does', () => {
+        const manifest = JSON.parse(readFileSync(join(REPO_ROOT, 'manifest.json'), 'utf8'));
+        expect(extensionIdFromKey(manifest.key)).toBe('dimphibhkgnildpnlapckpgnonmaiddj');
+        expect(extensionIdFromKey(undefined)).toBeNull();
+    });
+
+    test('numeric character references without a semicolon are decoded', () => {
+        writeFixture(root, fixtureFiles({
+            'popup.html': '<img src="assets&#47icons&#x2Ficon128.png"><script type="module" src="javascript/entry-points/popup.js"></script>'
+        }));
+        expect(buildPackage({ root, outDir: out }).warnings).toEqual([]);
+    });
+
+    test("scheme-relative and own chrome-extension:// URLs are checked as this extension's files", () => {
+        const id = extensionIdFromKey(MANIFEST.key);
+        const message = buildError({
+            'popup.html': `<script type="module" src="//${id}/javascript/missing.js"></script><img src="chrome-extension://${id}/assets/gone.png">` +
+                '<script type="module" src="javascript/entry-points/popup.js"></script>'
+        });
+        expect(message).toContain('popup.html references javascript/missing.js');
+        expect(message).toContain('popup.html references assets/gone.png');
+    });
+
+    test('SVG xlink:href references are checked; same-document #fragments are not', () => {
+        const message = buildError({
+            'popup.html': '<svg><image xlink:href="assets/missing.png"/><use xlink:href="#icon"/><use xlink:href="assets/sprite.svg#i"/></svg>' +
+                '<script type="module" src="javascript/entry-points/popup.js"></script>'
+        });
+        expect(message).toContain('popup.html references assets/missing.png');
+        expect(message).toContain('popup.html references assets/sprite.svg');
+        expect(message).not.toContain('#icon');
+    });
+
+    test('permission fields must be arrays of strings', () => {
+        expect(validateManifest({ ...MANIFEST, permissions: 'storage' })).toEqual(['permissions must be an array of strings']);
+        expect(validateManifest({ ...MANIFEST, host_permissions: [5] })).toEqual(['host_permissions must be an array of strings']);
+        expect(validateManifest({ ...MANIFEST, permissions: ['storage'], optional_host_permissions: ['https://*/*'] })).toEqual([]);
+    });
+
     test('a scalar or non-string icon value is rejected instead of dropped', () => {
         expect(buildError({ 'manifest.json': JSON.stringify({ ...MANIFEST, action: { default_popup: 'popup.html', default_icon: 5 } }) }))
             .toContain('manifest "action" has an unexpected shape');
@@ -730,6 +770,34 @@ describe('package-extension', () => {
             const csp = parseCsp('img-src https://CDN.example/Images/');
             expect(cspAllows(csp, 'img-src', 'https://cdn.example/Images/icon.png')).toBe(true);
             expect(cspAllows(csp, 'img-src', 'https://cdn.example/images/icon.png')).toBe(false);
+        });
+
+        test("chrome-extension:// sources must match the file's own URL", () => {
+            const id = extensionIdFromKey(MANIFEST.key);
+            const csp = (img) => withCsp(CSP.replace("img-src 'self' data:", `img-src ${img} data:`));
+            expect(buildError({ 'manifest.json': csp(`chrome-extension://${id}/allowed/`), 'popup.html': page('<img src="assets/icons/icon128.png">') }))
+                .toContain("popup.html loads assets/icons/icon128.png, which the manifest CSP blocks (img-src doesn't allow 'self')");
+            writeFixture(root, fixtureFiles({ 'manifest.json': csp(`chrome-extension://${id}/assets/`), 'popup.html': page('<img src="assets/icons/icon128.png">') }));
+            expect(() => buildPackage({ root, outDir: out })).not.toThrow();
+        });
+
+        test('custom sandbox policies keep the sandbox directive, without allow-same-origin', () => {
+            expect(validateManifest({ ...MANIFEST, content_security_policy: { sandbox: "script-src 'self' 'unsafe-inline'" } }))
+                .toContain('content_security_policy.sandbox must include the sandbox directive');
+            expect(validateManifest({ ...MANIFEST, content_security_policy: { sandbox: 'sandbox allow-scripts allow-same-origin' } }))
+                .toContain('content_security_policy.sandbox may not use allow-same-origin');
+            expect(validateManifest({ ...MANIFEST, content_security_policy: { sandbox: "sandbox allow-scripts; script-src 'self'" } })).toEqual([]);
+        });
+
+        test('imports inside inline scripts are checked (e.g. in sandbox pages, where inline script runs)', () => {
+            expect(buildError({
+                'manifest.json': JSON.stringify({ ...MANIFEST, sandbox: { pages: ['assets/sandbox.html'] } }),
+                'assets/sandbox.html': "<script type=\"module\">import './missing.js'; import('./lazy-missing.js');</script>"
+            })).toEqual(expect.stringContaining('assets/sandbox.html references assets/missing.js'));
+            expect(buildError({
+                'manifest.json': JSON.stringify({ ...MANIFEST, sandbox: { pages: ['assets/sandbox.html'] } }),
+                'assets/sandbox.html': "<script type=\"module\">import('./lazy-missing.js');</script>"
+            })).toContain('assets/sandbox.html references assets/lazy-missing.js');
         });
 
         test('content_security_policy must be the MV3 object form', () => {
