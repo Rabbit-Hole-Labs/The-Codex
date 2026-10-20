@@ -4,6 +4,7 @@
  */
 
 import { validateLink } from '../features/securityUtils.js';
+import { SETTING_ENUMS, MAX_CATEGORY_LENGTH } from './storageFormat.js';
 
 // State validation schemas
 const stateSchemas = {
@@ -21,19 +22,19 @@ const stateSchemas = {
             }
         }
     },
+    // Setting enums live in storageFormat.js so load paths can coerce stored
+    // values against the exact lists validated here (see coerceSettings).
     theme: {
         type: 'string',
-        enum: ['dark', 'light']
+        enum: SETTING_ENUMS.theme
     },
     colorTheme: {
-        // Accent preset. 'default' is kept for backward-compat with data
-        // saved before the accent presets replaced the old color themes.
         type: 'string',
-        enum: ['default', 'slate', 'blue', 'teal', 'violet', 'amber']
+        enum: SETTING_ENUMS.colorTheme
     },
     view: {
         type: 'string',
-        enum: ['grid', 'list']
+        enum: SETTING_ENUMS.view
     },
     searchTerm: {
         type: 'string',
@@ -41,14 +42,14 @@ const stateSchemas = {
     },
     defaultTileSize: {
         type: 'string',
-        enum: ['compact', 'small', 'medium', 'large', 'square', 'wide', 'tall', 'giant']
+        enum: SETTING_ENUMS.defaultTileSize
     },
     categories: {
         type: 'array',
         items: {
             type: 'string',
             minLength: 1,
-            maxLength: 50
+            maxLength: MAX_CATEGORY_LENGTH
         }
     }
 };
@@ -551,6 +552,22 @@ const JSON_ENCODED_FIELDS = ['links', 'categories'];
 // Flag to prevent circular updates (our own write triggering onChanged)
 let isWritingToStorage = false;
 
+// Fields a page applies itself from chrome.storage changes instead of taking
+// the raw stored value here (see claimStorageFields).
+const claimedFields = new Set();
+
+/**
+ * Opt this page out of the raw cross-tab update for the given fields, because
+ * it applies them itself. The newtab claims links/categories so its load-time
+ * salvage/quarantine also covers every later change to sync (including the
+ * echo of its own saves); raw values there could re-show hidden links or
+ * crash rendering. Pages that don't call this (e.g. manage) are unaffected.
+ * @param {string[]} fields - persistent field names
+ */
+export function claimStorageFields(fields) {
+    fields.forEach(field => claimedFields.add(field));
+}
+
 /**
  * Listen for chrome.storage changes from other tabs/contexts.
  * Updates the stateManager singleton when storage changes externally.
@@ -558,6 +575,8 @@ let isWritingToStorage = false;
 if (typeof chrome !== 'undefined' && chrome.storage?.onChanged) {
     chrome.storage.onChanged.addListener((changes, areaName) => {
         if (areaName !== 'sync' || isWritingToStorage) return;
+        // Leave fields a page claimed (claimStorageFields) to that page.
+        changes = Object.fromEntries(Object.entries(changes).filter(([key]) => !claimedFields.has(key)));
 
         const updates = {};
         for (const [key, { newValue }] of Object.entries(changes)) {

@@ -3,7 +3,14 @@
  * uses so it stops flagging the normal JSON-encoded links/categories as
  * "Storage corruption".
  */
-import { parseStoredArray } from '../../javascript/core-systems/storageFormat.js';
+import {
+    parseStoredArray,
+    coerceSettings,
+    SETTING_ENUMS,
+    SETTING_DEFAULTS,
+    LEGACY_COLOR_THEMES
+} from '../../javascript/core-systems/storageFormat.js';
+import stateManager from '../../javascript/core-systems/stateManager.js';
 
 describe('parseStoredArray', () => {
     it('accepts a real array', () => {
@@ -34,5 +41,45 @@ describe('parseStoredArray', () => {
         expect(parseStoredArray(null)).toBeNull();
         expect(parseStoredArray(undefined)).toBeNull();
         expect(parseStoredArray(7)).toBeNull();
+    });
+});
+
+describe('coerceSettings', () => {
+    it('keeps valid settings untouched', () => {
+        const raw = { theme: 'light', colorTheme: 'amber', view: 'list', defaultTileSize: 'giant' };
+        expect(coerceSettings(raw)).toEqual({ settings: raw, coerced: [] });
+    });
+
+    it('coerces each invalid field to its own default, leaving the others', () => {
+        const { settings, coerced } = coerceSettings({
+            theme: 'light', colorTheme: 'ocean', view: 'list', defaultTileSize: 42
+        });
+        expect(settings).toEqual({ theme: 'light', colorTheme: 'default', view: 'list', defaultTileSize: 'medium' });
+        expect(coerced).toEqual(['colorTheme', 'defaultTileSize']);
+    });
+
+    it('fills absent or empty fields with defaults without reporting them as coerced', () => {
+        expect(coerceSettings({ colorTheme: '' })).toEqual({ settings: { ...SETTING_DEFAULTS }, coerced: [] });
+        expect(coerceSettings(undefined)).toEqual({ settings: { ...SETTING_DEFAULTS }, coerced: [] });
+    });
+
+    it('rejects inherited property names', () => {
+        expect(coerceSettings({ colorTheme: 'constructor' }).settings.colorTheme).toBe('default');
+    });
+
+    it('every default and every enum value passes stateManager validation (one source of truth)', () => {
+        expect(stateManager.validateStateChanges({ ...SETTING_DEFAULTS }).valid).toBe(true);
+        for (const [key, values] of Object.entries(SETTING_ENUMS)) {
+            for (const value of values) {
+                expect(stateManager.validateStateChanges({ [key]: value }).valid).toBe(true);
+            }
+        }
+    });
+
+    it('legacy color themes fail validation but coerce to default', () => {
+        for (const legacy of LEGACY_COLOR_THEMES) {
+            expect(stateManager.validateStateChanges({ colorTheme: legacy }).valid).toBe(false);
+            expect(coerceSettings({ colorTheme: legacy }).settings.colorTheme).toBe('default');
+        }
     });
 });

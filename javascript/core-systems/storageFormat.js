@@ -27,3 +27,84 @@ export function parseStoredArray(value) {
     }
     return null;
 }
+
+/**
+ * Allowed values for the persisted display settings. Single source of truth:
+ * stateManager's validation schemas reference these, and every LOAD path
+ * coerces stored values against them (see coerceSettings). Narrowing one of
+ * these lists without load-time coercion is how a pre-7.0.0.24 colorTheme
+ * used to fail startup validation and blank the new tab.
+ */
+export const SETTING_ENUMS = Object.freeze({
+    theme: Object.freeze(['dark', 'light']),
+    // Accent preset. 'default' is kept for backward-compat with data saved
+    // before the accent presets replaced the old color themes.
+    colorTheme: Object.freeze(['default', 'slate', 'blue', 'teal', 'violet', 'amber']),
+    view: Object.freeze(['grid', 'list']),
+    defaultTileSize: Object.freeze(['compact', 'small', 'medium', 'large', 'square', 'wide', 'tall', 'giant'])
+});
+
+export const SETTING_DEFAULTS = Object.freeze({
+    theme: 'dark',
+    colorTheme: 'default',
+    view: 'grid',
+    defaultTileSize: 'medium'
+});
+
+/**
+ * colorTheme values accepted before the accent presets (7.0.0.24). Users who
+ * picked one still have it stored; the service worker rewrites exactly these
+ * to 'default' on update, and loads coerce them in memory regardless.
+ */
+export const LEGACY_COLOR_THEMES = Object.freeze([
+    'ocean', 'cosmic', 'sunset', 'forest', 'fire', 'aurora',
+    'theme-purple', 'theme-pink', 'theme-green', 'theme-orange', 'theme-teal',
+    'theme-focus',
+    'theme-dark-orange', 'theme-dark-purple', 'theme-dark-emerald',
+    'theme-dark-crimson', 'theme-dark-sapphire'
+]);
+
+/** Maximum category name length (matches the links/categories schemas). */
+export const MAX_CATEGORY_LENGTH = 50;
+
+/**
+ * Coerce stored display settings field by field: a value outside its enum
+ * (absent, legacy, or corrupt) falls back to that field's default without
+ * affecting the others. In-memory only — callers must never persist the result
+ * of a load.
+ * @param {Object} raw - object with theme/colorTheme/view/defaultTileSize
+ * @returns {{settings: Object, coerced: string[]}} the valid settings, plus the
+ *   keys that held a present-but-invalid value (for logging)
+ */
+export function coerceSettings(raw) {
+    const source = raw && typeof raw === 'object' ? raw : {};
+    const settings = {};
+    const coerced = [];
+    for (const [key, allowed] of Object.entries(SETTING_ENUMS)) {
+        const value = source[key];
+        if (allowed.includes(value)) {
+            settings[key] = value;
+        } else {
+            settings[key] = SETTING_DEFAULTS[key];
+            if (value !== undefined && value !== null && value !== '') coerced.push(key);
+        }
+    }
+    return { settings, coerced };
+}
+
+/**
+ * Give every link object without a usable id (missing, null, '' …) a fresh
+ * one, in place. The pages resolve a rendered tile back to its stored entry by
+ * id, so an id must exist in memory even for links stored without one; it
+ * persists with the next real save of the links.
+ * @param {Array} links - parsed links array (entries may be non-objects)
+ * @returns {Array} the same array
+ */
+export function backfillLinkIds(links) {
+    links.forEach((link, i) => {
+        if (link && typeof link === 'object' && !link.id) {
+            link.id = `link_${Date.now()}_${i}_${Math.random().toString(36).slice(2, 8)}`;
+        }
+    });
+    return links;
+}
