@@ -8,16 +8,22 @@ import { debug, debugWarn, debugError } from './debug.js';
 import { pendingSyncKey, cloudValueFingerprint, SYNC_CLEARED_AT_KEY } from './storageFormat.js';
 const { ERROR_TYPES, ERROR_SEVERITY } = errorHandler;
 
+// The cloud values a save is based on, read BEFORE its sync write: if that
+// write fails, the pending-sync marker must certify the local edit against
+// this value, not against whatever another device wrote in the meantime.
+// Null when unreadable: SyncManager then can't confirm the save is still
+// newest, keeps the cloud and sets the local copy aside.
+async function cloudBeforeSave(fields) {
+    try {
+        return await chrome.storage.sync.get([...fields, SYNC_CLEARED_AT_KEY]);
+    } catch {
+        return null;
+    }
+}
+
 // Pending-sync markers for fields a save could only write to local storage
 // (see storageFormat.js); SyncManager pushes them on the next Sync now.
-async function pendingSyncMarkers(fields) {
-    let cloud = null;
-    try {
-        cloud = await chrome.storage.sync.get([...fields, SYNC_CLEARED_AT_KEY]);
-    } catch {
-        // Unreadable: record no cloud value; SyncManager then can't confirm the
-        // save is still newest, keeps the cloud and sets the local copy aside.
-    }
+function pendingSyncMarkers(fields, cloud) {
     const markers = {};
     for (const field of fields) {
         markers[pendingSyncKey(field)] = cloud
@@ -246,6 +252,7 @@ export async function saveLinks(links) {
         }
 
         // Try sync storage first (primary storage)
+        const cloudBefore = await cloudBeforeSave(['links']);
         try {
             await chrome.storage.sync.set({ links: linksString });
             await clearPendingSync(['links']);
@@ -257,7 +264,7 @@ export async function saveLinks(links) {
             
             // Fallback to local storage
             try {
-                await chrome.storage.local.set({ links: linksString, ...await pendingSyncMarkers(['links']) });
+                await chrome.storage.local.set({ links: linksString, ...pendingSyncMarkers(['links'], cloudBefore) });
                 debug('Successfully saved to local storage as fallback');
             } catch (localError) {
                 const storageError = new CodexError(
@@ -316,6 +323,7 @@ export async function saveSettings(settings) {
         }
 
         // Try sync storage first, fallback to local
+        const cloudBefore = await cloudBeforeSave(Object.keys(dataToSave));
         try {
             await chrome.storage.sync.set(dataToSave);
             await clearPendingSync(Object.keys(dataToSave), { localCopies: true });
@@ -326,7 +334,7 @@ export async function saveSettings(settings) {
             });
             
             try {
-                await chrome.storage.local.set({ ...dataToSave, ...await pendingSyncMarkers(Object.keys(dataToSave)) });
+                await chrome.storage.local.set({ ...dataToSave, ...pendingSyncMarkers(Object.keys(dataToSave), cloudBefore) });
                 debug('Successfully saved settings to local storage as fallback');
             } catch (localError) {
                 const storageError = new CodexError(
@@ -527,6 +535,7 @@ export async function saveCategories(categories) {
         }
 
         // Try sync storage first (primary storage)
+        const cloudBefore = await cloudBeforeSave(['categories']);
         try {
             await chrome.storage.sync.set({ categories: categoriesString });
             await clearPendingSync(['categories']);
@@ -538,7 +547,7 @@ export async function saveCategories(categories) {
             
             // Fallback to local storage
             try {
-                await chrome.storage.local.set({ categories: categoriesString, ...await pendingSyncMarkers(['categories']) });
+                await chrome.storage.local.set({ categories: categoriesString, ...pendingSyncMarkers(['categories'], cloudBefore) });
                 debug('Successfully saved to local storage as fallback');
             } catch (localError) {
                 const storageError = new CodexError(

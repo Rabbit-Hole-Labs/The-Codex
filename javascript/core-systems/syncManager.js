@@ -104,10 +104,24 @@ function entriesCloudLacks(local, cloud, field) {
         }).length;
     }
     if (field === 'categories') {
-        const cloudCategories = new Set(parseStoredArray(cloud.categories) ?? ['Default']);
-        return (parseStoredArray(local.categories) ?? []).filter(category => !cloudCategories.has(category)).length;
+        const { missing, reordered } = categoryChanges(local, cloud);
+        return missing + (reordered ? 1 : 0);
     }
     return local[field] !== undefined && !sameStoredValue(local[field], cloud[field]) ? 1 : 0;
+}
+
+// Local categories the cloud lacks, and whether the categories both have are
+// in a different order (a reorder is a change too).
+function categoryChanges(local, cloud) {
+    const localCategories = parseStoredArray(local.categories) ?? [];
+    const cloudCategories = parseStoredArray(cloud.categories) ?? ['Default'];
+    const inCloud = new Set(cloudCategories);
+    const inLocal = new Set(localCategories);
+    const shared = localCategories.filter(category => inCloud.has(category));
+    return {
+        missing: localCategories.length - shared.length,
+        reordered: JSON.stringify(shared) !== JSON.stringify(cloudCategories.filter(category => inLocal.has(category)))
+    };
 }
 
 const SETTING_NAMES = { theme: 'theme', view: 'view', colorTheme: 'color theme', defaultTileSize: 'tile size' };
@@ -127,7 +141,15 @@ function describeSetAside(fields, cause, local, cloud) {
         return `${n} ${n === 1 ? one : many}`;
     };
     if (fields.includes('links')) parts.push(count(entriesCloudLacks(local, cloud, 'links'), 'link', 'links'));
-    if (fields.includes('categories')) parts.push(count(entriesCloudLacks(local, cloud, 'categories'), 'category', 'categories'));
+    if (fields.includes('categories')) {
+        const { missing, reordered } = categoryChanges(local, cloud);
+        if (missing > 0) {
+            parts.push(count(missing, 'category', 'categories'));
+        } else if (reordered) {
+            total += 1;
+            parts.push('the category order');
+        }
+    }
     const settings = SETTINGS_KEYS.filter(key => fields.includes(key)).map(key => SETTING_NAMES[key]);
     if (settings.length > 0) {
         total += settings.length;
@@ -677,7 +699,9 @@ export class SyncManager {
         if (forceStrategy === 'remote') {
             // Explicit pull: honor it whatever the versions say. Pending local
             // edits are replaced too, but kept as a set-aside copy.
-            if (!holdsData(cloud)) throw new Error('The cloud has no links or categories to pull.');
+            if (!holdsData(cloud) && Object.keys(pick(cloud, SETTINGS_KEYS)).length === 0) {
+                throw new Error('The cloud has no links, categories or settings to pull.');
+            }
             result = fromCloud();
             setAsideWhatCloudLacks(pendingFields, 'forcePull');
             settled.push(...pendingFields);

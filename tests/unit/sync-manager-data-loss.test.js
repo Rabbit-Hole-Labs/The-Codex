@@ -862,6 +862,63 @@ describe('Regression: SyncManager must not revert cloud data', () => {
             expect(fake.dump('local')['pendingSyncSince.links']).toBeDefined();
         });
 
+        test('force pull works when the cloud holds only settings (thread: setting-only cloud)', async () => {
+            const { saveSettings } = await import('../../javascript/core-systems/storageManager.js');
+            fake.seed('sync', { theme: 'light' });
+            await withSyncWritesFailing(() => saveSettings({ theme: 'dark' }));
+
+            const result = await syncManager.forcePullFromRemote();
+
+            expect(result.success).toBe(true);
+            expect(fake.dump('local').theme).toBeUndefined();
+            expect(fake.dump('local')['pendingSyncSince.theme']).toBeUndefined();
+            expect(fake.dump('local')[SYNC_SET_ASIDE_KEY].theme).toBe('dark');
+        });
+
+        test('a save that fails while another device writes certifies the value it was based on (thread: snapshot)', async () => {
+            fake.seed('sync', { links: JSON.stringify([link(1)]), categories: '["Default"]' });
+            await syncManager.syncData();
+            // Our write is rejected, and another device's write lands in between.
+            const realSet = chrome.storage.sync.set;
+            chrome.storage.sync.set = async () => {
+                await realSet({ links: JSON.stringify([link(1), link(3)]) });
+                throw new Error('Resource::kQuotaBytesPerItem quota exceeded');
+            };
+            await saveLinks([link(1), link(2)]);
+            chrome.storage.sync.set = realSet;
+
+            const result = await syncManager.syncData();
+
+            expect(result.success).toBe(true);
+            expect(stored(fake, 'sync', 'links')).toEqual([link(1), link(3)]); // the other device's change survives
+            expect(result.warning).toMatch(/replaced by newer changes in the cloud/);
+        });
+
+        test('a superseded category reorder is set aside and reported (thread: category order)', async () => {
+            const { saveCategories } = await import('../../javascript/core-systems/storageManager.js');
+            fake.seed('sync', { links: '[]', categories: '["Default","A","B"]' });
+            await syncManager.syncData();
+            await withSyncWritesFailing(() => saveCategories(['Default', 'B', 'A']));
+            await chrome.storage.sync.set({ categories: '["Default","A","B","C"]' }); // another device adds C
+
+            const result = await syncManager.syncData();
+
+            expect(result.warning).toMatch(/^The category order saved only on this device was replaced by newer changes in the cloud\./);
+            expect(fake.dump('local')[SYNC_SET_ASIDE_KEY].categories).toEqual(['Default', 'B', 'A', 'C']);
+        });
+
+        test('force pull sets aside a pending category reorder (thread: category order)', async () => {
+            const { saveCategories } = await import('../../javascript/core-systems/storageManager.js');
+            fake.seed('sync', { links: '[]', categories: '["Default","A","B"]' });
+            await syncManager.syncData();
+            await withSyncWritesFailing(() => saveCategories(['Default', 'B', 'A']));
+
+            const result = await syncManager.forcePullFromRemote();
+
+            expect(result.warning).toMatch(/category order/);
+            expect(stored(fake, 'local', 'categories')).toEqual(['Default', 'A', 'B']);
+        });
+
         test('a junk entry in the cloud links does not fail every Sync now', async () => {
             const meta = { version: 100, lastModified: 100 };
             fake.seed('sync', { links: JSON.stringify([null, link(1)]), categories: '["Default"]', syncMetadata: meta });
