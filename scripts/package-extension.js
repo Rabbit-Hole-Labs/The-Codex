@@ -167,6 +167,30 @@ export function validateManifest(manifest) {
             if (key in manifest) errors.push(`${key} is MV2-only; MV3 uses action`);
         }
     }
+    const cspField = manifest.content_security_policy;
+    if (cspField && typeof cspField === 'object' && !Array.isArray(cspField)) {
+        for (const [member, value] of Object.entries(cspField)) {
+            if (!['extension_pages', 'sandbox'].includes(member)) {
+                errors.push(`content_security_policy.${member} is not an MV3 member (use extension_pages or sandbox)`);
+            } else if (typeof value !== 'string') {
+                errors.push(`content_security_policy.${member} must be a policy string`);
+            }
+        }
+    }
+    if (Array.isArray(manifest.content_scripts)) {
+        const strings = (value) => Array.isArray(value) && value.length > 0 && value.every((item) => typeof item === 'string' && item);
+        manifest.content_scripts.forEach((entry, index) => {
+            if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+                errors.push(`content_scripts[${index}] must be an object`);
+                return;
+            }
+            if (!strings(entry.matches)) errors.push(`content_scripts[${index}].matches must be a non-empty array of match patterns`);
+            for (const key of ['js', 'css']) {
+                if (key in entry && !strings(entry[key])) errors.push(`content_scripts[${index}].${key} must be a non-empty array of paths`);
+            }
+            if (!('js' in entry) && !('css' in entry)) errors.push(`content_scripts[${index}] needs js or css`);
+        });
+    }
     const policy = manifest.content_security_policy?.extension_pages;
     if (manifest.manifest_version === 3 && typeof policy === 'string') {
         // MV3 can't relax extension pages' script/object/worker sources beyond these.
@@ -218,11 +242,31 @@ export function manifestRefs(manifest) {
 
 const isExternal = (ref) => /^[a-z][a-z0-9+.-]*:/i.test(ref) || ref.startsWith('//') || ref.startsWith('#');
 
-const decodeEntities = (text) => text
-    .replace(/&#x([0-9a-f]+);/gi, (_, hex) => String.fromCodePoint(parseInt(hex, 16)))
-    .replace(/&#(\d+);/g, (_, dec) => String.fromCodePoint(Number(dec)))
-    .replace(/&quot;/g, '"').replace(/&#39;|&apos;/g, "'")
-    .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
+/**
+ * HTML named character references the packager decodes: every ASCII
+ * punctuation reference plus nbsp. Others are reported by unknownEntities()
+ * rather than guessed, so a URL attribute never resolves to the wrong file.
+ */
+const NAMED_ENTITIES = {
+    amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: '\u00A0', sol: '/', bsol: '\\', colon: ':', semi: ';',
+    comma: ',', period: '.', excl: '!', quest: '?', num: '#', dollar: '$', percnt: '%', commat: '@', ast: '*',
+    midast: '*', plus: '+', equals: '=', lowbar: '_', hyphen: '-', dash: '-', lpar: '(', rpar: ')', lsqb: '[',
+    lbrack: '[', rsqb: ']', rbrack: ']', lcub: '{', lbrace: '{', rcub: '}', rbrace: '}', verbar: '|', vert: '|',
+    tilde: '~', grave: '`', Hat: '^', Tab: '\t', NewLine: '\n'
+};
+
+const decodeEntities = (text) => text.replace(/&(#[xX][0-9a-fA-F]+|#\d+|[A-Za-z][A-Za-z0-9]*);/g, (whole, ref) => {
+    if (ref[0] === '#') {
+        const code = ref[1] === 'x' || ref[1] === 'X' ? parseInt(ref.slice(2), 16) : Number(ref.slice(1));
+        return code > 0 && code <= 0x10FFFF && !(code >= 0xD800 && code <= 0xDFFF) ? String.fromCodePoint(code) : '\uFFFD';
+    }
+    return Object.hasOwn(NAMED_ENTITIES, ref) ? NAMED_ENTITIES[ref] : whole;
+});
+
+/** Named references in raw attribute text that decodeEntities leaves undecoded. */
+const unknownEntities = (raw) => [...raw.matchAll(/&([A-Za-z][A-Za-z0-9]*);/g)]
+    .map((m) => m[1])
+    .filter((name) => !Object.hasOwn(NAMED_ENTITIES, name));
 
 /** Resolves a reference relative to the referencing file; null for external refs. */
 export function resolveRef(fromFile, ref, { rootRelative = false } = {}) {
@@ -325,11 +369,13 @@ export function cssRefs(css) {
             pendingFontFace = false;
             i++;
         } else if (c === '@') {
-            const m = /^@([\w-]+)/.exec(css.slice(i, i + 64));
-            const keyword = m ? m[1].toLowerCase() : '';
+            // An at-keyword may contain escapes (@\\69 mport is @import).
+            let j = i + 1;
+            while (j < css.length && (css[j] === '\\' || /[\w\-\u0080-\uFFFF]/.test(css[j]))) j = css[j] === '\\' ? cssEscapeEnd(css, j) : j + 1;
+            const keyword = cssUnescape(css.slice(i + 1, j)).toLowerCase();
             if (keyword === 'import') pendingImport = true;
             if (keyword === 'font-face') pendingFontFace = true;
-            i += m ? m[0].length : 1;
+            i = Math.max(j, i + 1);
         } else if (c === '(') {
             functions.push('');
             i++;
@@ -397,7 +443,10 @@ const TEXT_ELEMENTS = new Set(['script', 'style', 'textarea', 'title', 'xmp', 'i
  * inside a <textarea>) is not mistaken for markup.
  * @returns {Array<{ name: string, attrs: Map<string, string>, line: number, text?: string }>}
  */
-export function scanHtml(html) {
+export function scanHtml(html, { scripting = true } = {}) {
+    // With scripting enabled (every extension page, and sandbox pages that allow
+    // scripts), <noscript> content is text, not markup.
+    const textElements = scripting ? new Set([...TEXT_ELEMENTS, 'noscript']) : TEXT_ELEMENTS;
     const tags = [];
     let i = 0;
     while (i < html.length) {
@@ -422,6 +471,7 @@ export function scanHtml(html) {
         while (j < html.length && !/[\s/>]/.test(html[j])) j++;
         const name = html.slice(lt + 1, j).toLowerCase();
         const attrs = new Map();
+        const raw = new Map();
         while (j < html.length && html[j] !== '>') {
             if (/[\s/]/.test(html[j])) {
                 j++;
@@ -447,11 +497,14 @@ export function scanHtml(html) {
                     value = html.slice(start, j);
                 }
             }
-            if (!attrs.has(attr)) attrs.set(attr, decodeEntities(value));
+            if (!attrs.has(attr)) {
+                attrs.set(attr, decodeEntities(value));
+                raw.set(attr, value);
+            }
         }
         i = j + 1;
-        const tag = { name, attrs, line: html.slice(0, lt).split('\n').length };
-        if (TEXT_ELEMENTS.has(name)) {
+        const tag = { name, attrs, raw, line: html.slice(0, lt).split('\n').length };
+        if (textElements.has(name)) {
             const close = new RegExp(`</${name}(?=[\\s/>])`, 'gi');
             close.lastIndex = i;
             const end = name === 'plaintext' ? null : close.exec(html);
@@ -498,8 +551,9 @@ const JS_TYPES = /^(|module|importmap|(text|application)\/(x-)?(java|ecma)script
  * markup the MV3 extension-page CSP always blocks (inline scripts and inline
  * event handlers), and which <script src> files run as classic scripts.
  */
-function htmlRefs(html, inheritedBase = null) {
+function htmlRefs(html, inheritedBase = null, scripting = true) {
     const urls = [];
+    const problems = [];
     const inline = [];
     const classicScripts = [];
     const styles = [];
@@ -508,8 +562,14 @@ function htmlRefs(html, inheritedBase = null) {
     const add = (url, directive) => {
         if (url && url.trim()) urls.push({ url: url.trim(), directive, base: currentBase() });
     };
-    for (const tag of scanHtml(html)) {
+    for (const tag of scanHtml(html, { scripting })) {
         const { name, attrs, line } = tag;
+        for (const attr of ['src', 'href', 'srcset', 'data', 'poster']) {
+            const unknown = attrs.has(attr) ? unknownEntities(tag.raw.get(attr)) : [];
+            if (unknown.length) {
+                problems.push(`line ${line}: <${name} ${attr}> uses HTML character reference(s) the packager can't decode (${unknown.map((n) => `&${n};`).join(' ')}); write the characters literally`);
+            }
+        }
         for (const attr of attrs.keys()) {
             if (/^on./.test(attr)) inline.push(`line ${line}: inline event handler ${attr}= on <${name}>`);
         }
@@ -559,8 +619,9 @@ function htmlRefs(html, inheritedBase = null) {
                 add(src, 'frame-src');
                 if (attrs.has('srcdoc')) {
                     // srcdoc is a nested document: same CSP, relative URLs against this page's base.
-                    const nested = htmlRefs(attrs.get('srcdoc'), currentBase());
+                    const nested = htmlRefs(attrs.get('srcdoc'), currentBase(), scripting);
                     urls.push(...nested.urls);
+                    problems.push(...nested.problems.map((item) => `line ${line} srcdoc ${item}`));
                     classicScripts.push(...nested.classicScripts);
                     inline.push(...nested.inline.map((item) => `line ${line} srcdoc ${item}`));
                     if (nested.inlineStyles) styles.push('');
@@ -585,7 +646,7 @@ function htmlRefs(html, inheritedBase = null) {
         }
     }
     for (const css of styles) urls.push(...cssRefs(css).map((ref) => ({ ...ref, base: currentBase() })));
-    return { urls, inline, classicScripts, inlineStyles: styles.length > 0, base };
+    return { urls, problems, inline, classicScripts, inlineStyles: styles.length > 0, base };
 }
 
 // CSP ---------------------------------------------------------------------------
@@ -606,12 +667,19 @@ function baseUriAllows(csp, href, local) {
 
 const CSP_FALLBACKS = { 'frame-src': ['child-src', 'default-src'] };
 
-/** Parses a CSP string into Map(directive -> lower-cased sources). */
+/** Lower-cases a CSP source's keyword, scheme and host, keeping any path's case (paths match case-sensitively). */
+const normalizeSource = (source) => {
+    if (source.startsWith("'")) return source.toLowerCase();
+    const m = /^((?:[a-z][a-z0-9+.-]*:\/\/)?[^/]*)(\/.*)?$/i.exec(source);
+    return m ? m[1].toLowerCase() + (m[2] ?? '') : source;
+};
+
+/** Parses a CSP string into Map(directive -> sources), names lower-cased. */
 export function parseCsp(policy) {
     const directives = new Map();
     for (const part of String(policy).split(';')) {
         const [name, ...sources] = part.trim().split(/\s+/).filter(Boolean);
-        if (name && !directives.has(name.toLowerCase())) directives.set(name.toLowerCase(), sources.map((s) => s.toLowerCase()));
+        if (name && !directives.has(name.toLowerCase())) directives.set(name.toLowerCase(), sources.map(normalizeSource));
     }
     return directives;
 }
@@ -652,11 +720,24 @@ export function cspAllows(csp, directive, url) {
             return false; // no port in the source: only the scheme's default port matches
         }
         if (path) {
+            let sourcePath = path;
+            try {
+                sourcePath = decodeURIComponent(path);
+            } catch {
+                // keep the raw path
+            }
             const pathname = decodeURIComponent(parsed.pathname);
-            if (path.endsWith('/') ? !pathname.startsWith(path) : pathname !== path) return false;
+            if (sourcePath.endsWith('/') ? !pathname.startsWith(sourcePath) : pathname !== sourcePath) return false;
         }
         return true;
     });
+}
+
+/** Whether the CSP lets a page load one of the extension's own files under `directive`. */
+function cspAllowsSelf(csp, directive) {
+    const sources = sourcesFor(csp, directive);
+    if (!sources) return true;
+    return sources.some((source) => source === "'self'" || source === 'chrome-extension:' || source.startsWith('chrome-extension://'));
 }
 
 /** Whether inline content is allowed: 'unsafe-inline' with no hash/nonce (which would disable it). */
@@ -709,8 +790,9 @@ function dynamicImports(file, source) {
  *   refs are root-relative local paths; external are absolute URLs with the CSP
  *   directive governing them; classicScripts/inline/inlineStyles are for pages.
  */
-export function extractRefs(file, text, { classic = false, csp = null } = {}) {
-    const result = { refs: [], external: [], errors: [], dynamicImports: 0, classicScripts: [], inline: [], inlineStyles: false };
+export function extractRefs(file, text, { classic = false, csp = null, scripting = true } = {}) {
+    const result = { refs: [], uses: [], external: [], errors: [], dynamicImports: 0, classicScripts: [], inline: [], inlineStyles: false };
+    const kind = (/\.(html?|m?js|css)$/i.exec(file)?.[1] || '').toLowerCase();
     let baseUsable = true;
     // Resolves url (relative to `base` when a <base href> applies) to a local path or an absolute URL.
     const locate = (url, base) => {
@@ -734,6 +816,7 @@ export function extractRefs(file, text, { classic = false, csp = null } = {}) {
         const { local, external } = locate(url, base);
         if (local) {
             result.refs.push(local);
+            if (directive) result.uses.push({ path: local, directive });
         } else if (external && directive) {
             if (/^(https?|wss?|data|blob|chrome-extension):/i.test(external)) {
                 result.external.push({ url: external, directive });
@@ -742,8 +825,9 @@ export function extractRefs(file, text, { classic = false, csp = null } = {}) {
             }
         }
     };
-    if (file.endsWith('.html')) {
-        const page = htmlRefs(text);
+    if (kind === 'html' || kind === 'htm') {
+        const page = htmlRefs(text, null, scripting);
+        result.errors.push(...page.problems.map((item) => `${file} ${item}`));
         if (page.base) {
             const local = !/^[a-z][a-z0-9+.-]*:/i.test(page.base.href);
             if (!baseUriAllows(csp, page.base.href, local)) {
@@ -755,7 +839,7 @@ export function extractRefs(file, text, { classic = false, csp = null } = {}) {
         result.inline = page.inline;
         result.inlineStyles = page.inlineStyles;
         result.classicScripts = page.classicScripts.map(({ url, base }) => locate(url, base).local).filter(Boolean);
-    } else if (file.endsWith('.js') || file.endsWith('.mjs')) {
+    } else if (kind === 'js' || kind === 'mjs') {
         const dynamic = dynamicImports(file, text);
         result.errors.push(...dynamic.errors);
         result.dynamicImports = dynamic.specifiers.length + dynamic.errors.length;
@@ -780,7 +864,7 @@ export function extractRefs(file, text, { classic = false, csp = null } = {}) {
                 result.errors.push(`${file}: bare module specifier "${specifier}" cannot be loaded by an unbundled extension`);
             }
         }
-    } else if (file.endsWith('.css')) {
+    } else if (kind === 'css') {
         cssRefs(text).forEach(add);
     }
     return result;
@@ -804,14 +888,17 @@ export function checkReferences(root, files, manifest) {
     const sandboxPages = new Set((Array.isArray(manifest.sandbox?.pages) ? manifest.sandbox.pages : [])
         .filter((page) => typeof page === 'string')
         .map((page) => posix.normalize(page.replace(/^\//, ''))));
-    // Sandboxed pages get their own CSP; every other file runs under extension_pages.
+    // Sandboxed pages get their own CSP; every other page runs under extension_pages.
     const cspFor = (file) => (sandboxPages.has(file) ? sandboxCsp : csp);
+    // Scripting is on in sandbox pages unless their CSP's sandbox directive omits allow-scripts.
+    const scriptingFor = (file) => !sandboxPages.has(file) || !sandboxCsp.has('sandbox') || sandboxCsp.get('sandbox').includes('allow-scripts');
+    const isPage = (file) => /\.html?$/i.test(file);
     const read = (file) => readFileSync(join(root, file), 'utf8');
 
     // Pages first: they decide which scripts run as classic scripts.
     const results = new Map();
-    for (const file of files.filter((f) => f.endsWith('.html'))) {
-        results.set(file, extractRefs(file, read(file), { csp: cspFor(file) }));
+    for (const file of files.filter(isPage)) {
+        results.set(file, extractRefs(file, read(file), { csp: cspFor(file), scripting: scriptingFor(file) }));
     }
     const classic = new Set([...results.values()].flatMap((page) => page.classicScripts));
     if (Array.isArray(manifest.content_scripts)) {
@@ -840,7 +927,7 @@ export function checkReferences(root, files, manifest) {
         note('manifest.json', posix.normalize(ref.startsWith('/') ? ref.slice(1) : ref));
     }
     for (const file of files) {
-        if (!/\.(html|js|mjs|css)$/.test(file)) continue;
+        if (!/\.(html?|m?js|css)$/i.test(file)) continue;
         edges.set(file, []);
         let result = results.get(file);
         if (!result) {
@@ -854,20 +941,56 @@ export function checkReferences(root, files, manifest) {
         errors.push(...result.errors);
         if (result.dynamicImports > 0) usesDynamicImport.add(file);
         for (const ref of result.refs) note(file, ref);
+        results.set(file, result);
+        if (!isPage(file)) continue;
         const pageCsp = cspFor(file);
         const policyName = sandboxPages.has(file) ? 'sandbox CSP' : 'manifest CSP';
-        for (const { url, directive } of result.external) {
-            if (/^(https?|wss?|data|blob):/i.test(url) && !cspAllows(pageCsp, directive, url)) {
-                errors.push(`${file} loads ${url}, which the ${policyName} blocks (${directive})`);
-            }
-        }
         if (!cspAllowsInline(pageCsp, 'script-src')) {
             for (const item of result.inline) {
                 errors.push(`${file} ${item}: the ${policyName} blocks inline script (MV3 extension pages never run it); move it to a file`);
             }
         }
         if (result.inlineStyles && !cspAllowsInline(pageCsp, 'style-src')) {
-            errors.push(`${file} uses inline styles (style= or <style>), which the manifest CSP blocks: style-src has no 'unsafe-inline'`);
+            errors.push(`${file} uses inline styles (style= or <style>), which the ${policyName} blocks: style-src has no 'unsafe-inline'`);
+        }
+    }
+    // Each file's loads are checked under the CSP of every page context that reaches it:
+    // a page's own policy, and for stylesheets/modules the policies of the pages loading them
+    // (a sandbox page's stylesheet runs under the sandbox CSP). Files no page reaches
+    // (the service worker, content scripts) are checked under extension_pages.
+    const contexts = new Map();
+    for (const page of files.filter((f) => isPage(f) && edges.has(f))) {
+        const context = sandboxPages.has(page) ? 'sandbox' : 'extension';
+        const stack = [page];
+        const seen = new Set();
+        while (stack.length) {
+            const file = stack.pop();
+            if (seen.has(file)) continue;
+            seen.add(file);
+            if (!contexts.has(file)) contexts.set(file, new Set());
+            contexts.get(file).add(context);
+            for (const next of edges.get(file) || []) {
+                if (!isPage(next)) stack.push(next); // a link to another page is a navigation, with that page's own context
+            }
+        }
+    }
+    for (const [file, result] of results) {
+        const fileContexts = isPage(file)
+            ? [sandboxPages.has(file) ? 'sandbox' : 'extension']
+            : [...(contexts.get(file) || ['extension'])];
+        for (const context of fileContexts) {
+            const policyCsp = context === 'sandbox' ? sandboxCsp : csp;
+            const policyName = context === 'sandbox' ? 'sandbox CSP' : 'manifest CSP';
+            for (const { url, directive } of result.external) {
+                if (/^(https?|wss?|data|blob):/i.test(url) && !cspAllows(policyCsp, directive, url)) {
+                    errors.push(`${file} loads ${url}, which the ${policyName} blocks (${directive})`);
+                }
+            }
+            for (const { path, directive } of result.uses) {
+                if (!cspAllowsSelf(policyCsp, directive)) {
+                    errors.push(`${file} loads ${path}, which the ${policyName} blocks (${directive} doesn't allow 'self')`);
+                }
+            }
         }
     }
     // Extension service workers don't support import(); check the worker's whole module graph.
