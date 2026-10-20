@@ -5,7 +5,7 @@ import { validateAndSanitizeUrl } from '../features/utils.js';
 import { sanitizeUserInput } from '../features/securityUtils.js';
 import { validateIconValue } from '../features/iconCache.js';
 import { debug, debugWarn, debugError } from './debug.js';
-import { pendingSyncKey, cloudValueFingerprint } from './storageFormat.js';
+import { pendingSyncKey, cloudValueFingerprint, SYNC_CLEARED_AT_KEY } from './storageFormat.js';
 const { ERROR_TYPES, ERROR_SEVERITY } = errorHandler;
 
 // Pending-sync markers for fields a save could only write to local storage
@@ -13,14 +13,15 @@ const { ERROR_TYPES, ERROR_SEVERITY } = errorHandler;
 async function pendingSyncMarkers(fields) {
     let cloud = null;
     try {
-        cloud = await chrome.storage.sync.get(fields);
+        cloud = await chrome.storage.sync.get([...fields, SYNC_CLEARED_AT_KEY]);
     } catch {
-        // Unreadable: record no cloud value, so the local copy is pushed.
+        // Unreadable: record no cloud value; SyncManager then can't confirm the
+        // save is still newest, keeps the cloud and sets the local copy aside.
     }
     const markers = {};
     for (const field of fields) {
         markers[pendingSyncKey(field)] = cloud
-            ? { since: Date.now(), cloud: cloudValueFingerprint(cloud[field]) }
+            ? { since: Date.now(), cloud: cloudValueFingerprint(cloud[field]), clearedAt: cloud[SYNC_CLEARED_AT_KEY] ?? null }
             : { since: Date.now() };
     }
     return markers;

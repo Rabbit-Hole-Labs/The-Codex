@@ -181,6 +181,13 @@ export class SyncStatusIndicator {
                 this.updateStatus('syncing');
                 break;
             case 'syncComplete':
+                // A manual sync reports what this device now shows. Apply it:
+                // when the cloud won there was no sync write, so stateManager's
+                // onChanged never fires, and a page still holding discarded
+                // local links would upload them with its next edit.
+                if (data?.lists) {
+                    updateState({ links: data.lists.links, categories: data.lists.categories }, { validate: false, skipPersistence: true });
+                }
                 if (data?.warning) {
                     // Local data was set aside instead of uploaded: say so.
                     this.updateStatus('attention');

@@ -98,6 +98,7 @@ async function init() {
         syncStatusIndicator.init('sync-status-container');
         syncManager.addSyncListener((event, data) => {
             if (event === 'syncCleared') handleSyncCleared(data);
+            if (event === 'syncComplete' && data?.lists) refreshLinkList(data.lists);
         });
 
         // Load and apply current theme settings to management page
@@ -715,17 +716,20 @@ function setupCategoryReorder() {
 // list is re-derived from it. (The manage page's state handling is reworked in
 // Phase 0.3.)
 export function handleSyncCleared({ remote = false } = {}) {
-    if (remote) {
-        const { links } = getState();
-        const category = document.getElementById('filterCategory')?.value ?? 'all';
-        const filteredLinks = category === 'all' ? [...links] : links.filter(link => link.category === category);
-        safeUpdateState({ filteredLinks, currentPage: 1 }, { validate: false, skipPersistence: true });
-    } else {
-        safeUpdateState(
-            { links: [], categories: ['Default'], filteredLinks: [], currentPage: 1 },
-            { validate: false, skipPersistence: true }
-        );
-    }
+    refreshLinkList(remote ? undefined : { links: [], categories: ['Default'] });
+}
+
+// Re-derive the rendered list (filteredLinks) after a sync or clear changed
+// the links, and re-render it. `lists` replaces links/categories first; without
+// it the list is rebuilt from the current state.links.
+export function refreshLinkList(lists) {
+    const links = lists?.links ?? getState().links;
+    const category = document.getElementById('filterCategory')?.value ?? 'all';
+    const filteredLinks = category === 'all' ? [...links] : links.filter(link => link.category === category);
+    safeUpdateState(
+        { ...(lists ? { links, categories: lists.categories } : {}), filteredLinks, currentPage: 1 },
+        { validate: false, skipPersistence: true }
+    );
     UIManager.renderLinks(getState());
 }
 

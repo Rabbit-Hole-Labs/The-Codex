@@ -57,12 +57,22 @@ describe('Regression: SyncManager must not revert cloud data', () => {
     let events;
     let SYNC_BACKUP_KEY;
     let SYNC_PREVIOUS_BACKUP_KEY;
+    let SYNC_SET_ASIDE_KEY;
+    let realCreateObjectURL;
+    let realRevokeObjectURL;
+    let downloadClicks;
 
     beforeEach(async () => {
         fake = installChromeStorageFake();
         jest.resetModules();
         let SyncManager;
-        ({ SyncManager, SYNC_BACKUP_KEY, SYNC_PREVIOUS_BACKUP_KEY } = await import('../../javascript/core-systems/syncManager.js'));
+        ({ SyncManager, SYNC_BACKUP_KEY, SYNC_PREVIOUS_BACKUP_KEY, SYNC_SET_ASIDE_KEY } = await import('../../javascript/core-systems/syncManager.js'));
+        // Backup files are "downloaded" through a blob URL and an <a> click.
+        realCreateObjectURL = URL.createObjectURL;
+        realRevokeObjectURL = URL.revokeObjectURL;
+        URL.createObjectURL = jest.fn(() => 'blob:backup');
+        URL.revokeObjectURL = jest.fn();
+        downloadClicks = jest.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
         ({ saveLinks } = await import('../../javascript/core-systems/storageManager.js'));
         syncManager = new SyncManager();
         events = [];
@@ -71,6 +81,9 @@ describe('Regression: SyncManager must not revert cloud data', () => {
     });
 
     afterEach(() => {
+        URL.createObjectURL = realCreateObjectURL;
+        URL.revokeObjectURL = realRevokeObjectURL;
+        downloadClicks.mockRestore();
         delete globalThis.chrome;
     });
 
@@ -216,7 +229,7 @@ describe('Regression: SyncManager must not revert cloud data', () => {
             expect(result.success).toBe(true);
             expect(stored(fake, 'sync', 'links')).toEqual([link(1)]);
             expect(stored(fake, 'local', 'links')).toEqual([link(1)]);
-            expect(fake.dump('local')[SYNC_BACKUP_KEY].links).toEqual([link(1), link(2), link(3)]);
+            expect(fake.dump('local')[SYNC_SET_ASIDE_KEY].links).toEqual([link(1), link(2), link(3)]);
         });
 
         test('does not undo another device\'s clear with a save that fell back', async () => {
@@ -384,7 +397,8 @@ describe('Regression: SyncManager must not revert cloud data', () => {
             const result = await syncManager.syncData();
 
             expect(result.success).toBe(true);
-            expect(result.warning).toMatch(/not uploaded because the cloud was cleared/);
+            // No clear stamp: the cloud may never have been cleared, so the reason is neutral.
+            expect(result.warning).toMatch(/^2 links saved only on this device were not uploaded because the cloud is empty and this device has synced before\./);
             expect(events.find((e) => e.event === 'syncComplete').data.warning).toBe(result.warning);
             expect(click).toHaveBeenCalledTimes(1); // downloaded as a backup file
         } finally {
@@ -393,7 +407,7 @@ describe('Regression: SyncManager must not revert cloud data', () => {
         }
         expect(fake.dump('sync').links).toBeUndefined();
         expect(stored(fake, 'local', 'links')).toEqual([]);
-        expect(fake.dump('local')[SYNC_BACKUP_KEY].links).toEqual([link(1), link(2)]);
+        expect(fake.dump('local')[SYNC_SET_ASIDE_KEY].links).toEqual([link(1), link(2)]);
     });
 
     test('a deviceId created by the Sync tab does not stop a first sync from merging local links', async () => {
@@ -423,7 +437,7 @@ describe('Regression: SyncManager must not revert cloud data', () => {
         expect(result.success).toBe(true);
         expect(result.warning).toMatch(/cloud was cleared/);
         expect(stored(fake, 'sync', 'links')).toEqual([]);
-        expect(fake.dump('local')[SYNC_BACKUP_KEY].links).toEqual([link(1)]);
+        expect(fake.dump('local')[SYNC_SET_ASIDE_KEY].links).toEqual([link(1)]);
     });
 
     test('force pull empties a local field the cloud does not have', async () => {
@@ -476,10 +490,11 @@ describe('Regression: SyncManager must not revert cloud data', () => {
             const result = await syncManager.syncData();
 
             expect(result.success).toBe(true);
-            expect(result.warning).toMatch(/replaced by newer data from the cloud/);
+            expect(result.warning).toMatch(/^2 links saved only on this device were replaced by newer changes in the cloud\./);
             expect(stored(fake, 'sync', 'links')).toEqual([link(3)]);
             expect(stored(fake, 'local', 'links')).toEqual([link(3)]);
-            expect(fake.dump('local')[SYNC_BACKUP_KEY].links).toEqual([link(1), link(2)]);
+            // The copy is the union, so nothing from either side is lost.
+            expect(fake.dump('local')[SYNC_SET_ASIDE_KEY].links).toEqual([link(1), link(2), link(3)]);
             expect(fake.dump('local')['pendingSyncSince.links']).toBeUndefined();
         });
 
@@ -500,7 +515,7 @@ describe('Regression: SyncManager must not revert cloud data', () => {
 
             expect(result.warning).toBeDefined();
             expect(stored(fake, 'sync', 'links')).toEqual([link(1)]);
-            expect(fake.dump('local')[SYNC_BACKUP_KEY].links).toEqual([link(1), link(9)]);
+            expect(fake.dump('local')[SYNC_SET_ASIDE_KEY].links).toEqual([link(1), link(9)]);
         });
 
         test('are set aside, not discarded, by a force pull', async () => {
@@ -509,9 +524,9 @@ describe('Regression: SyncManager must not revert cloud data', () => {
             const result = await syncManager.forcePullFromRemote();
 
             expect(result.success).toBe(true);
-            expect(result.warning).toMatch(/Force pull replaced/);
+            expect(result.warning).toMatch(/^1 link saved only on this device was replaced by Force pull\./);
             expect(stored(fake, 'local', 'links')).toEqual([link(1)]);
-            expect(fake.dump('local')[SYNC_BACKUP_KEY].links).toEqual([link(1), link(2)]);
+            expect(fake.dump('local')[SYNC_SET_ASIDE_KEY].links).toEqual([link(1), link(2)]);
         });
 
         test('are not uploaded over a clear from another device', async () => {
@@ -557,6 +572,129 @@ describe('Regression: SyncManager must not revert cloud data', () => {
         ]);
         expect(syncManager.lastSyncTime).toBeNull();
         expect(fake.dump('local').lastSyncTime).toBeUndefined();
+    });
+
+    describe('round 6', () => {
+        test('force pull also replaces a pending setting, so the next Sync now keeps the cloud value', async () => {
+            const { saveSettings } = await import('../../javascript/core-systems/storageManager.js');
+            fake.seed('sync', { links: JSON.stringify([link(1)]), categories: '["Default"]', theme: 'dark' });
+            await syncManager.syncData();
+            await withSyncWritesFailing(() => saveSettings({ theme: 'light' }));
+
+            expect((await syncManager.forcePullFromRemote()).success).toBe(true);
+            expect((await syncManager.syncData()).success).toBe(true);
+
+            expect(fake.dump('sync').theme).toBe('dark');
+            expect(fake.dump('local').theme).toBeUndefined();
+            expect(fake.dump('local')['pendingSyncSince.theme']).toBeUndefined();
+        });
+
+        test('a clear is detected by its stamp, not by comparing device clocks', async () => {
+            // This device's clock runs ahead: its fallback save looks "newer"
+            // than the clear. The clear left theme unchanged, and this device
+            // missed the storage event (seeded, so no onChanged).
+            fake.seed('sync', { links: '[]', categories: '["Default"]', theme: 'dark', syncClearedAt: 1000 });
+            fake.seed('local', {
+                theme: 'light',
+                'pendingSyncSince.theme': { since: Date.now() + 1e9, cloud: '"dark"', clearedAt: null }
+            });
+
+            const result = await syncManager.syncData();
+
+            expect(result.success).toBe(true);
+            expect(fake.dump('sync').theme).toBe('dark');
+            expect(result.warning).toMatch(/theme setting/);
+        });
+
+        test('a failed backup download stops the replacement', async () => {
+            fake.seed('sync', { links: JSON.stringify([link(1)]), categories: '["Default"]' });
+            fake.seed('local', { links: JSON.stringify([link(1), link(9)]), 'pendingSyncSince.links': { since: 1 } });
+            URL.createObjectURL = jest.fn(() => { throw new Error('download blocked'); });
+
+            const result = await syncManager.syncData();
+
+            expect(result.success).toBe(false);
+            expect(result.error).toMatch(/Could not download a backup/);
+            expect(stored(fake, 'local', 'links')).toEqual([link(1), link(9)]);
+        });
+
+        test('a failed metadata read aborts instead of looking like a first sync', async () => {
+            // A synced device with a stale snapshot (link 2 was deleted since).
+            fake.seed('sync', { links: JSON.stringify([link(1), link(3)]), categories: '["Default"]', syncMetadata: { version: 200, lastModified: 200 } });
+            fake.seed('local', { links: JSON.stringify([link(1), link(2), link(3)]), categories: '["Default"]', syncMetadata: { version: 100, lastModified: 100 } });
+            const realGet = chrome.storage.local.get;
+            chrome.storage.local.get = jest.fn((keys) => (
+                [].concat(keys ?? []).includes('syncMetadata')
+                    ? Promise.reject(new Error('local read failed'))
+                    : realGet(keys)
+            ));
+
+            const result = await syncManager.syncData();
+
+            expect(result.success).toBe(false);
+            expect(stored(fake, 'sync', 'links')).toEqual([link(1), link(3)]);
+        });
+
+        test('a pending setting does not make a first sync drop local-only links', async () => {
+            const { saveSettings } = await import('../../javascript/core-systems/storageManager.js');
+            fake.seed('sync', { links: JSON.stringify([link(9)]), categories: '["Default"]' });
+            fake.seed('local', { links: JSON.stringify([link(1), link(2)]), categories: '["Default"]' });
+            await withSyncWritesFailing(() => saveSettings({ theme: 'light' }));
+
+            expect((await syncManager.syncData()).success).toBe(true);
+
+            expect(stored(fake, 'sync', 'links').map((l) => l.id).sort()).toEqual(['link_1', 'link_2', 'link_9']);
+            expect(fake.dump('sync').theme).toBe('light');
+            expect(stored(fake, 'local', 'links')).toHaveLength(3);
+        });
+
+        test('a first sync sets local links aside after a clear even once the cloud has new links', async () => {
+            // Cleared, then another device added link 5.
+            fake.seed('sync', { links: JSON.stringify([link(5)]), categories: '["Default"]', syncClearedAt: 1000 });
+            fake.seed('local', { links: JSON.stringify([link(1), link(2)]), categories: '["Default"]' });
+
+            const result = await syncManager.syncData();
+
+            expect(result.success).toBe(true);
+            expect(result.warning).toMatch(/^2 links saved only on this device were not uploaded because the cloud was cleared\./);
+            expect(stored(fake, 'sync', 'links')).toEqual([link(5)]);
+            expect(fake.dump('local')[SYNC_SET_ASIDE_KEY].links.map((l) => l.id).sort()).toEqual(['link_1', 'link_2', 'link_5']);
+        });
+
+        test('only entries the cloud lacks are set aside, and the reason names them', async () => {
+            fake.seed('sync', { links: JSON.stringify([link(1)]), categories: '["Default"]', syncClearedAt: 1000 });
+            fake.seed('local', { links: JSON.stringify([link(1)]), categories: '["Default","Work"]' });
+
+            const result = await syncManager.syncData();
+
+            expect(result.warning).toMatch(/^1 category saved only on this device was not uploaded because the cloud was cleared\./);
+            const copy = fake.dump('local')[SYNC_SET_ASIDE_KEY];
+            expect(copy.links).toEqual([link(1)]);
+            expect(copy.categories).toEqual(['Default', 'Work']);
+        });
+
+        test('a set-aside copy does not displace the backup taken by a clear', async () => {
+            fake.seed('sync', { links: JSON.stringify([link(1)]), categories: '["Default"]' });
+            fake.seed('local', {
+                links: JSON.stringify([link(1), link(9)]),
+                'pendingSyncSince.links': { since: 1 },
+                [SYNC_BACKUP_KEY]: { links: [link(7)], categories: ['Default'] }
+            });
+
+            expect((await syncManager.syncData()).warning).toBeDefined();
+
+            expect(fake.dump('local')[SYNC_BACKUP_KEY].links).toEqual([link(7)]);
+            expect(fake.dump('local')[SYNC_SET_ASIDE_KEY].links).toEqual([link(1), link(9)]);
+        });
+
+        test('a junk entry in the cloud links does not fail every Sync now', async () => {
+            const meta = { version: 100, lastModified: 100 };
+            fake.seed('sync', { links: JSON.stringify([null, link(1)]), categories: '["Default"]', syncMetadata: meta });
+            fake.seed('local', { syncMetadata: meta });
+
+            expect((await syncManager.syncData()).success).toBe(true);
+            expect(stored(fake, 'local', 'links')).toEqual([link(1)]);
+        });
     });
 
     describe('clearSyncData', () => {
@@ -933,6 +1071,55 @@ describe('Regression: sync pill reflects manual sync failures', () => {
         handleSyncCleared({ remote: true });
         expect(getState().filteredLinks).toEqual([link(5)]);
         expect(document.getElementById('linksContainer').children).toHaveLength(1);
+    });
+
+    test('a sync where the cloud wins replaces the links this page still holds', async () => {
+        const { safeUpdateState, getState } = await import('../../javascript/core-systems/stateManager.js');
+        const { syncManager } = await import('../../javascript/core-systems/syncManager.js');
+        // This page loaded links that only this device has (a superseded save).
+        fake.seed('sync', { links: JSON.stringify([link(1)]), categories: '["Default"]' });
+        fake.seed('local', { links: JSON.stringify([link(1), link(9)]), 'pendingSyncSince.links': { since: 1 } });
+        safeUpdateState({ links: [link(1), link(9)] }, { validate: false, skipPersistence: true });
+        const { createObjectURL, revokeObjectURL } = URL;
+        URL.createObjectURL = jest.fn(() => 'blob:backup');
+        URL.revokeObjectURL = jest.fn();
+        jest.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+        let result;
+        try {
+            result = await syncManager.syncData();
+        } finally {
+            Object.assign(URL, { createObjectURL, revokeObjectURL });
+        }
+
+        expect(result.success).toBe(true);
+        expect(getState().links).toEqual([link(1)]);
+
+        document.body.innerHTML += `
+            <div id="linksContainer"></div>
+            <span id="pageInfo"></span><button id="prevPage"></button><button id="nextPage"></button>`;
+        const { refreshLinkList } = await import('../../javascript/entry-points/manageScript.js');
+        refreshLinkList({ links: [link(1)], categories: ['Default'] });
+        expect(getState().filteredLinks).toEqual([link(1)]);
+        expect(document.getElementById('linksContainer').children).toHaveLength(1);
+    });
+
+    test('the Sync tab sets up its listeners once, however often it is shown', async () => {
+        document.body.innerHTML += `
+            <select id="sync-strategy-select">
+                <option value="remote">Cloud</option><option value="merge">Merge</option><option value="local">Local</option>
+            </select>`;
+        const { SyncSettingsController } = await import('../../javascript/features/syncSettingsController.js');
+        const controller = new SyncSettingsController();
+        controller.init();
+        controller.init();
+        controller.init();
+
+        const select = document.getElementById('sync-strategy-select');
+        select.value = 'local';
+        select.dispatchEvent(new Event('change'));
+        controller.destroy();
+
+        expect(confirmSpy).toHaveBeenCalledTimes(1);
     });
 
     test('a sync that set local data aside says so on the pill', () => {

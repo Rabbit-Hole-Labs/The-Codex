@@ -31,12 +31,17 @@ export function parseStoredArray(value) {
 /**
  * Pending-sync markers. When a save can't reach chrome.storage.sync and falls
  * back to chrome.storage.local, storageManager stores, per field,
- * `pendingSyncSince.<field>` = { since, cloud }, where `cloud` is the JSON of
- * the field's cloud value at that moment ('null' when absent; omitted when it
- * couldn't be read). SyncManager pushes the local value on the next Sync now
- * only while the cloud still holds that same value: if anything wrote the
- * field to sync since (this device or another), the local copy is superseded.
+ * `pendingSyncSince.<field>` = { since, cloud, clearedAt }: `cloud` is the JSON
+ * of the field's cloud value at that moment ('null' when absent; omitted when
+ * it couldn't be read) and `clearedAt` the cloud's SYNC_CLEARED_AT_KEY value
+ * (null if never cleared). SyncManager pushes the local value on the next Sync
+ * now only while the cloud still holds that same value and hasn't been cleared
+ * since — compared for equality, never as device clocks: if anything wrote the
+ * field or cleared sync since (this device or another), the copy is superseded.
  */
+
+/** chrome.storage.sync key stamped by Clear sync data: identifies each clear. */
+export const SYNC_CLEARED_AT_KEY = 'syncClearedAt';
 export const PENDING_SYNC_PREFIX = 'pendingSyncSince.';
 
 /** Fields that can be pending: links, categories and the synced settings. */

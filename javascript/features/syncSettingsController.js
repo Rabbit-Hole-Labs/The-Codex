@@ -8,16 +8,23 @@ export class SyncSettingsController {
         this.elements = {};
         this.syncLog = [];
         this.logUpdateInterval = null;
+        this.initialized = false;
     }
 
     // Initialize the sync settings controller
+    // Runs every time the Sync tab is shown: listeners and the periodic
+    // refresh are set up once (repeating them stacked duplicate handlers and
+    // confirm dialogs); later calls only refresh the displayed status.
     init() {
-        this.getElements();
-        this.attachEventListeners();
-        this.startPeriodicUpdates();
+        if (!this.initialized) {
+            this.initialized = true;
+            this.getElements();
+            this.attachEventListeners();
+            this.startPeriodicUpdates();
+            this.addLogEntry('info', 'Sync settings page loaded');
+        }
         this.updateSyncStatus();
         this.updateErrorDisplay();
-        this.addLogEntry('info', 'Sync settings page loaded');
     }
 
     // Get all DOM elements
