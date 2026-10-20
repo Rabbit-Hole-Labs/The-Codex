@@ -237,8 +237,10 @@ describe('Storage Manager Functionality', () => {
       // Should succeed with fallback
       expect(result).toBe(true);
       expect(mockChromeStorage.sync.set).toHaveBeenCalled();
+      // The fallback also marks links as pending, so the next Sync now pushes them.
       expect(mockChromeStorage.local.set).toHaveBeenCalledWith({
-        links: JSON.stringify(validLinks)
+        links: JSON.stringify(validLinks),
+        'pendingSyncSince.links': expect.objectContaining({ since: expect.any(Number) })
       });
     });
 

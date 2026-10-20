@@ -27,3 +27,27 @@ export function parseStoredArray(value) {
     }
     return null;
 }
+
+/**
+ * Pending-sync markers. When a save can't reach chrome.storage.sync and falls
+ * back to chrome.storage.local, storageManager stores, per field,
+ * `pendingSyncSince.<field>` = { since, cloud }, where `cloud` is the JSON of
+ * the field's cloud value at that moment ('null' when absent; omitted when it
+ * couldn't be read). SyncManager pushes the local value on the next Sync now
+ * only while the cloud still holds that same value: if anything wrote the
+ * field to sync since (this device or another), the local copy is superseded.
+ */
+export const PENDING_SYNC_PREFIX = 'pendingSyncSince.';
+
+/** Fields that can be pending: links, categories and the synced settings. */
+export const PENDING_SYNC_FIELDS = Object.freeze(['links', 'categories', 'theme', 'view', 'colorTheme', 'defaultTileSize']);
+
+/** Local storage key of a field's pending-sync marker. */
+export function pendingSyncKey(field) {
+    return `${PENDING_SYNC_PREFIX}${field}`;
+}
+
+/** The JSON form a marker records for a cloud value (absent → 'null'). */
+export function cloudValueFingerprint(value) {
+    return JSON.stringify(value ?? null);
+}

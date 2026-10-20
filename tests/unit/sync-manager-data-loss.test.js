@@ -27,8 +27,27 @@ const stored = (fake, area, key) => {
 // Far over the 8 KB per-item sync quota once Chrome re-escapes the JSON string.
 const OVERSIZED_LINKS = Array.from({ length: 200 }, (_, i) => link(i));
 
+// Passes saveLinks' 8000-character check but is over Chrome's 8192-byte item
+// quota once the JSON string is escaped again, so the save falls back to local.
+const OVER_QUOTA_UNDER_PREFLIGHT_LINKS = [];
+while (JSON.stringify([...OVER_QUOTA_UNDER_PREFLIGHT_LINKS, link(0)]).length < 8000) {
+    OVER_QUOTA_UNDER_PREFLIGHT_LINKS.push(link(OVER_QUOTA_UNDER_PREFLIGHT_LINKS.length));
+}
+
 async function flushAsyncWork() {
     await new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+// Run `fn` while every chrome.storage.sync write is rejected (e.g. over quota),
+// so storageManager's saves fall back to chrome.storage.local.
+async function withSyncWritesFailing(fn, message = 'Resource::kQuotaBytesPerItem quota exceeded') {
+    const realSet = chrome.storage.sync.set;
+    chrome.storage.sync.set = () => Promise.reject(new Error(message));
+    try {
+        return await fn();
+    } finally {
+        chrome.storage.sync.set = realSet;
+    }
 }
 
 describe('Regression: SyncManager must not revert cloud data', () => {
@@ -301,6 +320,106 @@ describe('Regression: SyncManager must not revert cloud data', () => {
         expect(fake.dump('local').links).toBeUndefined();
     });
 
+    test('a snapshot left by the previous release\'s clear is not merged back (backed up instead)', async () => {
+        // Old clearSyncData: sync.clear() + remove local syncMetadata/lastSyncTime,
+        // leaving the local snapshot. deviceId shows this device synced before.
+        fake.seed('local', {
+            links: JSON.stringify([link(1), link(2)]),
+            categories: JSON.stringify(['Default']),
+            deviceId: 'device_old'
+        });
+
+        expect((await syncManager.syncData()).success).toBe(true);
+
+        expect(fake.dump('sync').links).toBeUndefined();
+        expect(stored(fake, 'local', 'links')).toEqual([]);
+        expect(fake.dump('local')[SYNC_BACKUP_KEY].links).toEqual([link(1), link(2)]);
+    });
+
+    test('force pull empties a local field the cloud does not have', async () => {
+        const meta = { version: 100, lastModified: 100 };
+        fake.seed('sync', { categories: JSON.stringify(['Default', 'Work']), syncMetadata: meta });
+        fake.seed('local', { links: JSON.stringify([link(1)]), categories: '["Default"]', syncMetadata: meta });
+
+        expect((await syncManager.forcePullFromRemote()).success).toBe(true);
+        expect(stored(fake, 'local', 'links')).toEqual([]);
+        expect(stored(fake, 'local', 'categories')).toEqual(['Default', 'Work']);
+    });
+
+    describe('saves that fell back to local storage', () => {
+        beforeEach(async () => {
+            fake.seed('sync', { links: JSON.stringify([link(1)]), categories: '["Default"]' });
+            expect((await syncManager.syncData()).success).toBe(true); // versions now equal
+        });
+
+        test('are pushed by the next Sync now, and stop being pending', async () => {
+            expect(await withSyncWritesFailing(() => saveLinks([link(1), link(2)]))).toBe(true);
+            expect(stored(fake, 'sync', 'links')).toEqual([link(1)]);
+
+            expect((await syncManager.syncData()).success).toBe(true);
+
+            expect(stored(fake, 'sync', 'links')).toEqual([link(1), link(2)]);
+            expect(stored(fake, 'local', 'links')).toEqual([link(1), link(2)]);
+            expect(fake.dump('local')['pendingSyncSince.links']).toBeUndefined();
+        });
+
+        test('push a deliberate delete-everything save too', async () => {
+            await withSyncWritesFailing(() => saveLinks([]));
+            expect((await syncManager.syncData()).success).toBe(true);
+            expect(stored(fake, 'sync', 'links')).toEqual([]);
+        });
+
+        test('push settings that fell back', async () => {
+            const { saveSettings } = await import('../../javascript/core-systems/storageManager.js');
+            await withSyncWritesFailing(() => saveSettings({ theme: 'light' }));
+
+            expect((await syncManager.syncData()).success).toBe(true);
+            expect(fake.dump('sync').theme).toBe('light');
+            expect(fake.dump('local')['pendingSyncSince.theme']).toBeUndefined();
+        });
+
+        test('lose to a newer cloud value written after them', async () => {
+            await withSyncWritesFailing(() => saveLinks([link(1), link(2)]));
+            // Another device (or a later save here) writes the cloud afterwards.
+            await chrome.storage.sync.set({ links: JSON.stringify([link(3)]) });
+
+            expect((await syncManager.syncData()).success).toBe(true);
+
+            expect(stored(fake, 'sync', 'links')).toEqual([link(3)]);
+            expect(stored(fake, 'local', 'links')).toEqual([link(3)]);
+            expect(fake.dump('local')['pendingSyncSince.links']).toBeUndefined();
+        });
+
+        test('stay pending when the push is over quota, and the failure is reported', async () => {
+            const links = OVER_QUOTA_UNDER_PREFLIGHT_LINKS;
+            expect(itemBytes('links', JSON.stringify(links))).toBeGreaterThan(8192);
+            expect(await saveLinks(links)).toBe(true); // the real quota makes it fall back
+
+            const result = await syncManager.syncData();
+
+            expect(result.success).toBe(false);
+            expect(result.error).toMatch(/quota exceeded/);
+            expect(stored(fake, 'sync', 'links')).toEqual([link(1)]);
+            expect(stored(fake, 'local', 'links')).toEqual(links);
+            expect(fake.dump('local')['pendingSyncSince.links']).toBeDefined();
+        });
+    });
+
+    test('a clear on another device resets this device\'s status and emits syncCleared', async () => {
+        fake.seed('local', { lastSyncTime: 123, syncStatus: 'synced' });
+        syncManager.lastSyncTime = 123;
+
+        // What clearSyncData writes on the other device, arriving via Chrome sync.
+        await chrome.storage.sync.set({ links: '[]', categories: '["Default"]', syncClearedAt: Date.now() });
+        await flushAsyncWork();
+
+        expect(events.filter((e) => e.event === 'syncCleared')).toEqual([
+            { event: 'syncCleared', data: expect.objectContaining({ remote: true }) }
+        ]);
+        expect(syncManager.lastSyncTime).toBeNull();
+        expect(fake.dump('local').lastSyncTime).toBeUndefined();
+    });
+
     describe('clearSyncData', () => {
         let originalCreate;
         let originalRevoke;
@@ -350,10 +469,15 @@ describe('Regression: SyncManager must not revert cloud data', () => {
             expect(backup.links).toEqual(cloud); // arrays, so importLinks accepts the file
             expect(backup.categories).toEqual(['Default', 'Work']);
             expect(backup.theme).toBe('light');
-            // Cleared to explicit empty values (never an empty area), settings removed.
+            // Cleared to explicit empty/default values in one write (never an empty area).
             expect(fake.dump('sync')).toEqual({
                 links: '[]',
                 categories: '["Default"]',
+                theme: 'dark',
+                view: 'grid',
+                colorTheme: 'default',
+                defaultTileSize: 'medium',
+                syncMetadata: { version: 0, lastModified: 0 },
                 syncClearedAt: expect.any(Number)
             });
         });
@@ -485,6 +609,66 @@ describe('Regression: SyncManager must not revert cloud data', () => {
             expect(stored(fake, 'sync', 'links')).toEqual([link(1)]);
         });
 
+        test('is applied in one write, so a rate limit cannot leave it half done', async () => {
+            fake.seed('sync', {
+                links: JSON.stringify([link(1)]),
+                categories: '["Default"]',
+                theme: 'light',
+                linksView: 'list' // a key the clear can only remove, not reset
+            });
+            URL.createObjectURL = jest.fn(() => 'blob:backup');
+            // Use up all but one of Chrome's 120 sync writes per minute.
+            for (let i = 0; i < 119; i++) await chrome.storage.sync.set({ theme: 'light' });
+
+            const result = await syncManager.clearSyncData();
+
+            expect(result.success).toBe(true);
+            const cloud = fake.dump('sync');
+            expect(cloud.links).toBe('[]');
+            expect(cloud.theme).toBe('dark'); // reset in the same write as the links
+            expect(cloud.linksView).toBe('list'); // best-effort removal was rate-limited
+        });
+
+        test('puts unsynced local links at the top level of the downloaded backup', async () => {
+            fake.seed('sync', { links: JSON.stringify([link(1)]), categories: '["Default"]' });
+            await syncManager.syncData();
+            await withSyncWritesFailing(() => saveLinks([link(1), link(2)]));
+            let backupBlob = null;
+            URL.createObjectURL = jest.fn((blob) => { backupBlob = blob; return 'blob:backup'; });
+
+            expect((await syncManager.clearSyncData()).success).toBe(true);
+
+            const backup = JSON.parse(await readBlob(backupBlob));
+            expect(backup.links).toEqual([link(1), link(2)]); // what Import restores
+            const stored = fake.dump('local')[SYNC_BACKUP_KEY];
+            expect(stored.cloudCopy.links).toEqual([link(1)]);
+            expect(stored.deviceLocalCopy.links).toEqual([link(1), link(2)]);
+        });
+
+        test('backs up and removes settings that fell back to local storage', async () => {
+            const { saveSettings } = await import('../../javascript/core-systems/storageManager.js');
+            await withSyncWritesFailing(() => saveSettings({ theme: 'light' }));
+            URL.createObjectURL = jest.fn(() => 'blob:backup');
+
+            expect((await syncManager.clearSyncData()).success).toBe(true);
+
+            const backup = fake.dump('local')[SYNC_BACKUP_KEY];
+            expect(backup.deviceLocalCopy.theme).toBe('light');
+            expect(backup.theme).toBe('light'); // pending, so it's the newest value
+            expect(fake.dump('local').theme).toBeUndefined();
+            expect(fake.dump('local')['pendingSyncSince.theme']).toBeUndefined();
+        });
+
+        test('emits syncCleared once on the device that cleared', async () => {
+            fake.seed('sync', { links: JSON.stringify([link(1)]), categories: '["Default"]' });
+            URL.createObjectURL = jest.fn(() => 'blob:backup');
+
+            await syncManager.clearSyncData();
+            await flushAsyncWork();
+
+            expect(events.filter((e) => e.event === 'syncCleared')).toHaveLength(1);
+        });
+
         test('aborts when the backup cannot be saved to chrome.storage.local', async () => {
             fake.seed('sync', { links: JSON.stringify([link(1)]), categories: JSON.stringify(['Default']) });
             URL.createObjectURL = jest.fn(() => 'blob:backup');
@@ -566,7 +750,22 @@ describe('Regression: sync pill reflects manual sync failures', () => {
         indicator.handleSyncEvent('syncCleared', { time: Date.now() });
 
         expect(getState().links).toEqual([]);
+        expect(getState().filteredLinks).toEqual([]);
         expect(indicator.statusElement.textContent).toContain('Not synced');
+    });
+
+    test('the manage page drops the cleared rows from its list', async () => {
+        document.body.innerHTML += `
+            <div id="linksContainer"><div class="link-item">old row</div></div>
+            <span id="pageInfo"></span><button id="prevPage"></button><button id="nextPage"></button>`;
+        const { safeUpdateState, getState } = await import('../../javascript/core-systems/stateManager.js');
+        safeUpdateState({ links: [link(1)], filteredLinks: [link(1)], currentPage: 1 }, { validate: false, skipPersistence: true });
+        const { handleSyncCleared } = await import('../../javascript/entry-points/manageScript.js');
+
+        handleSyncCleared();
+
+        expect(getState().filteredLinks).toEqual([]);
+        expect(document.getElementById('linksContainer').children).toHaveLength(0);
     });
 
     test('choosing "This device\'s last sync wins" asks first and reverts if declined', async () => {

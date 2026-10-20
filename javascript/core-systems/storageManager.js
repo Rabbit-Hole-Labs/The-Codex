@@ -5,7 +5,35 @@ import { validateAndSanitizeUrl } from '../features/utils.js';
 import { sanitizeUserInput } from '../features/securityUtils.js';
 import { validateIconValue } from '../features/iconCache.js';
 import { debug, debugWarn, debugError } from './debug.js';
+import { pendingSyncKey, cloudValueFingerprint } from './storageFormat.js';
 const { ERROR_TYPES, ERROR_SEVERITY } = errorHandler;
+
+// Pending-sync markers for fields a save could only write to local storage
+// (see storageFormat.js); SyncManager pushes them on the next Sync now.
+async function pendingSyncMarkers(fields) {
+    let cloud = null;
+    try {
+        cloud = await chrome.storage.sync.get(fields);
+    } catch {
+        // Unreadable: record no cloud value, so the local copy is pushed.
+    }
+    const markers = {};
+    for (const field of fields) {
+        markers[pendingSyncKey(field)] = cloud
+            ? { since: Date.now(), cloud: cloudValueFingerprint(cloud[field]) }
+            : { since: Date.now() };
+    }
+    return markers;
+}
+
+// A field that reached sync is no longer pending.
+async function clearPendingSync(fields) {
+    try {
+        await chrome.storage.local.remove(fields.map(pendingSyncKey));
+    } catch (error) {
+        debugWarn('Failed to clear pending-sync markers', { errorMessage: error.message });
+    }
+}
 
 export async function loadLinks() {
     try {
@@ -217,6 +245,7 @@ export async function saveLinks(links) {
         // Try sync storage first (primary storage)
         try {
             await chrome.storage.sync.set({ links: linksString });
+            await clearPendingSync(['links']);
         } catch (syncError) {
             debugWarn('Sync storage failed, falling back to local storage', {
                 errorMessage: syncError.message,
@@ -225,7 +254,7 @@ export async function saveLinks(links) {
             
             // Fallback to local storage
             try {
-                await chrome.storage.local.set({ links: linksString });
+                await chrome.storage.local.set({ links: linksString, ...await pendingSyncMarkers(['links']) });
                 debug('Successfully saved to local storage as fallback');
             } catch (localError) {
                 const storageError = new CodexError(
@@ -286,6 +315,7 @@ export async function saveSettings(settings) {
         // Try sync storage first, fallback to local
         try {
             await chrome.storage.sync.set(dataToSave);
+            await clearPendingSync(Object.keys(dataToSave));
         } catch (syncError) {
             debugWarn('Sync storage failed for settings, falling back to local storage', {
                 errorMessage: syncError.message,
@@ -293,7 +323,7 @@ export async function saveSettings(settings) {
             });
             
             try {
-                await chrome.storage.local.set(dataToSave);
+                await chrome.storage.local.set({ ...dataToSave, ...await pendingSyncMarkers(Object.keys(dataToSave)) });
                 debug('Successfully saved settings to local storage as fallback');
             } catch (localError) {
                 const storageError = new CodexError(
@@ -496,6 +526,7 @@ export async function saveCategories(categories) {
         // Try sync storage first (primary storage)
         try {
             await chrome.storage.sync.set({ categories: categoriesString });
+            await clearPendingSync(['categories']);
         } catch (syncError) {
             debugWarn('Sync storage failed, falling back to local storage', {
                 errorMessage: syncError.message,
@@ -504,7 +535,7 @@ export async function saveCategories(categories) {
             
             // Fallback to local storage
             try {
-                await chrome.storage.local.set({ categories: categoriesString });
+                await chrome.storage.local.set({ categories: categoriesString, ...await pendingSyncMarkers(['categories']) });
                 debug('Successfully saved to local storage as fallback');
             } catch (localError) {
                 const storageError = new CodexError(

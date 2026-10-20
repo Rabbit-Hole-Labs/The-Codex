@@ -8,6 +8,7 @@ import { getState, safeUpdateState } from '../core-systems/stateManager.js';
 import { escapeHtml } from '../features/utils.js';
 import { syncStatusIndicator } from '../features/syncStatusIndicator.js';
 import { syncSettingsController } from '../features/syncSettingsController.js';
+import { syncManager } from '../core-systems/syncManager.js';
 import * as IconPicker from '../features/iconPicker.js';
 import '../features/consoleCommands.js';
 
@@ -95,6 +96,9 @@ async function init() {
 
         // Initialize sync status indicator
         syncStatusIndicator.init('sync-status-container');
+        syncManager.addSyncListener((event) => {
+            if (event === 'syncCleared') handleSyncCleared();
+        });
 
         // Load and apply current theme settings to management page
         loadCurrentSettings();
@@ -704,4 +708,15 @@ function setupCategoryReorder() {
 }
 
 // Start the application
+// After Clear sync data (on this device or another), drop the deleted links
+// from the list: it renders from filteredLinks, which nothing else recomputes
+// here. (The manage page's state handling is reworked in Phase 0.3.)
+export function handleSyncCleared() {
+    safeUpdateState(
+        { links: [], categories: ['Default'], filteredLinks: [], currentPage: 1 },
+        { validate: false, skipPersistence: true }
+    );
+    UIManager.renderLinks(getState());
+}
+
 document.addEventListener('DOMContentLoaded', init);

@@ -200,7 +200,7 @@ export class SyncStatusIndicator {
                 // The pill runs on both the new tab and the manage page: drop
                 // this page's in-memory links too, so its next save can't
                 // re-upload what was just cleared.
-                updateState({ links: [], categories: ['Default'] }, { validate: false, skipPersistence: true });
+                updateState({ links: [], categories: ['Default'], filteredLinks: [] }, { validate: false, skipPersistence: true });
                 this.updateStatus('notsynced');
                 break;
         }
