@@ -843,6 +843,29 @@ describe('package-extension', () => {
             .toContain("options_ui.chrome_style can't be used with manifest_version 3 (Chrome refuses it even when false)");
     });
 
+    test('import map integrity applies only to module fetches without their own integrity', () => {
+        const sandboxed = JSON.stringify({ ...MANIFEST, sandbox: { pages: ['assets/s.html'] } });
+        const files = (html) => ({ 'manifest.json': sandboxed, 'assets/x.js': 'export const x = 1;\n', 'assets/c.js': 'self.c = 1;\n', 'assets/s.html': html });
+        const good = `sha256-${createHash('sha256').update('export const x = 1;\n').digest('base64')}`;
+        for (const html of ['<script type="importmap">{"integrity": {"./c.js": "sha256-wrong"}}</script><script src="c.js"></script>',
+            '<script type="importmap">{"integrity": {"./x.js": "sha256-wrong"}}</script><script type="module" src="x.js" integrity=""></script>',
+            `<script type="importmap">{"integrity": {"./x.js": "${good}"}}</script><script type="importmap">{"integrity": {"./x.js": "sha256-wrong"}}</script><script type="module">import './x.js';</script>`,
+            '<script type="importmap">{"imports": {"x": "./x.js"}, "integrity": {"./x.js": "sha256-wrong"}}</script>']) {
+            writeFixture(root, fixtureFiles(files(html)));
+            expect(() => buildPackage({ root, outDir: out })).not.toThrow();
+        }
+    });
+
+    test('SVG scripts with a data-block type load nothing; uuid-in-package takes one slash; typed import()', () => {
+        writeFixture(root, fixtureFiles({ 'javascript/tpl.js': 'export const t = 1;\n',
+            'popup.html': '<svg><script type="text/plain" href="javascript/tpl.js"></script></svg><script type="module" src="javascript/entry-points/popup.js"></script>' }));
+        expect(() => buildPackage({ root, outDir: out })).not.toThrow();
+        expect(validateManifest({ ...MANIFEST, content_scripts: [{ matches: ['uuid-in-package:/x'], js: ['javascript/content.js'] }] })).toEqual([]);
+        writeFixture(root, fixtureFiles({ 'assets/dyn.js': "const s = await import('../stylesheets/base.css', { with: { type: 'css' } });\nexport const a = s;\n",
+            'popup.html': '<script type="module" src="assets/dyn.js"></script><script type="module" src="javascript/entry-points/popup.js"></script>' }));
+        expect(() => buildPackage({ root, outDir: out })).not.toThrow();
+    });
+
     test('an MV3 background needs a service worker', () => {
         expect(validateManifest({ ...MANIFEST, background: { type: 'module' } })).toContain('background.service_worker is required in MV3');
     });
@@ -1387,6 +1410,48 @@ describe('package-extension', () => {
             writeFixture(root, fixtureFiles({ 'popup.html': page("<head><meta http-equiv=\"Content-Security-Policy\" content=\"script-src 'self' 'unsafe-inline'\"></head>" +
                 '<iframe sandbox="allow-scripts" srcdoc="<script src=assets/s.js></script>"></iframe>'), 'assets/s.js': 'console.log(1);\n' }));
             expect(() => buildPackage({ root, outDir: out })).not.toThrow();
+        });
+
+        test('preloads, nonces and opaque srcdocs follow Chrome more closely', () => {
+            const body = 'console.log(1);\n';
+            // A preload after the script that uses the file is never used.
+            writeFixture(root, fixtureFiles({ 'assets/i.js': body, 'popup.html': page('<script src="assets/i.js"></script><link rel="preload" as="script" href="assets/i.js" integrity="sha256-wrong">') }));
+            expect(() => buildPackage({ root, outDir: out })).not.toThrow();
+            // A nonced preload is no nonce root: the un-nonced <script>'s imports get no nonce.
+            const id = extensionIdFromKey(MANIFEST.key);
+            const meta = `<head><meta http-equiv="Content-Security-Policy" content="script-src 'nonce-n1' chrome-extension://${id}/assets/c.js"></head>`;
+            expect(buildError({ 'assets/c.js': "import './d.js';\n", 'assets/d.js': 'export const d = 1;\n',
+                'popup.html': `${meta}<link rel="preload" as="script" nonce="n1" href="assets/c.js"><script type="module" src="assets/c.js"></script>` }))
+                .toContain("assets/c.js loads assets/d.js, which the <meta> CSP in popup.html blocks (script-src doesn't allow 'self')");
+            // An opaque sandboxed srcdoc's own module graph is exempt too.
+            writeFixture(root, fixtureFiles({ 'assets/m.js': "import './n.js';\n", 'assets/n.js': 'export const n = 1;\n',
+                'popup.html': page("<head><meta http-equiv=\"Content-Security-Policy\" content=\"script-src 'nonce-x'\"></head><iframe sandbox=\"allow-scripts\" srcdoc=\"<script type=module src=assets/m.js></script>\"></iframe>")
+                    .replace('<script type="module" src', '<script type="module" nonce="x" src') }));
+            expect(() => buildPackage({ root, outDir: out })).not.toThrow();
+        });
+
+        test('an upgraded port 443 source matches https subresources, not frames', () => {
+            const csp = parseCsp('img-src http://h.example:443; frame-src http://h.example:443');
+            expect(cspAllows(csp, 'img-src', 'https://h.example/a.png')).toBe(true);
+            expect(cspAllows(csp, 'frame-src', 'https://h.example/')).toBe(false);
+            expect(cspAllows(parseCsp('frame-src http://h.example:80'), 'frame-src', 'https://h.example/')).toBe(true);
+        });
+
+        test('custom properties: chains into @property holders, srcdoc documents and unreached sheets', () => {
+            // --p is registered as <url>, so a url() chained into it resolves where --p: var(--a) is written.
+            writeFixture(root, fixtureFiles({ 'stylesheets/tokens/a.css': ':root { --a: url(i.svg); }\n', 'stylesheets/mid/i.svg': 'svg',
+                'stylesheets/mid/b.css': "@property --p { syntax: '<url>'; inherits: true; initial-value: url(data:,); }\n:root { --p: var(--a); }\n",
+                'stylesheets/use/c.css': '.c { background-image: var(--p); }\n',
+                'popup.html': '<link rel="stylesheet" href="stylesheets/tokens/a.css"><link rel="stylesheet" href="stylesheets/mid/b.css"><link rel="stylesheet" href="stylesheets/use/c.css">' +
+                    '<script type="module" src="javascript/entry-points/popup.js"></script>' }));
+            expect(() => buildPackage({ root, outDir: out })).not.toThrow();
+            // A srcdoc is another document: it can't read the page's properties.
+            writeFixture(root, fixtureFiles({ 'stylesheets/t.css': ':root { --a: url(icons/a.svg); }\n.x { background-image: var(--a); }\n', 'stylesheets/icons/a.svg': 'svg',
+                'popup.html': page('<link rel="stylesheet" href="stylesheets/t.css"><iframe srcdoc="<style>.c { background-image: var(--a); }</style>"></iframe>') }));
+            expect(() => buildPackage({ root, outDir: out })).not.toThrow();
+            // A sheet no page links (inserted by script) still pairs its own declarations and readers.
+            expect(buildError({ 'stylesheets/theme.css': ':root { --bg: url(gone.png); }\n.x { background: var(--bg); }\n' }))
+                .toContain('stylesheets/theme.css: url(gone.png) in --bg resolves to stylesheets/gone.png, which is not in the package');
         });
 
         test('content_security_policy must be the MV3 object form', () => {
