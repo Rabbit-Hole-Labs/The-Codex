@@ -738,8 +738,6 @@ function htmlRefs(html, inheritedBase = null, scripting = true) {
             case 'base':
                 if (!base && href !== undefined && href.trim()) base = { href: href.trim(), line };
                 break;
-                case '':
-                break; // foreign (SVG/MathML) element: handled above
             case '':
                 // a foreign (SVG/MathML) element: its href was handled above
                 add(src, null);
