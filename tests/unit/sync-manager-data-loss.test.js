@@ -995,6 +995,89 @@ describe('Regression: SyncManager must not revert cloud data', () => {
             expect(fake.dump('sync').theme).toBe('dark');
         });
 
+        test('a local failure after the cloud took a first sync does not make the next sync merge again (P1f)', async () => {
+            const { saveSettings } = await import('../../javascript/core-systems/storageManager.js');
+            // Never-synced device with an unmarked link, plus a superseded setting (so there is a set-aside).
+            fake.seed('local', { links: JSON.stringify([link(1)]), categories: '["Default"]' });
+            fake.seed('sync', { links: JSON.stringify([link(2), link(3)]), categories: '["Default"]', syncMetadata: { version: 9, lastModified: 9 } });
+            await withSyncWritesFailing(() => saveSettings({ view: 'list' }));
+            await chrome.storage.sync.set({ view: 'grid' });
+            const realLocalSet = chrome.storage.local.set;
+            chrome.storage.local.set = (items) => (SYNC_SET_ASIDE_KEY in items
+                ? Promise.reject(new Error('Resource::kQuotaBytes quota exceeded'))
+                : realLocalSet(items));
+
+            const first = await syncManager.syncData();
+            chrome.storage.local.set = realLocalSet;
+
+            expect(first.success).toBe(true); // the cloud took it; keeping the extra copy is best effort
+            expect(fake.dump('local').syncMetadata.version).toBe(fake.dump('sync').syncMetadata.version);
+            // Another device deletes link 1 and records its sync.
+            fake.seed('sync', { links: JSON.stringify([link(2), link(3)]), syncMetadata: { version: 10, lastModified: 10 } });
+
+            expect((await syncManager.syncData()).success).toBe(true);
+            expect(stored(fake, 'sync', 'links').map((l) => l.id)).not.toContain('link_1');
+        });
+
+        test('force pull from a cloud holding only settings keeps this device\'s lists (X1)', async () => {
+            const { safeUpdateState, getState } = await import('../../javascript/core-systems/stateManager.js');
+            fake.seed('sync', { theme: 'light' });
+            fake.seed('local', { links: JSON.stringify([link(1), link(3)]), categories: '["Default","Work"]' });
+            safeUpdateState({ links: [link(1), link(3)] }, { validate: false, skipPersistence: true });
+
+            const result = await syncManager.forcePullFromRemote();
+            await flushAsyncWork();
+
+            expect(result.success).toBe(true);
+            expect(stored(fake, 'local', 'links')).toEqual([link(1), link(3)]);
+            expect(stored(fake, 'local', 'categories')).toEqual(['Default', 'Work']);
+            expect(getState().links).toEqual([link(1), link(3)]); // the open page doesn't empty
+            expect(getState().theme).toBe('light');
+        });
+
+        test('a copy parked by a failed attempt is dropped by the next successful sync and by a clear', async () => {
+            fake.seed('sync', { links: JSON.stringify([link(1)]), categories: '["Default"]' });
+            await syncManager.syncData();
+            const rateLimited = 'This request exceeds the MAX_WRITE_OPERATIONS_PER_MINUTE quota.';
+            await withSyncWritesFailing(async () => {
+                await saveLinks([link(1), link(2)]);
+                expect((await syncManager.forcePullFromRemote()).success).toBe(false);
+            }, rateLimited);
+            expect(fake.dump('local').syncSetAsideInProgress).toBeDefined();
+
+            expect((await syncManager.syncData()).success).toBe(true); // pushes the pending links: no set-aside
+            expect(fake.dump('local').syncSetAsideInProgress).toBeUndefined();
+
+            await withSyncWritesFailing(() => syncManager.forcePullFromRemote(), rateLimited);
+            await saveLinks([link(1)]); // so the clear has something to back up
+            fake.seed('local', { syncSetAsideInProgress: { links: [link(9)], downloaded: true } });
+            expect((await syncManager.clearSyncData()).success).toBe(true);
+            expect(fake.dump('local').syncSetAsideInProgress).toBeUndefined();
+        });
+
+        test('a reorder together with a missing category is named in the reason (Pc4)', async () => {
+            const { saveCategories } = await import('../../javascript/core-systems/storageManager.js');
+            fake.seed('sync', { links: '[]', categories: '["Default","A","B"]' });
+            await syncManager.syncData();
+            await withSyncWritesFailing(() => saveCategories(['Default', 'B', 'A', 'X']));
+            await chrome.storage.sync.set({ categories: '["Default","A","B","C"]' }); // another device
+
+            const result = await syncManager.syncData();
+
+            expect(result.warning).toMatch(/^1 category and the category order saved only on this device were replaced by newer changes in the cloud\./);
+        });
+
+        test('unmarked categories that differ only in order are not set aside on a first sync after a clear', async () => {
+            fake.seed('sync', { links: JSON.stringify([link(5)]), categories: '["Default","A","B"]', syncClearedAt: 1000 });
+            fake.seed('local', { links: JSON.stringify([link(5)]), categories: '["Default","B","A"]' });
+
+            const result = await syncManager.syncData();
+
+            expect(result.success).toBe(true);
+            expect(result.warning).toBeUndefined();
+            expect(downloadClicks).not.toHaveBeenCalled();
+        });
+
         test('a junk entry in the cloud links does not fail every Sync now', async () => {
             const meta = { version: 100, lastModified: 100 };
             fake.seed('sync', { links: JSON.stringify([null, link(1)]), categories: '["Default"]', syncMetadata: meta });

@@ -137,32 +137,30 @@ describe('Sync Manager', () => {
             expect(metadata.remote.version).toBe(0);
         });
 
-        test('should update sync metadata in both storages', async () => {
+        test('should write the sync metadata with the data in one sync write', async () => {
             const syncModule = await import('../../javascript/core-systems/syncManager.js');
             syncManager = new syncModule.SyncManager();
 
-            mockStorageLocal.set.mockResolvedValue();
             mockStorageSync.set.mockResolvedValue();
-            mockStorageLocal.get.mockResolvedValue({ deviceId: 'device_test' });
+            const metadata = { version: 5, lastModified: 5, deviceId: 'device_test' };
 
-            const result = await syncManager.updateSyncMetadata('both');
+            const result = await syncManager.writeCloud({ links: '[]' }, metadata);
 
-            expect(result.success).toBe(true);
-            expect(mockStorageLocal.set).toHaveBeenCalled();
-            expect(mockStorageSync.set).toHaveBeenCalled();
+            expect(result.syncSaved).toBe(true);
+            expect(mockStorageSync.set).toHaveBeenCalledTimes(1);
+            expect(mockStorageSync.set).toHaveBeenCalledWith({ links: '[]', syncMetadata: metadata });
+            expect(mockStorageLocal.set).not.toHaveBeenCalled();
         });
 
-        test('should handle quota exceeded error when updating metadata', async () => {
+        test('should handle quota exceeded error when writing the sync metadata', async () => {
             const syncModule = await import('../../javascript/core-systems/syncManager.js');
             syncManager = new syncModule.SyncManager();
 
-            mockStorageLocal.set.mockResolvedValue();
             mockStorageSync.set.mockRejectedValue(new Error('QUOTA_BYTES exceeded'));
-            mockStorageLocal.get.mockResolvedValue({ deviceId: 'device_test' });
 
-            const result = await syncManager.updateSyncMetadata('both');
+            const result = await syncManager.writeCloud(null, { version: 5, lastModified: 5, deviceId: 'device_test' });
 
-            expect(result.success).toBe(false);
+            expect(result.syncSaved).toBe(false);
             expect(result.error).toContain('QUOTA');
         });
     });
