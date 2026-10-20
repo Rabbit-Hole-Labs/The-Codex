@@ -17,6 +17,12 @@
  *   (the Web Store's limit). Manifest keys the packager doesn't understand fail
  *   the build instead of being skipped. import() anywhere in the background
  *   service worker's module graph fails too: extension workers can't run it.
+ * - CSP: external resources a page or stylesheet loads must be allowed by the
+ *   manifest's extension-page CSP for their directive (script-src, style-src,
+ *   img-src, font-src, ...); inline scripts and on* handlers always fail (MV3
+ *   never runs them), and inline styles fail unless style-src allows them.
+ *   HTML and CSS are read with small tokenizers that follow the browsers'
+ *   parsing rules, so text that only looks like markup isn't a reference.
  * - The output directory may not sit inside a packaged directory.
  * - Deterministic: sorted entries and fixed timestamps. Rebuilding with the
  *   same Node/zlib build gives a byte-identical zip; across machines compare
@@ -109,10 +115,15 @@ const FIELD_SHAPES = {
     background: 'object', action: 'object', browser_action: 'object', page_action: 'object',
     icons: 'object', chrome_url_overrides: 'object', options_ui: 'object', side_panel: 'object',
     sandbox: 'object', declarative_net_request: 'object', content_scripts: 'array',
-    options_page: 'string', devtools_page: 'string'
+    options_page: 'string', devtools_page: 'string', content_security_policy: 'object'
 };
 
-const iconPaths = (icon) => (typeof icon === 'string' ? [icon] : Object.values(icon || {}));
+const iconPaths = (icon) => {
+    if (icon === undefined) return [];
+    if (typeof icon === 'string') return [icon];
+    if (icon !== null && typeof icon === 'object' && !Array.isArray(icon)) return Object.values(icon);
+    throw new Error('an icon must be a path or a size -> path object');
+};
 
 /** Checks the manifest fields Chrome and the Web Store validate on upload. */
 export function validateManifest(manifest) {
@@ -214,85 +225,217 @@ export function resolveRef(fromFile, ref, { rootRelative = false } = {}) {
     return posix.normalize(rootRelative ? clean : posix.join(posix.dirname(fromFile), clean));
 }
 
-/** Removes CSS comments without treating '/*' inside a quoted string as one. */
-function stripCssComments(css) {
-    let out = '';
-    for (let i = 0; i < css.length; i++) {
-        const ch = css[i];
-        if (ch === '"' || ch === "'") {
-            // A CSS string ends at the matching unescaped quote or an unescaped newline.
-            let j = i + 1;
-            while (j < css.length && css[j] !== ch && css[j] !== '\n') j += css[j] === '\\' ? 2 : 1;
-            out += css.slice(i, j + 1);
-            i = j;
-        } else if (ch === '/' && css[i + 1] === '*') {
-            const end = css.indexOf('*/', i + 2);
-            i = end === -1 ? css.length : end + 1;
-        } else {
-            out += ch;
-        }
-    }
-    return out;
-}
+// CSS ---------------------------------------------------------------------------
 
-/** Decodes CSS escapes: \\XXXXXX (1-6 hex digits, optional trailing space) or \\<char>. */
+/** Decodes CSS escapes: \XXXXXX (1-6 hex digits, optional trailing space) or \<char>. */
 export function cssUnescape(value) {
     return value.replace(/\\(?:([0-9a-f]{1,6})[ \t\n\f]?|\r\n|([\s\S]))/gi, (whole, hex, ch) => {
         if (hex) {
             const code = parseInt(hex, 16);
-            return code === 0 || code > 0x10FFFF || (code >= 0xD800 && code <= 0xDFFF) ? '\uFFFD' : String.fromCodePoint(code);
+            return code === 0 || code > 0x10FFFF || (code >= 0xD800 && code <= 0xDFFF) ? '�' : String.fromCodePoint(code);
         }
         return ch === undefined || ch === '\n' ? '' : ch; // an escaped newline is a line continuation in strings
     });
 }
 
-// Quoted CSS strings may contain escaped quotes; unquoted url() tokens may contain escapes (e.g. "\\ ").
-const CSS_DQ = '"((?:\\\\[\\s\\S]|[^"\\\\\\n])*)"';
-const CSS_SQ = "'((?:\\\\[\\s\\S]|[^'\\\\\\n])*)'";
-
-function cssRefs(css) {
+/**
+ * URLs a stylesheet (or a style attribute/block) loads, from a small CSS
+ * tokenizer: comments and strings are skipped, so url()-like text inside a
+ * string such as content: "url(x.png)" is not a reference. Each URL comes with
+ * the CSP directive that governs it: @import -> style-src, url() inside
+ * @font-face -> font-src, anything else -> img-src.
+ * @returns {Array<{ url: string, directive: string }>}
+ */
+export function cssRefs(css) {
     const refs = [];
-    const text = stripCssComments(css);
-    const url = new RegExp(`url\\(\\s*(?:${CSS_DQ}|${CSS_SQ}|((?:\\\\[\\s\\S]|[^)'"\\s\\\\])+))\\s*\\)`, 'gi');
-    for (const m of text.matchAll(url)) {
-        // An unquoted value can't contain unescaped parentheses; skip var(--x) and other functions.
-        if (m[3] !== undefined && /(^|[^\\])[()]|^var\b/.test(m[3])) continue;
-        refs.push(cssUnescape(m[1] ?? m[2] ?? m[3]));
-    }
-    for (const m of text.matchAll(new RegExp(`@import\\s+(?:${CSS_DQ}|${CSS_SQ})`, 'gi'))) refs.push(cssUnescape(m[1] ?? m[2]));
-    for (const m of text.matchAll(/image-set\(((?:[^()]|\([^()]*\))*)\)/gi)) {
-        // Strings inside type("image/avif") are MIME types, not paths.
-        const candidates = m[1].replace(/type\(\s*(?:"[^"]*"|'[^']*')\s*\)/gi, '');
-        for (const s of candidates.matchAll(new RegExp(`${CSS_DQ}|${CSS_SQ}`, 'g'))) refs.push(cssUnescape(s[1] ?? s[2]));
-    }
-    return refs.filter(Boolean);
-}
-
-/** Removes <!-- --> comments that start outside a tag (not inside an attribute value). */
-function stripHtmlComments(html) {
-    let out = '';
-    let quote = null;
-    let inTag = false;
-    for (let i = 0; i < html.length; i++) {
-        const ch = html[i];
-        if (inTag) {
-            if (quote) {
-                if (ch === quote) quote = null;
-            } else if (ch === '"' || ch === "'") {
-                quote = ch;
-            } else if (ch === '>') {
-                inTag = false;
+    const functions = []; // open function names, innermost last ('' for a bare parenthesis)
+    let depth = 0;
+    let fontFaceDepth = -1;
+    let pendingFontFace = false;
+    let pendingImport = false;
+    let i = 0;
+    const readString = (start) => {
+        const quote = css[start];
+        let j = start + 1;
+        let raw = '';
+        while (j < css.length && css[j] !== quote && css[j] !== '\n') {
+            if (css[j] === '\\') {
+                raw += css.slice(j, j + 2);
+                j += 2;
+            } else {
+                raw += css[j++];
             }
-            out += ch;
-        } else if (html.startsWith('<!--', i)) {
-            const end = html.indexOf('-->', i + 4);
-            i = end === -1 ? html.length : end + 2;
+        }
+        return [cssUnescape(raw), Math.min(j + 1, css.length)];
+    };
+    const directive = () => (pendingImport ? 'style-src' : fontFaceDepth !== -1 ? 'font-src' : 'img-src');
+    const push = (url) => {
+        if (url) refs.push({ url, directive: directive() });
+        pendingImport = false;
+    };
+    while (i < css.length) {
+        const c = css[i];
+        if (c === '/' && css[i + 1] === '*') {
+            const end = css.indexOf('*/', i + 2);
+            i = end === -1 ? css.length : end + 2;
+        } else if (c === '"' || c === "'") {
+            const [value, end] = readString(i);
+            const fn = functions[functions.length - 1];
+            if (fn === 'image-set' || fn === '-webkit-image-set') refs.push({ url: value, directive: 'img-src' });
+            else if (pendingImport && functions.length === 0) push(value);
+            i = end;
+        } else if (c === '{') {
+            depth++;
+            if (pendingFontFace) {
+                fontFaceDepth = depth;
+                pendingFontFace = false;
+            }
+            pendingImport = false;
+            i++;
+        } else if (c === '}') {
+            if (depth === fontFaceDepth) fontFaceDepth = -1;
+            depth = Math.max(0, depth - 1);
+            i++;
+        } else if (c === ';') {
+            pendingImport = false;
+            pendingFontFace = false;
+            i++;
+        } else if (c === '@') {
+            const m = /^@([\w-]+)/.exec(css.slice(i, i + 64));
+            const keyword = m ? m[1].toLowerCase() : '';
+            if (keyword === 'import') pendingImport = true;
+            if (keyword === 'font-face') pendingFontFace = true;
+            i += m ? m[0].length : 1;
+        } else if (c === '(') {
+            functions.push('');
+            i++;
+        } else if (c === ')') {
+            functions.pop();
+            i++;
+        } else if (c === '\\' || /[A-Za-z_\-\u0080-￿]/.test(c)) {
+            let j = i;
+            while (j < css.length && (css[j] === '\\' || /[\w\-\u0080-￿]/.test(css[j]))) j += css[j] === '\\' ? 2 : 1;
+            const name = cssUnescape(css.slice(i, j)).toLowerCase();
+            if (css[j] !== '(') {
+                i = j;
+            } else if (name !== 'url') {
+                functions.push(name);
+                i = j + 1;
+            } else {
+                // url( "quoted" ) or url(unquoted-token)
+                let k = j + 1;
+                while (k < css.length && /\s/.test(css[k])) k++;
+                if (css[k] === '"' || css[k] === "'") {
+                    const [value, end] = readString(k);
+                    push(value);
+                    const close = css.indexOf(')', end);
+                    i = close === -1 ? css.length : close + 1;
+                } else {
+                    // An unquoted url token ends at ')'; unescaped whitespace before
+                    // other text, or a quote or '(' inside, makes it a bad-url (no fetch).
+                    let raw = '';
+                    let bad = false;
+                    while (k < css.length && css[k] !== ')') {
+                        if (css[k] === '\\' && css[k + 1] !== '\n') {
+                            raw += css.slice(k, k + 2);
+                            k += 2;
+                        } else if (/\s/.test(css[k])) {
+                            while (k < css.length && /\s/.test(css[k])) k++;
+                            if (css[k] !== ')') bad = true;
+                        } else {
+                            if (/["'(]/.test(css[k])) bad = true;
+                            raw += css[k++];
+                        }
+                    }
+                    if (bad) pendingImport = false;
+                    else push(cssUnescape(raw));
+                    i = k + 1;
+                }
+            }
         } else {
-            if (ch === '<' && /[a-z/!]/i.test(html[i + 1] || '')) inTag = true;
-            out += ch;
+            i++;
         }
     }
-    return out;
+    return refs;
+}
+
+// HTML --------------------------------------------------------------------------
+
+/** Elements whose content is text up to their end tag, not markup (raw text / RCDATA). */
+const TEXT_ELEMENTS = new Set(['script', 'style', 'textarea', 'title', 'xmp', 'iframe', 'noembed', 'noframes', 'plaintext']);
+
+/**
+ * A small HTML tokenizer: start tags with entity-decoded attributes, plus the
+ * text of raw-text/RCDATA elements (script, style, textarea, title, ...) up to
+ * their end tag. Comments, end tags and doctypes are skipped, and text between
+ * tags is never scanned, so attribute-like or comment-like text there (or
+ * inside a <textarea>) is not mistaken for markup.
+ * @returns {Array<{ name: string, attrs: Map<string, string>, line: number, text?: string }>}
+ */
+export function scanHtml(html) {
+    const tags = [];
+    let i = 0;
+    while (i < html.length) {
+        const lt = html.indexOf('<', i);
+        if (lt === -1) break;
+        if (html.startsWith('<!--', lt)) {
+            const end = html.indexOf('-->', lt + 4);
+            i = end === -1 ? html.length : end + 3;
+            continue;
+        }
+        const next = html[lt + 1] || '';
+        if (next === '/' || next === '!' || next === '?') {
+            const end = html.indexOf('>', lt + 2);
+            i = end === -1 ? html.length : end + 1;
+            continue;
+        }
+        if (!/[A-Za-z]/.test(next)) {
+            i = lt + 1;
+            continue;
+        }
+        let j = lt + 1;
+        while (j < html.length && !/[\s/>]/.test(html[j])) j++;
+        const name = html.slice(lt + 1, j).toLowerCase();
+        const attrs = new Map();
+        while (j < html.length && html[j] !== '>') {
+            if (/[\s/]/.test(html[j])) {
+                j++;
+                continue;
+            }
+            let k = j + 1; // an attribute name may start with '='
+            while (k < html.length && !/[\s/>=]/.test(html[k])) k++;
+            const attr = html.slice(j, k).toLowerCase();
+            j = k;
+            while (j < html.length && /\s/.test(html[j])) j++;
+            let value = '';
+            if (html[j] === '=') {
+                j++;
+                while (j < html.length && /\s/.test(html[j])) j++;
+                const quote = html[j];
+                if (quote === '"' || quote === "'") {
+                    const end = html.indexOf(quote, j + 1);
+                    value = html.slice(j + 1, end === -1 ? html.length : end);
+                    j = end === -1 ? html.length : end + 1;
+                } else {
+                    const start = j;
+                    while (j < html.length && !/[\s>]/.test(html[j])) j++;
+                    value = html.slice(start, j);
+                }
+            }
+            if (!attrs.has(attr)) attrs.set(attr, decodeEntities(value));
+        }
+        i = j + 1;
+        const tag = { name, attrs, line: html.slice(0, lt).split('\n').length };
+        if (TEXT_ELEMENTS.has(name)) {
+            const close = new RegExp(`</${name}(?=[\\s/>])`, 'gi');
+            close.lastIndex = i;
+            const end = name === 'plaintext' ? null : close.exec(html);
+            tag.text = html.slice(i, end ? end.index : html.length);
+            i = end ? end.index : html.length;
+        }
+        tags.push(tag);
+    }
+    return tags;
 }
 
 /**
@@ -322,33 +465,157 @@ export function srcsetUrls(value) {
     return urls;
 }
 
-/** src of each <script> that isn't type="module" (it runs as a classic script). */
-function classicScriptSrcs(html) {
-    const srcs = [];
-    for (const m of stripHtmlComments(html).matchAll(/<script\b([^>]*)>/gi)) {
-        const attrs = m[1];
-        if (/(?<![\w-])type\s*=\s*(?:"module"|'module'|module\b)/i.test(attrs)) continue;
-        const src = attrs.match(/(?<![\w-])src\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>"']+))/i);
-        if (src) srcs.push(decodeEntities(src[1] ?? src[2] ?? src[3]));
+const JS_TYPES = /^(|module|importmap|(text|application)\/(x-)?(java|ecma)script|text\/(j|live)script|text\/javascript1\.[0-5])$/i;
+
+/**
+ * What an HTML page loads, as { url, directive } pairs (directive is the CSP
+ * directive governing the fetch, or null for navigations and hints), plus
+ * markup the MV3 extension-page CSP always blocks (inline scripts and inline
+ * event handlers), and which <script src> files run as classic scripts.
+ */
+function htmlRefs(html) {
+    const urls = [];
+    const inline = [];
+    const classicScripts = [];
+    const styles = [];
+    const add = (url, directive) => {
+        if (url && url.trim()) urls.push({ url: url.trim(), directive });
+    };
+    for (const tag of scanHtml(html)) {
+        const { name, attrs, line } = tag;
+        for (const attr of attrs.keys()) {
+            if (/^on./.test(attr)) inline.push(`line ${line}: inline event handler ${attr}= on <${name}>`);
+        }
+        if (attrs.has('style')) styles.push(attrs.get('style'));
+        const src = attrs.get('src');
+        const href = attrs.get('href');
+        switch (name) {
+            case 'script': {
+                const type = (attrs.get('type') || '').trim();
+                if (!JS_TYPES.test(type)) break; // a data block, not a script
+                if (src !== undefined) {
+                    add(src, 'script-src');
+                    if (type.toLowerCase() !== 'module') classicScripts.push(src);
+                } else if (tag.text.trim()) {
+                    inline.push(`line ${line}: inline <script>`);
+                }
+                break;
+            }
+            case 'style':
+                styles.push(tag.text);
+                break;
+            case 'link': {
+                const rel = (attrs.get('rel') || '').toLowerCase().split(/\s+/);
+                if (rel.includes('stylesheet')) add(href, 'style-src');
+                else if (rel.includes('icon') || rel.includes('apple-touch-icon')) add(href, 'img-src');
+                else if (rel.includes('modulepreload')) add(href, 'script-src');
+                else if (rel.includes('manifest')) add(href, 'manifest-src');
+                else if (!rel.includes('preconnect') && !rel.includes('dns-prefetch')) add(href, null);
+                break;
+            }
+            case 'img':
+                add(src, 'img-src');
+                srcsetUrls(attrs.get('srcset') || '').forEach((url) => add(url, 'img-src'));
+                break;
+            case 'source':
+                add(src, 'media-src');
+                srcsetUrls(attrs.get('srcset') || '').forEach((url) => add(url, 'img-src'));
+                break;
+            case 'video':
+            case 'audio':
+            case 'track':
+                add(src, 'media-src');
+                add(attrs.get('poster'), 'img-src');
+                break;
+            case 'iframe':
+            case 'frame':
+                add(src, 'frame-src');
+                break;
+            case 'object':
+                add(attrs.get('data'), 'object-src');
+                break;
+            case 'embed':
+                add(src, 'object-src');
+                break;
+            case 'input':
+                if ((attrs.get('type') || '').toLowerCase() === 'image') add(src, 'img-src');
+                break;
+            case 'base':
+                break;
+            default:
+                // a, area and anything else: a navigation or unknown use; check local targets exist.
+                add(src, null);
+                add(href, null);
+        }
     }
-    return srcs;
+    for (const css of styles) urls.push(...cssRefs(css));
+    return { urls, inline, classicScripts, inlineStyles: styles.length > 0 };
 }
 
-function htmlRefs(html) {
-    const refs = [];
-    const text = stripHtmlComments(html);
-    const attr = (name) => new RegExp(`(?<![\\w-])${name}\\s*=\\s*(?:"([^"]*)"|'([^']*)'|([^\\s>"']+))`, 'gi');
-    for (const m of text.matchAll(attr('(?:src|href|poster|data)'))) {
-        const tagStart = text.lastIndexOf('<', m.index);
-        // <object data=...> is a reference; data-* attributes are not (excluded by the lookbehind).
-        if (/^data\s*=/i.test(m[0]) && !/^<object\b/i.test(text.slice(tagStart))) continue;
-        refs.push(decodeEntities(m[1] ?? m[2] ?? m[3]));
+// CSP ---------------------------------------------------------------------------
+
+/** Chrome's default extension-pages CSP for MV3 when the manifest sets none. */
+const DEFAULT_MV3_CSP = "script-src 'self'; object-src 'self';";
+
+const CSP_FALLBACKS = { 'frame-src': ['child-src', 'default-src'] };
+
+/** Parses a CSP string into Map(directive -> lower-cased sources). */
+export function parseCsp(policy) {
+    const directives = new Map();
+    for (const part of String(policy).split(';')) {
+        const [name, ...sources] = part.trim().split(/\s+/).filter(Boolean);
+        if (name && !directives.has(name.toLowerCase())) directives.set(name.toLowerCase(), sources.map((s) => s.toLowerCase()));
     }
-    for (const m of text.matchAll(attr('srcset'))) refs.push(...srcsetUrls(decodeEntities(m[1] ?? m[2] ?? m[3])));
-    for (const m of text.matchAll(/<style\b[^>]*>([\s\S]*?)<\/style>/gi)) refs.push(...cssRefs(m[1]));
-    for (const m of text.matchAll(attr('style'))) refs.push(...cssRefs(decodeEntities(m[1] ?? m[2] ?? m[3])));
-    return refs;
+    return directives;
 }
+
+const sourcesFor = (csp, directive) => {
+    const name = [directive, ...(CSP_FALLBACKS[directive] || ['default-src'])].find((d) => csp.has(d));
+    return name ? csp.get(name) : null;
+};
+
+/** Whether the CSP lets an extension page load the absolute URL under `directive`. */
+export function cspAllows(csp, directive, url) {
+    const sources = sourcesFor(csp, directive);
+    if (!sources) return true;
+    let parsed;
+    try {
+        parsed = new URL(url);
+    } catch {
+        return false;
+    }
+    const scheme = parsed.protocol;
+    return sources.some((source) => {
+        if (source.startsWith("'")) return false; // 'self' (the extension), 'none', nonces, hashes, keywords
+        if (/^[a-z][a-z0-9+.-]*:$/.test(source)) {
+            return source === scheme || (source === 'http:' && scheme === 'https:') || (source === 'ws:' && scheme === 'wss:');
+        }
+        const m = /^(?:([a-z][a-z0-9+.-]*):\/\/)?(\*|(?:\*\.)?[^/:]+)(?::(\d+|\*))?(\/.*)?$/.exec(source);
+        if (!m) return false;
+        const [, sourceScheme, host, port, path] = m;
+        if (sourceScheme ? `${sourceScheme}:` !== scheme && !(sourceScheme === 'http' && scheme === 'https:') : !/^https?:$/.test(scheme)) {
+            return false;
+        }
+        const hostname = parsed.hostname.toLowerCase();
+        if (host.startsWith('*.') ? !hostname.endsWith(host.slice(1)) : host !== '*' && hostname !== host) return false;
+        if (port && port !== '*') {
+            const effective = parsed.port || ({ 'https:': '443', 'http:': '80' })[scheme] || '';
+            if (effective !== port) return false;
+        }
+        if (path) {
+            const pathname = decodeURIComponent(parsed.pathname);
+            if (path.endsWith('/') ? !pathname.startsWith(path) : pathname !== path) return false;
+        }
+        return true;
+    });
+}
+
+/** Whether inline content is allowed: 'unsafe-inline' with no hash/nonce (which would disable it). */
+const cspAllowsInline = (csp, directive) => {
+    const sources = sourcesFor(csp, directive);
+    if (!sources) return true;
+    return sources.includes("'unsafe-inline'") && !sources.some((s) => /^'(nonce|sha(256|384|512))-/.test(s));
+};
 
 /** Static import/export specifiers, from V8's own module parser. */
 function staticImports(file, source) {
@@ -387,24 +654,29 @@ function dynamicImports(file, source) {
 }
 
 /**
- * Local references made by one packaged file.
- * @returns {{ refs: string[], errors: string[], dynamicImports: number }} refs are
- *   root-relative paths; dynamicImports counts import() calls (literal or not)
+ * References made by one packaged file.
+ * @returns {{ refs: string[], external: Array<{ url: string, directive: string }>, errors: string[],
+ *   dynamicImports: number, classicScripts: string[], inline: string[], inlineStyles: boolean }}
+ *   refs are root-relative local paths; external are absolute URLs with the CSP
+ *   directive governing them; classicScripts/inline/inlineStyles are for pages.
  */
 export function extractRefs(file, text, { classic = false } = {}) {
-    const refs = [];
-    const errors = [];
-    let dynamicImportCount = 0;
-    const add = (ref) => {
-        const resolved = resolveRef(file, ref);
-        if (resolved) refs.push(resolved);
+    const result = { refs: [], external: [], errors: [], dynamicImports: 0, classicScripts: [], inline: [], inlineStyles: false };
+    const add = ({ url, directive }) => {
+        const resolved = resolveRef(file, url);
+        if (resolved) result.refs.push(resolved);
+        else if (directive && /^[a-z][a-z0-9+.-]*:/i.test(url.trim())) result.external.push({ url: url.trim(), directive });
     };
     if (file.endsWith('.html')) {
-        htmlRefs(text).forEach(add);
+        const page = htmlRefs(text);
+        page.urls.forEach(add);
+        result.inline = page.inline;
+        result.inlineStyles = page.inlineStyles;
+        result.classicScripts = page.classicScripts.map((src) => resolveRef(file, src)).filter(Boolean);
     } else if (file.endsWith('.js') || file.endsWith('.mjs')) {
         const dynamic = dynamicImports(file, text);
-        errors.push(...dynamic.errors);
-        dynamicImportCount = dynamic.specifiers.length + dynamic.errors.length;
+        result.errors.push(...dynamic.errors);
+        result.dynamicImports = dynamic.specifiers.length + dynamic.errors.length;
         let statics = [];
         if (classic) {
             // Content scripts and <script> without type="module" run as classic
@@ -412,36 +684,45 @@ export function extractRefs(file, text, { classic = false } = {}) {
             try {
                 new vm.Script(text, { filename: file });
             } catch (error) {
-                errors.push(`${file} runs as a classic script (content script or <script> without type="module") but doesn't compile as one: ${error.message}`);
+                result.errors.push(`${file} runs as a classic script (content script or <script> without type="module") but doesn't compile as one: ${error.message}`);
             }
         } else {
             statics = staticImports(file, text);
         }
         for (const specifier of [...statics, ...dynamic.specifiers]) {
-            if (specifier.startsWith('.') || specifier.startsWith('/')) {
-                add(specifier);
+            if (specifier.startsWith('.') || specifier.startsWith('/') || /^[a-z][a-z0-9+.-]*:/i.test(specifier)) {
+                add({ url: specifier, directive: 'script-src' });
             } else {
-                errors.push(`${file}: bare module specifier "${specifier}" cannot be loaded by an unbundled extension`);
+                result.errors.push(`${file}: bare module specifier "${specifier}" cannot be loaded by an unbundled extension`);
             }
         }
     } else if (file.endsWith('.css')) {
         cssRefs(text).forEach(add);
     }
-    return { refs, errors, dynamicImports: dynamicImportCount };
+    return result;
 }
 
 /**
  * Checks every reference made by the manifest and every packaged page, module
- * and stylesheet. Returns errors for references that are not in the package
- * and warnings for packaged files nothing reaches from manifest.json.
+ * and stylesheet. Returns errors for references that are not in the package,
+ * for external resources and inline markup the manifest's extension-page CSP
+ * blocks, and warnings for packaged files nothing reaches from manifest.json.
  */
 export function checkReferences(root, files, manifest) {
     const packaged = new Set(files);
     const errors = [];
     const edges = new Map([['manifest.json', []]]);
     const usesDynamicImport = new Set();
-    // Files that run as classic scripts: content scripts and non-module <script src>.
-    const classic = new Set();
+    const policy = manifest.content_security_policy?.extension_pages;
+    const csp = parseCsp(typeof policy === 'string' ? policy : DEFAULT_MV3_CSP);
+    const read = (file) => readFileSync(join(root, file), 'utf8');
+
+    // Pages first: they decide which scripts run as classic scripts.
+    const results = new Map();
+    for (const file of files.filter((f) => f.endsWith('.html'))) {
+        results.set(file, extractRefs(file, read(file)));
+    }
+    const classic = new Set([...results.values()].flatMap((page) => page.classicScripts));
     if (Array.isArray(manifest.content_scripts)) {
         for (const script of manifest.content_scripts) {
             for (const js of Array.isArray(script?.js) ? script.js : []) {
@@ -449,12 +730,7 @@ export function checkReferences(root, files, manifest) {
             }
         }
     }
-    for (const file of files.filter((f) => f.endsWith('.html'))) {
-        for (const src of classicScriptSrcs(readFileSync(join(root, file), 'utf8'))) {
-            const resolved = resolveRef(file, src);
-            if (resolved) classic.add(resolved);
-        }
-    }
+
     const note = (from, ref) => {
         if (packaged.has(ref)) {
             edges.get(from).push(ref);
@@ -475,16 +751,29 @@ export function checkReferences(root, files, manifest) {
     for (const file of files) {
         if (!/\.(html|js|mjs|css)$/.test(file)) continue;
         edges.set(file, []);
-        let result;
-        try {
-            result = extractRefs(file, readFileSync(join(root, file), 'utf8'), { classic: classic.has(file) });
-        } catch (error) {
-            errors.push(error.message);
-            continue;
+        let result = results.get(file);
+        if (!result) {
+            try {
+                result = extractRefs(file, read(file), { classic: classic.has(file) });
+            } catch (error) {
+                errors.push(error.message);
+                continue;
+            }
         }
         errors.push(...result.errors);
         if (result.dynamicImports > 0) usesDynamicImport.add(file);
         for (const ref of result.refs) note(file, ref);
+        for (const { url, directive } of result.external) {
+            if (/^(https?|wss?|data|blob|ftp):/i.test(url) && !cspAllows(csp, directive, url)) {
+                errors.push(`${file} loads ${url}, which the manifest CSP blocks (${directive})`);
+            }
+        }
+        for (const item of result.inline) {
+            errors.push(`${file} ${item}: MV3 extension pages never run inline script; move it to a file`);
+        }
+        if (result.inlineStyles && !cspAllowsInline(csp, 'style-src')) {
+            errors.push(`${file} uses inline styles (style= or <style>), which the manifest CSP blocks: style-src has no 'unsafe-inline'`);
+        }
     }
     // Extension service workers don't support import(); check the worker's whole module graph.
     const worker = typeof manifest.background?.service_worker === 'string'

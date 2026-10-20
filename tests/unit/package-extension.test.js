@@ -15,7 +15,11 @@ import {
     contentDigest,
     crc32,
     createZip,
+    cspAllows,
+    cssRefs,
     cssUnescape,
+    parseCsp,
+    scanHtml,
     srcsetUrls,
     validateManifest
 } from '../../scripts/package-extension.js';
@@ -480,6 +484,107 @@ describe('package-extension', () => {
         expect(buildError({
             'popup.html': '<script src="javascript/entry-points/popup.js"></script>'
         })).toContain('javascript/entry-points/popup.js runs as a classic script');
+    });
+
+    test('HTML text and <textarea> content are not markup: no phantom refs, no swallowed tags', () => {
+        writeFixture(root, fixtureFiles({
+            'popup.html': '<p>href="missing.html" src=gone.js</p><textarea>href="missing.html"</textarea>' +
+                '<title><img src="nope.png"></title><script type="module" src="javascript/entry-points/popup.js"></script>'
+        }));
+        expect(() => buildPackage({ root, outDir: out })).not.toThrow();
+        expect(buildError({
+            'popup.html': '<textarea><!--</textarea><img src="assets/missing.png">' +
+                '<script type="module" src="javascript/entry-points/popup.js"></script>'
+        })).toContain('popup.html references assets/missing.png');
+        expect(scanHtml('<a title=">" href=x.html>').map((t) => t.attrs.get('href'))).toEqual(['x.html']);
+    });
+
+    test('CSS: url()-like text inside a string is not a reference; @import and @font-face are typed', () => {
+        expect(cssRefs('.l::after { content: "url(missing.png)"; } .m { background: url(ok.png) }')).toEqual([{ url: 'ok.png', directive: 'img-src' }]);
+        expect(cssRefs('@import "a.css"; @import url(b.css) screen; @font-face { src: url(f.woff2) format("woff2"); } .x { cursor: url(c.cur), auto }'))
+            .toEqual([
+                { url: 'a.css', directive: 'style-src' },
+                { url: 'b.css', directive: 'style-src' },
+                { url: 'f.woff2', directive: 'font-src' },
+                { url: 'c.cur', directive: 'img-src' }
+            ]);
+        expect(cssRefs('.i { background: image-set(url(a.png) 1x, "b.png" 2x type("image/avif")) }').map((r) => r.url)).toEqual(['a.png', 'b.png']);
+        expect(buildError({ 'stylesheets/base.css': '.l::after { content: "url(missing.png)"; }\n.m { background: url(gone.png) }\n' }))
+            .not.toContain('missing.png');
+    });
+
+    test('a scalar or non-string icon value is rejected instead of dropped', () => {
+        expect(buildError({ 'manifest.json': JSON.stringify({ ...MANIFEST, action: { default_popup: 'popup.html', default_icon: 5 } }) }))
+            .toContain('manifest "action" has an unexpected shape');
+        expect(buildError({ 'manifest.json': JSON.stringify({ ...MANIFEST, icons: { 128: true } }) }))
+            .toContain('manifest "icons" has an unexpected shape');
+    });
+
+    describe('extension-page CSP', () => {
+        const CSP = "script-src 'self'; object-src 'none'; style-src 'self' https://ok.example https://fonts.example.com; " +
+            "img-src 'self' data: https://*.cdn.example; font-src 'self' https://fonts.example/kit/";
+        const withCsp = (csp = CSP) => JSON.stringify({ ...MANIFEST, content_security_policy: { extension_pages: csp } });
+        const page = (body) => `${body}<script type="module" src="javascript/entry-points/popup.js"></script>`;
+
+        test('cspAllows follows CSP source matching', () => {
+            const csp = parseCsp(CSP);
+            expect(cspAllows(csp, 'img-src', 'https://a.cdn.example/x.png')).toBe(true);
+            expect(cspAllows(csp, 'img-src', 'https://cdn.example/x.png')).toBe(false); // *.host excludes the apex
+            expect(cspAllows(csp, 'img-src', 'data:image/png;base64,AAAA')).toBe(true);
+            expect(cspAllows(csp, 'script-src', 'https://evil.example/x.js')).toBe(false);
+            expect(cspAllows(csp, 'font-src', 'https://fonts.example/kit/a.woff2')).toBe(true);
+            expect(cspAllows(csp, 'font-src', 'https://fonts.example/other.woff2')).toBe(false);
+            expect(cspAllows(parseCsp('img-src http:'), 'img-src', 'https://x.example/a.png')).toBe(true);
+            expect(cspAllows(parseCsp("default-src 'self'"), 'media-src', 'https://x.example/a.mp4')).toBe(false);
+            expect(cspAllows(parseCsp("script-src 'self'"), 'img-src', 'https://x.example/a.png')).toBe(true); // no img-src/default-src
+        });
+
+        test('external resources a page or stylesheet loads must be allowed', () => {
+            const message = buildError({
+                'manifest.json': withCsp(),
+                'popup.html': page('<script src="https://evil.example/x.js"></script><link rel="stylesheet" href="https://bad.example/a.css">' +
+                    '<link rel="stylesheet" href="https://ok.example/a.css"><img src="https://a.cdn.example/i.png"><img src="https://cdn.example/j.png">'),
+                'stylesheets/base.css': '@font-face { src: url(https://evil.example/f.woff2) } .x { background: url(data:image/png;base64,AA) }\n'
+            });
+            expect(message).toContain('popup.html loads https://evil.example/x.js, which the manifest CSP blocks (script-src)');
+            expect(message).toContain('popup.html loads https://bad.example/a.css, which the manifest CSP blocks (style-src)');
+            expect(message).toContain('popup.html loads https://cdn.example/j.png, which the manifest CSP blocks (img-src)');
+            expect(message).toContain('stylesheets/base.css loads https://evil.example/f.woff2, which the manifest CSP blocks (font-src)');
+            expect(message).not.toContain('ok.example');
+            expect(message).not.toContain('a.cdn.example');
+            expect(message).not.toContain('data:image');
+        });
+
+        test('JS imports from a URL are checked against script-src', () => {
+            expect(buildError({ 'manifest.json': withCsp(), 'javascript/features/a.js': "import x from 'https://cdn.example/x.js';\nexport const a = x;\n" }))
+                .toContain('javascript/features/a.js loads https://cdn.example/x.js, which the manifest CSP blocks (script-src)');
+        });
+
+        test('inline scripts and on* handlers always fail; JSON data blocks do not', () => {
+            const message = buildError({
+                'manifest.json': withCsp(),
+                'popup.html': page('<script>alert(1)</script><button onclick="go()">x</button>')
+            });
+            expect(message).toContain('popup.html line 1: inline <script>');
+            expect(message).toContain('popup.html line 1: inline event handler onclick= on <button>');
+            writeFixture(root, fixtureFiles({ 'manifest.json': withCsp(), 'popup.html': page('<script type="application/json">{"a":1}</script>') }));
+            expect(() => buildPackage({ root, outDir: out })).not.toThrow();
+        });
+
+        test("inline styles need 'unsafe-inline' in style-src", () => {
+            expect(buildError({ 'manifest.json': withCsp(), 'popup.html': page('<div style="color: red"></div>') }))
+                .toContain("popup.html uses inline styles (style= or <style>), which the manifest CSP blocks: style-src has no 'unsafe-inline'");
+            writeFixture(root, fixtureFiles({
+                'manifest.json': withCsp(CSP.replace("style-src 'self'", "style-src 'self' 'unsafe-inline'")),
+                'popup.html': page('<div style="color: red"></div><style>.a { color: blue }</style>')
+            }));
+            expect(() => buildPackage({ root, outDir: out })).not.toThrow();
+        });
+
+        test('content_security_policy must be the MV3 object form', () => {
+            expect(validateManifest({ ...MANIFEST, content_security_policy: "script-src 'self'" }))
+                .toContain('content_security_policy must be an object');
+        });
     });
 
     test('createZip adds parent directories once and keeps names sorted', () => {
