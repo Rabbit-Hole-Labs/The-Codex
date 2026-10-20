@@ -127,7 +127,7 @@ export async function loadLinks() {
         // row back to its stored entry by id; without one it falls back to a
         // brittle object-reference match that fails against JSON-cloned state
         // snapshots (see linkManager.resolveLinkIndex). Ids persist on next save.
-        // Any falsy id ('' too) counts as missing.
+        // Any falsy id ('' too) counts as missing, and so does a duplicate.
         backfillLinkIds(links);
 
         debug('STORAGE_MANAGER: Final links data ready for return', {

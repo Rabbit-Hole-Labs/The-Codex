@@ -93,18 +93,25 @@ export function coerceSettings(raw) {
 }
 
 /**
- * Give every link object without a usable id (missing, null, '' …) a fresh
- * one, in place. The pages resolve a rendered tile back to its stored entry by
- * id, so an id must exist in memory even for links stored without one; it
- * persists with the next real save of the links.
+ * Give every link object a usable, unique id in memory, in place: one stored
+ * without an id (missing, null, '' …), or with an id an earlier link already
+ * uses (importLinks keeps supplied ids as-is), gets a fresh one. The pages
+ * resolve a rendered tile back to its stored entry by id, so ids must be
+ * unique in memory or a drag/edit can hit the wrong record. The new id
+ * persists only with the next real save of the links — never on load.
  * @param {Array} links - parsed links array (entries may be non-objects)
  * @returns {Array} the same array
  */
 export function backfillLinkIds(links) {
+    const seen = new Set();
     links.forEach((link, i) => {
-        if (link && typeof link === 'object' && !link.id) {
-            link.id = `link_${Date.now()}_${i}_${Math.random().toString(36).slice(2, 8)}`;
+        if (!link || typeof link !== 'object') return;
+        if (!link.id || seen.has(link.id)) {
+            do {
+                link.id = `link_${Date.now()}_${i}_${Math.random().toString(36).slice(2, 8)}`;
+            } while (seen.has(link.id));
         }
+        seen.add(link.id);
     });
     return links;
 }

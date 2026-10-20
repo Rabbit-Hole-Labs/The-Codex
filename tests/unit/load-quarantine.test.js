@@ -374,6 +374,29 @@ describe('a drop after a load-time cleanup changes only the moved link', () => {
         ]);
     });
 
+    test('with two stored links sharing an id, the dragged one moves and the other stays byte-identical', async () => {
+        // importLinks keeps supplied ids without checking uniqueness.
+        const first = link('First', 'Default', { id: 'dup' });
+        const second = link('Second', 'Default', { id: 'dup' });
+        const { chromeMock, container } = await bootNewTab({
+            links: [first, second, link('Gamma', 'Work')],
+            categories: ['Default', 'Work'],
+        });
+        // Telling them apart happens in memory only: the load writes nothing.
+        expect(chromeMock.sync.set).not.toHaveBeenCalled();
+
+        await dropOnGrid(container, 'Second', 'Work');
+
+        const writes = linkWrites(chromeMock.sync);
+        expect(writes).toHaveLength(1);
+        expect(writes[0][0]).toEqual(first);
+        expect(writes[0][1]).toEqual(link('Gamma', 'Work'));
+        // The moved link is saved with a de-duplicated id (a user-initiated save).
+        expect(writes[0][2]).toEqual({ ...second, category: 'Work', id: expect.any(String) });
+        expect(writes[0][2].id).not.toBe('dup');
+        expect(tileNames(container)).toEqual(['First', 'Gamma', 'Second']);
+    });
+
     test("a drop after another device's edit keeps that edit", async () => {
         const stored = [link('Alpha', 'Default'), link('Gamma', 'Work')];
         const { chromeMock, container } = await bootNewTab({ links: stored, categories: ['Default', 'Work'] });

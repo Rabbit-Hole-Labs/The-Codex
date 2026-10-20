@@ -5,6 +5,7 @@
  */
 import {
     parseStoredArray,
+    backfillLinkIds,
     coerceSettings,
     SETTING_ENUMS,
     SETTING_DEFAULTS,
@@ -81,5 +82,24 @@ describe('coerceSettings', () => {
             expect(stateManager.validateStateChanges({ colorTheme: legacy }).valid).toBe(false);
             expect(coerceSettings({ colorTheme: legacy }).settings.colorTheme).toBe('default');
         }
+    });
+});
+
+describe('backfillLinkIds', () => {
+    it('keeps unique ids and fills missing or empty ones', () => {
+        const links = [{ id: 'a' }, {}, { id: '' }, { id: null }, null, 42];
+        backfillLinkIds(links);
+        expect(links[0].id).toBe('a');
+        const ids = links.slice(0, 4).map(l => l.id);
+        expect(ids.every(id => typeof id === 'string' && id.length > 0)).toBe(true);
+        expect(new Set(ids).size).toBe(4);
+        expect(links.slice(4)).toEqual([null, 42]);
+    });
+
+    it('gives a later duplicate a fresh id and leaves the first one alone', () => {
+        const links = [{ id: 'dup', name: 'First' }, { id: 'dup', name: 'Second' }, { id: 'dup', name: 'Third' }];
+        backfillLinkIds(links);
+        expect(links[0]).toEqual({ id: 'dup', name: 'First' });
+        expect(new Set(links.map(l => l.id)).size).toBe(3);
     });
 });
