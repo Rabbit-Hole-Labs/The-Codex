@@ -720,6 +720,58 @@ describe('Regression: SyncManager must not revert cloud data', () => {
             expect(fake.dump('sync').theme).toBe('light');
         });
 
+        test('a local edit to a link the cloud also changed is kept in the set-aside copy (thread 1)', async () => {
+            await chrome.storage.sync.set({ links: JSON.stringify([link(1)]), categories: '["Default"]' });
+            await syncManager.syncData();
+            await withSyncWritesFailing(() => saveLinks([{ ...link(1), name: 'Mine' }]));
+            await chrome.storage.sync.set({ links: JSON.stringify([{ ...link(1), name: 'Theirs' }]) }); // same link
+
+            const result = await syncManager.syncData();
+
+            expect(result.warning).toMatch(/^1 link saved only on this device was replaced/);
+            expect(stored(fake, 'sync', 'links')[0].name).toBe('Theirs');
+            expect(fake.dump('local')[SYNC_SET_ASIDE_KEY].links).toEqual([{ ...link(1), name: 'Mine' }]);
+        });
+
+        test('force push includes settings saved only on this device, and settles them (thread 3)', async () => {
+            const { saveSettings } = await import('../../javascript/core-systems/storageManager.js');
+            await chrome.storage.sync.set({ links: JSON.stringify([link(1)]), categories: '["Default"]', theme: 'dark' });
+            await syncManager.syncData();
+            await withSyncWritesFailing(() => saveSettings({ theme: 'light' }));
+
+            expect((await syncManager.forcePushToRemote()).success).toBe(true);
+
+            expect(fake.dump('sync').theme).toBe('light');
+            expect(fake.dump('local')['pendingSyncSince.theme']).toBeUndefined();
+        });
+
+        test('force push works for a device whose only local data is a setting (thread 3)', async () => {
+            fake.seed('sync', { links: JSON.stringify([link(1)]), categories: '["Default"]', theme: 'dark' });
+            fake.seed('local', { view: 'list', 'pendingSyncSince.view': { since: 1, cloud: 'null', clearedAt: null } });
+
+            expect((await syncManager.forcePushToRemote()).success).toBe(true);
+
+            expect(fake.dump('sync').view).toBe('list');
+            expect(stored(fake, 'sync', 'links')).toEqual([link(1)]); // lists untouched
+        });
+
+        test('a rejected metadata write fails the sync and leaves the versions as they were (thread 4)', async () => {
+            const meta = { version: 100, lastModified: 100 };
+            fake.seed('sync', { links: JSON.stringify([link(1)]), categories: '["Default"]', syncMetadata: meta });
+            fake.seed('local', { links: JSON.stringify([link(1)]), categories: '["Default"]', syncMetadata: meta });
+            const realSet = chrome.storage.sync.set;
+            chrome.storage.sync.set = (items) => ('syncMetadata' in items
+                ? Promise.reject(new Error('This request exceeds the MAX_WRITE_OPERATIONS_PER_MINUTE quota.'))
+                : realSet(items));
+
+            const result = await syncManager.syncData();
+
+            expect(result.success).toBe(false);
+            expect(events.map((e) => e.event)).not.toContain('syncComplete');
+            expect(fake.dump('local').syncMetadata).toEqual(meta);
+            expect(fake.dump('sync').syncMetadata).toEqual(meta);
+        });
+
         test('a junk entry in the cloud links does not fail every Sync now', async () => {
             const meta = { version: 100, lastModified: 100 };
             fake.seed('sync', { links: JSON.stringify([null, link(1)]), categories: '["Default"]', syncMetadata: meta });
@@ -971,6 +1023,19 @@ describe('Regression: SyncManager must not revert cloud data', () => {
             expect(backup.links.map((l) => l.id).sort()).toEqual(['link_1', 'link_2', 'link_3']);
         });
 
+        test('local links set aside by a clear are in the importable top level (thread 2)', async () => {
+            // Never synced, and the cloud was cleared by another device since.
+            fake.seed('sync', { links: JSON.stringify([link(5)]), categories: '["Default"]', syncClearedAt: 1000 });
+            fake.seed('local', { links: JSON.stringify([link(1), link(2)]), categories: '["Default"]' });
+            let backupBlob = null;
+            URL.createObjectURL = jest.fn((blob) => { backupBlob = blob; return 'blob:backup'; });
+
+            expect((await syncManager.clearSyncData()).success).toBe(true);
+
+            const backup = JSON.parse(await readBlob(backupBlob));
+            expect(backup.links.map((l) => l.id).sort()).toEqual(['link_1', 'link_2', 'link_5']);
+        });
+
         test('backs up and removes settings that fell back to local storage', async () => {
             const { saveSettings } = await import('../../javascript/core-systems/storageManager.js');
             await withSyncWritesFailing(() => saveSettings({ theme: 'light' }));
@@ -1125,6 +1190,33 @@ describe('Regression: sync pill reflects manual sync failures', () => {
         await flushAsyncWork();
 
         expect(getState().links).toEqual([link(1), link(7)]);
+    });
+
+    test('force pull applies the cloud\'s settings to the open page (thread 5)', async () => {
+        const { safeUpdateState, getState } = await import('../../javascript/core-systems/stateManager.js');
+        const { syncManager } = await import('../../javascript/core-systems/syncManager.js');
+        const { saveSettings } = await import('../../javascript/core-systems/storageManager.js');
+        // The cloud has links but never stored a view; this page switched to
+        // 'list' and the save fell back to local.
+        fake.seed('sync', { links: JSON.stringify([link(1)]), categories: '["Default"]', theme: 'dark' });
+        await syncManager.syncData();
+        const realSet = chrome.storage.sync.set;
+        chrome.storage.sync.set = () => Promise.reject(new Error('Resource::kQuotaBytes quota exceeded'));
+        await saveSettings({ theme: 'light', view: 'list' });
+        chrome.storage.sync.set = realSet;
+        safeUpdateState({ theme: 'light', view: 'list' }, { validate: false, skipPersistence: true });
+        const { createObjectURL, revokeObjectURL } = URL;
+        Object.assign(URL, { createObjectURL: jest.fn(() => 'blob:backup'), revokeObjectURL: jest.fn() });
+        jest.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+        try {
+            expect((await syncManager.forcePullFromRemote()).success).toBe(true);
+        } finally {
+            Object.assign(URL, { createObjectURL, revokeObjectURL });
+        }
+        await flushAsyncWork();
+
+        expect(getState().theme).toBe('dark');
+        expect(getState().view).toBe('grid'); // the default, as a fresh load would show
     });
 
     test('destroy() stops listening to sync events', async () => {

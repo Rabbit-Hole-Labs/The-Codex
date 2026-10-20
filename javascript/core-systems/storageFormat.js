@@ -43,6 +43,9 @@ export function parseStoredArray(value) {
  * not lost.)
  */
 
+/** Values pages use for settings that storage doesn't hold (as loadLinks does). */
+export const STORED_SETTING_DEFAULTS = Object.freeze({ theme: 'dark', view: 'grid', colorTheme: 'default', defaultTileSize: 'medium' });
+
 /** chrome.storage.sync key stamped by Clear sync data: identifies each clear. */
 export const SYNC_CLEARED_AT_KEY = 'syncClearedAt';
 

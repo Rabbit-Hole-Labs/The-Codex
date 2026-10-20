@@ -2,7 +2,9 @@
 // Handles conflict resolution, versioning, and improved sync strategies
 
 import { debug, debugWarn, debugError } from './debug.js';
-import { parseStoredArray, pendingSyncKey, PENDING_SYNC_FIELDS, SYNC_CLEARED_AT_KEY, SYNC_RESOLVED_AT_KEY } from './storageFormat.js';
+import {
+    parseStoredArray, pendingSyncKey, PENDING_SYNC_FIELDS, SYNC_CLEARED_AT_KEY, SYNC_RESOLVED_AT_KEY, STORED_SETTING_DEFAULTS
+} from './storageFormat.js';
 
 // Confirm-dialog text for the destructive manual sync actions, shared by the
 // new-tab pill and the manage page's Sync tab so both describe the same thing.
@@ -34,7 +36,7 @@ function holdsData(data) {
 
 // Synced settings (besides links/categories) and the defaults a clear
 // resets them to (the same defaults storageManager loads).
-const SETTINGS_DEFAULTS = Object.freeze({ theme: 'dark', view: 'grid', colorTheme: 'default', defaultTileSize: 'medium' });
+const SETTINGS_DEFAULTS = STORED_SETTING_DEFAULTS;
 const SETTINGS_KEYS = Object.keys(SETTINGS_DEFAULTS);
 
 // The defined values of `keys` in `source`.
@@ -381,11 +383,14 @@ export class SyncManager {
         };
 
         try {
-            if (storage === 'local' || storage === 'both') {
-                await chrome.storage.local.set({ syncMetadata: metadata });
-            }
+            // Sync first: if that write is rejected (quota, rate limit), the
+            // local version isn't advanced either, so the two never disagree
+            // about a version the cloud didn't accept.
             if (storage === 'sync' || storage === 'both') {
                 await chrome.storage.sync.set({ syncMetadata: metadata });
+            }
+            if (storage === 'local' || storage === 'both') {
+                await chrome.storage.local.set({ syncMetadata: metadata });
             }
 
             debug('Sync metadata updated successfully');
@@ -512,12 +517,16 @@ export class SyncManager {
 
             // Local links/categories now match what was kept, and pushed,
             // superseded or set-aside fields are no longer pending.
-            await this.settleLocalFields(['links', 'categories', ...resolution.settled]);
+            await this.settleLocalFields([
+                'links', 'categories', ...resolution.settled, ...Object.keys(resolution.syncItems ?? {})
+            ]);
 
-            // Update sync metadata
+            // Update sync metadata. If it can't be written, the versions would
+            // disagree with what happened: report the sync as failed.
             const metadataResult = await this.updateSyncMetadata('both');
             if (!metadataResult.success) {
-                debugWarn('Failed to update sync metadata:', metadataResult.error);
+                const event = syncStorageErrorEvent(metadataResult.error);
+                throw new Error(`Could not record the sync: ${event.message} (${metadataResult.error})`);
             }
 
             // Update last sync time, and tell every open page to reload what
@@ -628,7 +637,13 @@ export class SyncManager {
             data: { links: cloud.links ?? '[]', categories: cloud.categories ?? '["Default"]' },
             syncItems: null
         });
-        const fromLocal = () => ({ source: 'local', data: encodeLists(local), syncItems: encodeLists(local) });
+        // This device's whole local copy: lists plus any settings it holds
+        // (only ever written by a save that fell back to local).
+        const fromLocal = () => ({
+            source: 'local',
+            data: encodeLists(local),
+            syncItems: { ...encodeLists(local), ...pick(local, SETTINGS_KEYS) }
+        });
         const merged = (localSide, options) => {
             const data = this.mergeData(localSide, cloud, metadata, options);
             return { source: 'merged', data, syncItems: data };
@@ -667,7 +682,9 @@ export class SyncManager {
             settled.push(...pendingFields);
         } else if (forceStrategy === 'local') {
             // Explicit push: honor it whatever the versions say.
-            if (!holdsData(local)) throw new Error('This device has no local copy to push.');
+            if (!holdsData(local) && Object.keys(pick(local, SETTINGS_KEYS)).length === 0) {
+                throw new Error('This device has no local copy to push.');
+            }
             result = fromLocal();
         } else {
             // The other fields first; marked fields don't take part.

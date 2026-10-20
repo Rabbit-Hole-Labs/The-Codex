@@ -4,7 +4,7 @@
  */
 
 import { validateLink } from '../features/securityUtils.js';
-import { SYNC_RESOLVED_AT_KEY } from './storageFormat.js';
+import { SYNC_RESOLVED_AT_KEY, STORED_SETTING_DEFAULTS } from './storageFormat.js';
 
 // State validation schemas
 const stateSchemas = {
@@ -623,7 +623,9 @@ export async function reloadFromStorage() {
     if (Object.keys(data).length === 0) {
         data = await chrome.storage.local.get(PERSISTENT_FIELDS);
     }
-    const values = { links: data.links, categories: data.categories };
+    // A missing setting shows its default, as on a fresh load: a page may
+    // still hold a value whose save only reached local storage.
+    const values = { ...STORED_SETTING_DEFAULTS, links: data.links, categories: data.categories };
     for (const key of PERSISTENT_FIELDS) {
         if (data[key] !== undefined) values[key] = data[key];
     }
