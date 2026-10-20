@@ -167,6 +167,20 @@ export function validateManifest(manifest) {
             if (key in manifest) errors.push(`${key} is MV2-only; MV3 uses action`);
         }
     }
+    const policy = manifest.content_security_policy?.extension_pages;
+    if (manifest.manifest_version === 3 && typeof policy === 'string') {
+        // MV3 can't relax extension pages' script/object/worker sources beyond these.
+        const directives = parseCsp(policy);
+        for (const directive of ['script-src', 'object-src', 'worker-src']) {
+            const sources = directives.get(directive) ?? directives.get('default-src');
+            const disallowed = (sources || []).filter((source) =>
+                !["'self'", "'none'", "'wasm-unsafe-eval'"].includes(source) &&
+                !/^http:\/\/(localhost|127\.0\.0\.1)(:(\d+|\*))?$/.test(source));
+            if (disallowed.length) {
+                errors.push(`content_security_policy.extension_pages ${directive} allows ${disallowed.join(' ')}; MV3 only permits 'self', 'none', 'wasm-unsafe-eval' and localhost there`);
+            }
+        }
+    }
     if (manifest.background?.service_worker && manifest.background.type !== 'module') {
         errors.push('background.type must be "module": the packager checks JS files as ES modules');
     }
@@ -236,6 +250,16 @@ export function cssUnescape(value) {
         }
         return ch === undefined || ch === '\n' ? '' : ch; // an escaped newline is a line continuation in strings
     });
+}
+
+/** Index just past the CSS escape starting at css[j] ('\\'): 1-6 hex digits plus one optional whitespace, or one character. */
+function cssEscapeEnd(css, j) {
+    let k = j + 1;
+    if (!/[0-9a-f]/i.test(css[k] || '')) return Math.min(k + 1, css.length);
+    const start = k;
+    while (k < css.length && k - start < 6 && /[0-9a-f]/i.test(css[k])) k++;
+    if (css[k] === '\r' && css[k + 1] === '\n') return k + 2;
+    return /[ \t\n\f\r]/.test(css[k] || '') ? k + 1 : k;
 }
 
 /**
@@ -314,7 +338,7 @@ export function cssRefs(css) {
             i++;
         } else if (c === '\\' || /[A-Za-z_\-\u0080-￿]/.test(c)) {
             let j = i;
-            while (j < css.length && (css[j] === '\\' || /[\w\-\u0080-￿]/.test(css[j]))) j += css[j] === '\\' ? 2 : 1;
+            while (j < css.length && (css[j] === '\\' || /[\w\-\u0080-￿]/.test(css[j]))) j = css[j] === '\\' ? cssEscapeEnd(css, j) : j + 1;
             const name = cssUnescape(css.slice(i, j)).toLowerCase();
             if (css[j] !== '(') {
                 i = j;
@@ -337,8 +361,9 @@ export function cssRefs(css) {
                     let bad = false;
                     while (k < css.length && css[k] !== ')') {
                         if (css[k] === '\\' && css[k + 1] !== '\n') {
-                            raw += css.slice(k, k + 2);
-                            k += 2;
+                            const end = cssEscapeEnd(css, k);
+                            raw += css.slice(k, end);
+                            k = end;
                         } else if (/\s/.test(css[k])) {
                             while (k < css.length && /\s/.test(css[k])) k++;
                             if (css[k] !== ')') bad = true;
@@ -473,13 +498,15 @@ const JS_TYPES = /^(|module|importmap|(text|application)\/(x-)?(java|ecma)script
  * markup the MV3 extension-page CSP always blocks (inline scripts and inline
  * event handlers), and which <script src> files run as classic scripts.
  */
-function htmlRefs(html) {
+function htmlRefs(html, inheritedBase = null) {
     const urls = [];
     const inline = [];
     const classicScripts = [];
     const styles = [];
+    let base = null; // the first <base href>, which applies to everything after it
+    const currentBase = () => base?.href ?? inheritedBase;
     const add = (url, directive) => {
-        if (url && url.trim()) urls.push({ url: url.trim(), directive });
+        if (url && url.trim()) urls.push({ url: url.trim(), directive, base: currentBase() });
     };
     for (const tag of scanHtml(html)) {
         const { name, attrs, line } = tag;
@@ -495,7 +522,7 @@ function htmlRefs(html) {
                 if (!JS_TYPES.test(type)) break; // a data block, not a script
                 if (src !== undefined) {
                     add(src, 'script-src');
-                    if (type.toLowerCase() !== 'module') classicScripts.push(src);
+                    if (type.toLowerCase() !== 'module' && src.trim()) classicScripts.push({ url: src.trim(), base: currentBase() });
                 } else if (tag.text.trim()) {
                     inline.push(`line ${line}: inline <script>`);
                 }
@@ -530,6 +557,14 @@ function htmlRefs(html) {
             case 'iframe':
             case 'frame':
                 add(src, 'frame-src');
+                if (attrs.has('srcdoc')) {
+                    // srcdoc is a nested document: same CSP, relative URLs against this page's base.
+                    const nested = htmlRefs(attrs.get('srcdoc'), currentBase());
+                    urls.push(...nested.urls);
+                    classicScripts.push(...nested.classicScripts);
+                    inline.push(...nested.inline.map((item) => `line ${line} srcdoc ${item}`));
+                    if (nested.inlineStyles) styles.push('');
+                }
                 break;
             case 'object':
                 add(attrs.get('data'), 'object-src');
@@ -541,6 +576,7 @@ function htmlRefs(html) {
                 if ((attrs.get('type') || '').toLowerCase() === 'image') add(src, 'img-src');
                 break;
             case 'base':
+                if (!base && href !== undefined && href.trim()) base = { href: href.trim(), line };
                 break;
             default:
                 // a, area and anything else: a navigation or unknown use; check local targets exist.
@@ -548,14 +584,25 @@ function htmlRefs(html) {
                 add(href, null);
         }
     }
-    for (const css of styles) urls.push(...cssRefs(css));
-    return { urls, inline, classicScripts, inlineStyles: styles.length > 0 };
+    for (const css of styles) urls.push(...cssRefs(css).map((ref) => ({ ...ref, base: currentBase() })));
+    return { urls, inline, classicScripts, inlineStyles: styles.length > 0, base };
 }
 
 // CSP ---------------------------------------------------------------------------
 
 /** Chrome's default extension-pages CSP for MV3 when the manifest sets none. */
 const DEFAULT_MV3_CSP = "script-src 'self'; object-src 'self';";
+
+/** Chrome's default CSP for manifest sandbox pages. */
+const DEFAULT_SANDBOX_CSP = "sandbox allow-scripts allow-forms allow-popups allow-modals; script-src 'self' 'unsafe-inline' 'unsafe-eval'; child-src 'self';";
+
+/** Whether <base href> is allowed: base-uri has no default-src fallback. */
+function baseUriAllows(csp, href, local) {
+    const sources = csp?.get('base-uri');
+    if (!sources) return true;
+    if (local) return sources.includes("'self'");
+    return cspAllows(new Map([['base-uri', sources]]), 'base-uri', href);
+}
 
 const CSP_FALLBACKS = { 'frame-src': ['child-src', 'default-src'] };
 
@@ -601,6 +648,8 @@ export function cspAllows(csp, directive, url) {
         if (port && port !== '*') {
             const effective = parsed.port || ({ 'https:': '443', 'http:': '80' })[scheme] || '';
             if (effective !== port) return false;
+        } else if (!port && parsed.port !== '') {
+            return false; // no port in the source: only the scheme's default port matches
         }
         if (path) {
             const pathname = decodeURIComponent(parsed.pathname);
@@ -660,19 +709,52 @@ function dynamicImports(file, source) {
  *   refs are root-relative local paths; external are absolute URLs with the CSP
  *   directive governing them; classicScripts/inline/inlineStyles are for pages.
  */
-export function extractRefs(file, text, { classic = false } = {}) {
+export function extractRefs(file, text, { classic = false, csp = null } = {}) {
     const result = { refs: [], external: [], errors: [], dynamicImports: 0, classicScripts: [], inline: [], inlineStyles: false };
-    const add = ({ url, directive }) => {
-        const resolved = resolveRef(file, url);
-        if (resolved) result.refs.push(resolved);
-        else if (directive && /^[a-z][a-z0-9+.-]*:/i.test(url.trim())) result.external.push({ url: url.trim(), directive });
+    let baseUsable = true;
+    // Resolves url (relative to `base` when a <base href> applies) to a local path or an absolute URL.
+    const locate = (url, base) => {
+        const trimmed = url.trim();
+        if (base && baseUsable && !isExternal(trimmed)) {
+            if (/^[a-z][a-z0-9+.-]*:/i.test(base)) {
+                try {
+                    return { external: new URL(trimmed, base).href };
+                } catch {
+                    return {};
+                }
+            }
+            const resolvedBase = resolveRef(file, base) ?? '.';
+            const baseDir = base.endsWith('/') ? resolvedBase.replace(/\/$/, '') || '.' : posix.dirname(resolvedBase);
+            return { local: resolveRef(posix.join(baseDir, '_'), trimmed) };
+        }
+        const local = resolveRef(file, trimmed);
+        return local ? { local } : /^[a-z][a-z0-9+.-]*:/i.test(trimmed) ? { external: trimmed } : {};
+    };
+    const add = ({ url, directive, base = null }) => {
+        const { local, external } = locate(url, base);
+        if (local) {
+            result.refs.push(local);
+        } else if (external && directive) {
+            if (/^(https?|wss?|data|blob|chrome-extension):/i.test(external)) {
+                result.external.push({ url: external, directive });
+            } else {
+                result.errors.push(`${file}: ${external} uses a URL scheme an extension page can't load (${directive})`);
+            }
+        }
     };
     if (file.endsWith('.html')) {
         const page = htmlRefs(text);
+        if (page.base) {
+            const local = !/^[a-z][a-z0-9+.-]*:/i.test(page.base.href);
+            if (!baseUriAllows(csp, page.base.href, local)) {
+                baseUsable = false;
+                result.errors.push(`${file} line ${page.base.line}: <base href="${page.base.href}"> is blocked by the manifest CSP (base-uri), so Chrome ignores it; remove it`);
+            }
+        }
         page.urls.forEach(add);
         result.inline = page.inline;
         result.inlineStyles = page.inlineStyles;
-        result.classicScripts = page.classicScripts.map((src) => resolveRef(file, src)).filter(Boolean);
+        result.classicScripts = page.classicScripts.map(({ url, base }) => locate(url, base).local).filter(Boolean);
     } else if (file.endsWith('.js') || file.endsWith('.mjs')) {
         const dynamic = dynamicImports(file, text);
         result.errors.push(...dynamic.errors);
@@ -690,7 +772,9 @@ export function extractRefs(file, text, { classic = false } = {}) {
             statics = staticImports(file, text);
         }
         for (const specifier of [...statics, ...dynamic.specifiers]) {
-            if (specifier.startsWith('.') || specifier.startsWith('/') || /^[a-z][a-z0-9+.-]*:/i.test(specifier)) {
+            if (/^[a-z][a-z0-9+.-]*:/i.test(specifier) && !/^(https?|data|blob):/i.test(specifier)) {
+                result.errors.push(`${file}: module specifier "${specifier}" uses a scheme Chrome can't import (e.g. node: built-ins don't exist in an extension)`);
+            } else if (specifier.startsWith('.') || specifier.startsWith('/') || /^[a-z][a-z0-9+.-]*:/i.test(specifier)) {
                 add({ url: specifier, directive: 'script-src' });
             } else {
                 result.errors.push(`${file}: bare module specifier "${specifier}" cannot be loaded by an unbundled extension`);
@@ -715,12 +799,19 @@ export function checkReferences(root, files, manifest) {
     const usesDynamicImport = new Set();
     const policy = manifest.content_security_policy?.extension_pages;
     const csp = parseCsp(typeof policy === 'string' ? policy : DEFAULT_MV3_CSP);
+    const sandboxPolicy = manifest.content_security_policy?.sandbox;
+    const sandboxCsp = parseCsp(typeof sandboxPolicy === 'string' ? sandboxPolicy : DEFAULT_SANDBOX_CSP);
+    const sandboxPages = new Set((Array.isArray(manifest.sandbox?.pages) ? manifest.sandbox.pages : [])
+        .filter((page) => typeof page === 'string')
+        .map((page) => posix.normalize(page.replace(/^\//, ''))));
+    // Sandboxed pages get their own CSP; every other file runs under extension_pages.
+    const cspFor = (file) => (sandboxPages.has(file) ? sandboxCsp : csp);
     const read = (file) => readFileSync(join(root, file), 'utf8');
 
     // Pages first: they decide which scripts run as classic scripts.
     const results = new Map();
     for (const file of files.filter((f) => f.endsWith('.html'))) {
-        results.set(file, extractRefs(file, read(file)));
+        results.set(file, extractRefs(file, read(file), { csp: cspFor(file) }));
     }
     const classic = new Set([...results.values()].flatMap((page) => page.classicScripts));
     if (Array.isArray(manifest.content_scripts)) {
@@ -763,15 +854,19 @@ export function checkReferences(root, files, manifest) {
         errors.push(...result.errors);
         if (result.dynamicImports > 0) usesDynamicImport.add(file);
         for (const ref of result.refs) note(file, ref);
+        const pageCsp = cspFor(file);
+        const policyName = sandboxPages.has(file) ? 'sandbox CSP' : 'manifest CSP';
         for (const { url, directive } of result.external) {
-            if (/^(https?|wss?|data|blob|ftp):/i.test(url) && !cspAllows(csp, directive, url)) {
-                errors.push(`${file} loads ${url}, which the manifest CSP blocks (${directive})`);
+            if (/^(https?|wss?|data|blob):/i.test(url) && !cspAllows(pageCsp, directive, url)) {
+                errors.push(`${file} loads ${url}, which the ${policyName} blocks (${directive})`);
             }
         }
-        for (const item of result.inline) {
-            errors.push(`${file} ${item}: MV3 extension pages never run inline script; move it to a file`);
+        if (!cspAllowsInline(pageCsp, 'script-src')) {
+            for (const item of result.inline) {
+                errors.push(`${file} ${item}: the ${policyName} blocks inline script (MV3 extension pages never run it); move it to a file`);
+            }
         }
-        if (result.inlineStyles && !cspAllowsInline(csp, 'style-src')) {
+        if (result.inlineStyles && !cspAllowsInline(pageCsp, 'style-src')) {
             errors.push(`${file} uses inline styles (style= or <style>), which the manifest CSP blocks: style-src has no 'unsafe-inline'`);
         }
     }

@@ -513,6 +513,13 @@ describe('package-extension', () => {
             .not.toContain('missing.png');
     });
 
+    test('CSS: escapes inside function names and unquoted url tokens are consumed whole', () => {
+        expect(cssRefs('.a { background: u\\72 l(missing.png) }')).toEqual([{ url: 'missing.png', directive: 'img-src' }]);
+        expect(cssRefs('.a { background: url(a\\31 b.png) }')).toEqual([{ url: 'a1b.png', directive: 'img-src' }]);
+        expect(buildError({ 'stylesheets/base.css': '.a { background: u\\72 l(gone.png) }\n' }))
+            .toContain('stylesheets/base.css references stylesheets/gone.png');
+    });
+
     test('a scalar or non-string icon value is rejected instead of dropped', () => {
         expect(buildError({ 'manifest.json': JSON.stringify({ ...MANIFEST, action: { default_popup: 'popup.html', default_icon: 5 } }) }))
             .toContain('manifest "action" has an unexpected shape');
@@ -579,6 +586,75 @@ describe('package-extension', () => {
                 'popup.html': page('<div style="color: red"></div><style>.a { color: blue }</style>')
             }));
             expect(() => buildPackage({ root, outDir: out })).not.toThrow();
+        });
+
+        test('the extension_pages policy itself may not relax MV3 script/object/worker sources', () => {
+            expect(validateManifest({ ...MANIFEST, content_security_policy: { extension_pages: "script-src 'self' https://cdn.example; object-src 'self'" } }))
+                .toEqual(["content_security_policy.extension_pages script-src allows https://cdn.example; MV3 only permits 'self', 'none', 'wasm-unsafe-eval' and localhost there"]);
+            expect(validateManifest({ ...MANIFEST, content_security_policy: { extension_pages: "default-src 'self' 'unsafe-eval'" } }))
+                .toHaveLength(3); // script-src, object-src and worker-src all fall back to default-src
+            expect(validateManifest({ ...MANIFEST, content_security_policy: { extension_pages: "script-src 'self' 'wasm-unsafe-eval' http://localhost:8080; object-src 'none'" } }))
+                .toEqual([]);
+        });
+
+        test('a source without a port only matches the default port', () => {
+            const csp = parseCsp('img-src https://cdn.jsdelivr.net https://alt.example:8443');
+            expect(cspAllows(csp, 'img-src', 'https://cdn.jsdelivr.net/x.png')).toBe(true);
+            expect(cspAllows(csp, 'img-src', 'https://cdn.jsdelivr.net:443/x.png')).toBe(true);
+            expect(cspAllows(csp, 'img-src', 'https://cdn.jsdelivr.net:8443/x.png')).toBe(false);
+            expect(cspAllows(csp, 'img-src', 'https://alt.example:8443/x.png')).toBe(true);
+        });
+
+        test('sandbox pages are checked against the sandbox CSP', () => {
+            const sandboxed = { ...MANIFEST, sandbox: { pages: ['assets/sandbox.html'] }, content_security_policy: { extension_pages: CSP } };
+            writeFixture(root, fixtureFiles({
+                'manifest.json': JSON.stringify(sandboxed),
+                'assets/sandbox.html': '<script>eval("1")</script><div onclick="x()"></div>'
+            }));
+            expect(() => buildPackage({ root, outDir: out })).not.toThrow(); // Chrome's default sandbox CSP allows inline script
+            expect(buildError({
+                'manifest.json': JSON.stringify({ ...sandboxed, content_security_policy: { extension_pages: CSP, sandbox: "sandbox; script-src 'self'" } }),
+                'assets/sandbox.html': '<script>eval("1")</script>'
+            })).toContain('assets/sandbox.html line 1: inline <script>: the sandbox CSP blocks inline script');
+            expect(buildError({
+                'manifest.json': withCsp(),
+                'assets/sandbox.html': '<script>eval("1")</script>'
+            })).toContain('assets/sandbox.html line 1: inline <script>: the manifest CSP blocks inline script');
+        });
+
+        test('<base href> moves later relative URLs, unless base-uri blocks it', () => {
+            expect(buildError({
+                'manifest.json': withCsp(`${CSP}; base-uri 'self'`),
+                'popup.html': '<base href="stylesheets/"><link rel="stylesheet" href="stylesheets/base.css">' +
+                    '<script type="module" src="../javascript/entry-points/popup.js"></script>'
+            })).toContain('popup.html references stylesheets/stylesheets/base.css');
+            writeFixture(root, fixtureFiles({
+                'manifest.json': withCsp(`${CSP}; base-uri 'self'`),
+                'popup.html': '<link rel="stylesheet" href="stylesheets/base.css"><base href="stylesheets/">' +
+                    '<script type="module" src="../javascript/entry-points/popup.js"></script>'
+            }));
+            expect(() => buildPackage({ root, outDir: out })).not.toThrow(); // refs before <base> use the page URL
+            expect(buildError({
+                'manifest.json': withCsp(`${CSP}; base-uri 'none'`),
+                'popup.html': page('<base href="stylesheets/">')
+            })).toContain('popup.html line 1: <base href="stylesheets/"> is blocked by the manifest CSP (base-uri)');
+        });
+
+        test('iframe srcdoc content is checked as a nested document', () => {
+            const message = buildError({
+                'manifest.json': withCsp(),
+                'popup.html': page('<iframe srcdoc="<img src=\'assets/missing.png\'><script>x()</script><img src=&quot;https://evil.example/i.png&quot;>"></iframe>')
+            });
+            expect(message).toContain('popup.html references assets/missing.png');
+            expect(message).toContain('popup.html line 1 srcdoc line 1: inline <script>');
+            expect(message).toContain('popup.html loads https://evil.example/i.png, which the manifest CSP blocks (img-src)');
+        });
+
+        test('module specifiers with schemes Chrome cannot import fail', () => {
+            expect(buildError({ 'javascript/features/a.js': "import fs from 'node:fs';\nexport const a = fs;\n" }))
+                .toContain('javascript/features/a.js: module specifier "node:fs" uses a scheme Chrome can\'t import');
+            expect(buildError({ 'popup.html': page('<img src="chrome://favicon/x">') }))
+                .toContain("popup.html: chrome://favicon/x uses a URL scheme an extension page can't load (img-src)");
         });
 
         test('content_security_policy must be the MV3 object form', () => {
