@@ -40,7 +40,9 @@ describe('Sync Manager', () => {
 
             expect(syncManager.syncInProgress).toBe(false);
             expect(syncManager.lastSyncTime).toBe(null);
-            expect(syncManager.conflictResolutionStrategy).toBe('merge');
+            // Cloud wins by default: merging the stale local snapshot
+            // resurrected deleted links (see sync-manager-data-loss.test.js).
+            expect(syncManager.conflictResolutionStrategy).toBe('remote');
             expect(syncManager.syncQueue).toEqual([]);
         });
 

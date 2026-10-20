@@ -1,5 +1,6 @@
 // Sync Status Indicator Component
-import { syncManager } from '../core-systems/syncManager.js';
+import { syncManager, SYNC_CONFIRMATIONS } from '../core-systems/syncManager.js';
+import { updateState } from '../core-systems/stateManager.js';
 
 export class SyncStatusIndicator {
     constructor() {
@@ -189,11 +190,18 @@ export class SyncStatusIndicator {
                 break;
             case 'syncError':
                 this.updateStatus('error');
-                this.showError(data.error);
+                this.showError(data?.error || data?.message);
                 break;
             case 'quotaExceeded':
                 this.updateStatus('error');
                 this.showQuotaError(data);
+                break;
+            case 'syncCleared':
+                // The pill runs on both the new tab and the manage page: drop
+                // this page's in-memory links too, so its next save can't
+                // re-upload what was just cleared.
+                updateState({ links: [], categories: ['Default'] }, { validate: false, skipPersistence: true });
+                this.updateStatus('notsynced');
                 break;
         }
     }
@@ -245,9 +253,14 @@ export class SyncStatusIndicator {
     // Handle sync now action
     async handleSyncNow() {
         this.updateStatus('syncing');
-        const result = await syncManager.syncData();
+        this.showFailure(await syncManager.syncData());
+    }
 
-        if (!result.success) {
+    // Leave the pill in the error state when a manual action failed, even if
+    // its events were missed or arrived out of order.
+    showFailure(result) {
+        if (result && !result.success) {
+            this.updateStatus('error');
             this.showError(result.error);
         }
     }
@@ -256,16 +269,16 @@ export class SyncStatusIndicator {
     async handleMenuAction(action) {
         switch (action) {
             case 'force-push':
-                if (confirm('This will overwrite cloud data with your local data. Continue?')) {
+                if (confirm(SYNC_CONFIRMATIONS.forcePush)) {
                     this.updateStatus('syncing');
-                    await syncManager.forcePushToRemote();
+                    this.showFailure(await syncManager.forcePushToRemote());
                 }
                 break;
 
             case 'force-pull':
-                if (confirm('This will overwrite local data with cloud data. Continue?')) {
+                if (confirm(SYNC_CONFIRMATIONS.forcePull)) {
                     this.updateStatus('syncing');
-                    await syncManager.forcePullFromRemote();
+                    this.showFailure(await syncManager.forcePullFromRemote());
                 }
                 break;
 
@@ -274,9 +287,9 @@ export class SyncStatusIndicator {
                 break;
 
             case 'clear-sync':
-                if (confirm('This will clear all sync data. This action cannot be undone. Continue?')) {
-                    await syncManager.clearSyncData();
-                    this.updateStatus('synced');
+                if (confirm(SYNC_CONFIRMATIONS.clearSync)) {
+                    // Success is handled by the 'syncCleared' event.
+                    this.showFailure(await syncManager.clearSyncData());
                 }
                 break;
         }

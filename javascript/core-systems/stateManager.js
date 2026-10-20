@@ -548,6 +548,12 @@ const PERSISTENT_FIELDS = ['theme', 'colorTheme', 'links', 'categories', 'defaul
 // array, for values written by an older/other code path).
 const JSON_ENCODED_FIELDS = ['links', 'categories'];
 
+// Values the array fields reset to when another context removes them.
+const REMOVED_FIELD_RESETS = {
+    links: () => [],
+    categories: () => ['Default']
+};
+
 // Flag to prevent circular updates (our own write triggering onChanged)
 let isWritingToStorage = false;
 
@@ -561,7 +567,11 @@ if (typeof chrome !== 'undefined' && chrome.storage?.onChanged) {
 
         const updates = {};
         for (const [key, { newValue }] of Object.entries(changes)) {
-            if (PERSISTENT_FIELDS.includes(key) && newValue !== undefined) {
+            if (newValue === undefined && Object.prototype.hasOwnProperty.call(REMOVED_FIELD_RESETS, key)) {
+                // Removed from sync (e.g. cleared): reset rather than keep the
+                // old value, or this tab's next save would re-upload it.
+                updates[key] = REMOVED_FIELD_RESETS[key]();
+            } else if (PERSISTENT_FIELDS.includes(key) && newValue !== undefined) {
                 // Array fields (links, categories) may be stored as JSON strings.
                 if (JSON_ENCODED_FIELDS.includes(key) && typeof newValue === 'string') {
                     try { updates[key] = JSON.parse(newValue); } catch { /* skip corrupt */ }

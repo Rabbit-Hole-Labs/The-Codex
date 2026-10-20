@@ -280,9 +280,9 @@
                         <button id="force-push-btn" class="mc-btn">Force push</button>
                         <button id="force-pull-btn" class="mc-btn">Force pull</button>
                         <select id="sync-strategy-select" class="mc-field" style="width:auto">
-                            <option value="merge">Conflict: Smart merge</option>
-                            <option value="local">Conflict: Local wins</option>
-                            <option value="remote">Conflict: Cloud wins</option>
+                            <option value="remote" selected>Conflict: Cloud wins</option>
+                            <option value="merge">Conflict: Merge (can restore deleted links)</option>
+                            <option value="local">Conflict: This device's last sync wins</option>
                         </select>
                         <button id="clear-sync-btn" class="mc-btn danger" style="margin-left:auto">Clear sync data</button>
                     </div>
