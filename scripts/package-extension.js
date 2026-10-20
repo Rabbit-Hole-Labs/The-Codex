@@ -216,6 +216,8 @@ export function validateManifest(manifest) {
         const keys = Object.keys(overrides);
         if (keys.length !== 1 || !['newtab', 'history', 'bookmarks'].includes(keys[0])) {
             errors.push('chrome_url_overrides must override exactly one of newtab, history or bookmarks');
+        } else if (typeof overrides[keys[0]] !== 'string' || !overrides[keys[0]].trim()) {
+            errors.push(`chrome_url_overrides.${keys[0]} must be the path of the override page`);
         }
     }
     const cspField = manifest.content_security_policy;
@@ -402,7 +404,8 @@ export function cssRefs(css, options) {
  * custom properties, and `chains` ([holder, read] pairs) where one custom
  * property's value reads another, so its url()s resolve where the holder is used.
  */
-export function cssScan(css, { declarations = false } = {}) {
+export function cssScan(input, { declarations = false } = {}) {
+    const css = input.replace(/\r\n?|\f/g, '\n'); // CSS preprocessing: CR, CRLF and FF are newlines
     const refs = [];
     const uses = new Set();
     const chains = [];
@@ -569,7 +572,8 @@ export function cssScan(css, { declarations = false } = {}) {
  * Custom properties registered with @property and a syntax that includes
  * <url>: their url()s resolve where they are declared, not where var() reads them.
  */
-export function cssRegisteredUrls(css) {
+export function cssRegisteredUrls(input) {
+    const css = input.replace(/\r\n?|\f/g, '\n'); // CSS preprocessing: CR, CRLF and FF are newlines
     let code = ''; // the CSS without comments (strings kept, so '/*' inside one is text)
     for (let i = 0; i < css.length;) {
         if (css.startsWith('/*', i)) {
@@ -609,7 +613,7 @@ const SELECT_KEPT = new Set(['option', 'optgroup', 'hr', 'script', 'template', '
  * <select> contents like ordinary markup (customizable select), while parse5
  * still drops most of them, so each select's source is parsed again for them.
  * @returns {Array<{ name: string, attrs: Map<string, string>, ns: 'html' | 'svg' | 'math', foreign: boolean,
- *   line: number, offset: number, text: string, inHead: boolean, inTemplate: boolean }>}
+ *   line: number, offset: number, text: string, inHead: boolean, inTemplate: boolean, parent: string | null }>}
  */
 export function scanHtml(html, { scripting = true } = {}) {
     const source = html.replace(/^\uFEFF/, ''); // a byte order mark is consumed by decoding, not parsed
@@ -638,7 +642,8 @@ export function scanHtml(html, { scripting = true } = {}) {
                     offset: location ? location.startOffset + context.offsetDelta : context.offset,
                     text: child.childNodes.filter((n) => n.nodeName === '#text').map((n) => n.value).join(''),
                     inHead: context.inHead,
-                    inTemplate: context.inTemplate
+                    inTemplate: context.inTemplate,
+                    parent: node.tagName?.toLowerCase() ?? null
                 });
             }
             const inner = { ...context, line, offset: location ? location.startOffset + context.offsetDelta : context.offset, inHead: context.inHead || name === 'head' };
@@ -679,9 +684,10 @@ export function srcsetUrls(value) {
     const urls = [];
     let i = 0;
     while (i < value.length) {
-        while (i < value.length && /[\s,]/.test(value[i])) i++;
+        // HTML splits on ASCII whitespace only: U+00A0 and other Unicode spaces stay in the URL.
+        while (i < value.length && /[\t\n\f\r ,]/.test(value[i])) i++;
         const start = i;
-        while (i < value.length && !/\s/.test(value[i])) i++;
+        while (i < value.length && !/[\t\n\f\r ]/.test(value[i])) i++;
         let url = value.slice(start, i);
         if (url.endsWith(',')) {
             url = url.replace(/,+$/, '');
@@ -881,8 +887,10 @@ function htmlRefs(html, inheritedBase = null, scripting = true, inheritedPolicie
                 srcsetUrls(attrs.get('srcset') || '').forEach((url) => add(url, 'img-src'));
                 break;
             case 'source':
-                add(src, 'media-src');
-                srcsetUrls(attrs.get('srcset') || '').forEach((url) => add(url, 'img-src'));
+                // Under <picture> only srcset (image candidates) counts; under <audio>/<video> only
+                // src (media); elsewhere a <source> loads nothing.
+                if (tag.parent === 'picture') srcsetUrls(attrs.get('srcset') || '').forEach((url) => add(url, 'img-src'));
+                else if (tag.parent === 'audio' || tag.parent === 'video') add(src, 'media-src');
                 break;
             case 'video':
             case 'audio':
@@ -1103,7 +1111,12 @@ function sourceMatches(source, parsed, directive = null) {
         } catch {
             // keep the raw path
         }
-        const pathname = decodeURIComponent(parsed.pathname);
+        let pathname = parsed.pathname;
+        try {
+            pathname = decodeURIComponent(pathname);
+        } catch {
+            // a malformed escape: compare the path as written
+        }
         if (sourcePath.endsWith('/') ? !pathname.startsWith(sourcePath) : pathname !== sourcePath) return false;
     }
     return true;
@@ -1802,6 +1815,43 @@ export function checkReferences(root, files, manifest) {
             if ('priority' in rule && (!Number.isInteger(rule.priority) || rule.priority < 1)) errors.push(`${where}: priority must be a positive integer`);
             if (!rule.action || typeof rule.action !== 'object' || !RULE_ACTIONS.has(rule.action.type)) errors.push(`${where}: action.type must be one of ${[...RULE_ACTIONS].join(', ')}`);
             if (!rule.condition || typeof rule.condition !== 'object' || Array.isArray(rule.condition)) errors.push(`${where}: condition must be an object`);
+            // The fields each action type needs (Chrome drops a static rule without them).
+            const action = rule.action && typeof rule.action === 'object' ? rule.action : {};
+            if (action.type === 'redirect') {
+                const redirect = action.redirect;
+                if (!redirect || typeof redirect !== 'object' || !['url', 'extensionPath', 'transform', 'regexSubstitution'].some((key) => key in redirect)) {
+                    errors.push(`${where}: a redirect action needs action.redirect with url, extensionPath, transform or regexSubstitution`);
+                } else {
+                    if ('extensionPath' in redirect && !(typeof redirect.extensionPath === 'string' && redirect.extensionPath.startsWith('/'))) {
+                        errors.push(`${where}: action.redirect.extensionPath must be a path starting with "/"`);
+                    }
+                    if ('regexSubstitution' in redirect && typeof rule.condition?.regexFilter !== 'string') {
+                        errors.push(`${where}: action.redirect.regexSubstitution needs condition.regexFilter`);
+                    }
+                }
+            } else if (action.type === 'modifyHeaders') {
+                const lists = ['requestHeaders', 'responseHeaders'].filter((key) => key in action);
+                if (!lists.length) errors.push(`${where}: a modifyHeaders action needs requestHeaders or responseHeaders`);
+                for (const key of lists) {
+                    if (!Array.isArray(action[key]) || !action[key].length) {
+                        errors.push(`${where}: action.${key} must be a non-empty list`);
+                        continue;
+                    }
+                    action[key].forEach((info, n) => {
+                        const operation = info?.operation;
+                        if (!info || typeof info.header !== 'string' || !info.header || !['append', 'set', 'remove'].includes(operation)) {
+                            errors.push(`${where}: action.${key}[${n}] needs a header and an operation of append, set or remove`);
+                        } else if (operation === 'remove' ? 'value' in info : typeof info.value !== 'string') {
+                            errors.push(`${where}: action.${key}[${n}] ${operation === 'remove' ? "can't have a value with remove" : `needs a string value with ${operation}`}`);
+                        }
+                    });
+                }
+            } else if (action.type === 'allowAllRequests') {
+                const types = rule.condition?.resourceTypes;
+                if (!Array.isArray(types) || !types.length || types.some((type) => type !== 'main_frame' && type !== 'sub_frame')) {
+                    errors.push(`${where}: an allowAllRequests action needs condition.resourceTypes of main_frame and/or sub_frame only`);
+                }
+            }
             return undefined;
         });
     }

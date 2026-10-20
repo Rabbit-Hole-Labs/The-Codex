@@ -894,6 +894,43 @@ describe('package-extension', () => {
         expect(() => buildPackage({ root, outDir: out })).not.toThrow();
     });
 
+    test('round 12: srcset whitespace, <source> parents, DNR actions, CSS newlines, CSP escapes, overrides', () => {
+        const entry = '<script type="module" src="javascript/entry-points/popup.js"></script>';
+        // srcset splits on ASCII whitespace only: U+00A0 stays part of the URL.
+        expect(srcsetUrls('assets/a b.png 1x, c.png 2x')).toEqual(['assets/a b.png', 'c.png']);
+        // <source>: srcset under <picture>, src under <audio>/<video>, nothing elsewhere.
+        writeFixture(root, fixtureFiles({ 'popup.html': `<picture><source src="missing.mp4" srcset="assets/icons/icon128.png"><img src="assets/icons/icon128.png"></picture>${entry}` }));
+        expect(() => buildPackage({ root, outDir: out })).not.toThrow();
+        const sources = buildError({ 'popup.html': `<picture><source srcset="gone.png"></picture><video><source src="gone.mp4" srcset="fine.png"></video>${entry}` });
+        expect(sources).toContain('popup.html references gone.png');
+        expect(sources).toContain('popup.html references gone.mp4');
+        expect(sources).not.toContain('fine.png');
+        // DNR: each action needs its own fields.
+        const dnr = (rules) => buildError({ 'manifest.json': JSON.stringify({ ...MANIFEST, declarative_net_request: { rule_resources: [{ id: 'r', enabled: true, path: 'assets/rules.json' }] } }),
+            'assets/rules.json': JSON.stringify(rules) });
+        const message = dnr([
+            { id: 1, action: { type: 'redirect' }, condition: {} },
+            { id: 2, action: { type: 'modifyHeaders', requestHeaders: [] }, condition: {} },
+            { id: 3, action: { type: 'modifyHeaders', responseHeaders: [{ header: 'x', operation: 'remove', value: 'v' }, { header: 'y', operation: 'set' }] }, condition: {} },
+            { id: 4, action: { type: 'allowAllRequests' }, condition: { resourceTypes: ['script'] } },
+            { id: 5, action: { type: 'redirect', redirect: { regexSubstitution: '\\1' } }, condition: {} }
+        ]);
+        expect(message).toContain('assets/rules.json rule 0: a redirect action needs action.redirect with url, extensionPath, transform or regexSubstitution');
+        expect(message).toContain('assets/rules.json rule 1: action.requestHeaders must be a non-empty list');
+        expect(message).toContain("assets/rules.json rule 2: action.responseHeaders[0] can't have a value with remove");
+        expect(message).toContain('assets/rules.json rule 2: action.responseHeaders[1] needs a string value with set');
+        expect(message).toContain('assets/rules.json rule 3: an allowAllRequests action needs condition.resourceTypes of main_frame and/or sub_frame only');
+        expect(message).toContain('assets/rules.json rule 4: action.redirect.regexSubstitution needs condition.regexFilter');
+        // CSS: CR and FF end an unterminated string like LF, so later declarations are scanned.
+        expect(cssRefs('.x{content:"oops\r; background:url(a.png)} .y{content:"b\f; background:url(b.png)}')).toEqual([
+            { url: 'a.png', directive: 'img-src' }, { url: 'b.png', directive: 'img-src' }]);
+        // A malformed escape in a URL compared with a CSP path source doesn't throw.
+        expect(cspAllows(parseCsp('img-src https://cdn.example/'), 'img-src', 'https://cdn.example/%ZZ')).toBe(true);
+        expect(cspAllows(parseCsp('img-src https://cdn.example/a/'), 'img-src', 'https://cdn.example/%ZZ')).toBe(false);
+        // chrome_url_overrides needs a page.
+        expect(validateManifest({ ...MANIFEST, chrome_url_overrides: { newtab: '' } })).toContain('chrome_url_overrides.newtab must be the path of the override page');
+    });
+
     test('an MV3 background needs a service worker', () => {
         expect(validateManifest({ ...MANIFEST, background: { type: 'module' } })).toContain('background.service_worker is required in MV3');
     });
