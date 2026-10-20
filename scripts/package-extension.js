@@ -104,6 +104,14 @@ const NON_PATH_KEYS = new Set([
     'default_locale' // rejected by validateManifest until _locales/ is packaged
 ]);
 
+/** Expected JSON type of each path-bearing manifest field (Chrome rejects other shapes). */
+const FIELD_SHAPES = {
+    background: 'object', action: 'object', browser_action: 'object', page_action: 'object',
+    icons: 'object', chrome_url_overrides: 'object', options_ui: 'object', side_panel: 'object',
+    sandbox: 'object', declarative_net_request: 'object', content_scripts: 'array',
+    options_page: 'string', devtools_page: 'string'
+};
+
 const iconPaths = (icon) => (typeof icon === 'string' ? [icon] : Object.values(icon || {}));
 
 /** Checks the manifest fields Chrome and the Web Store validate on upload. */
@@ -131,8 +139,13 @@ export function validateManifest(manifest) {
     } else if (typeof manifest.description === 'string' && manifest.description.length > MAX_DESCRIPTION_LENGTH) {
         errors.push(`description is ${manifest.description.length} characters; the Web Store allows ${MAX_DESCRIPTION_LENGTH}`);
     }
-    if ('icons' in manifest && (typeof manifest.icons !== 'object' || manifest.icons === null || Array.isArray(manifest.icons))) {
-        errors.push('icons must be an object of size -> path');
+    for (const [key, shape] of Object.entries(FIELD_SHAPES)) {
+        if (!(key in manifest)) continue;
+        const value = manifest[key];
+        const ok = shape === 'array' ? Array.isArray(value)
+            : shape === 'string' ? typeof value === 'string'
+                : value !== null && typeof value === 'object' && !Array.isArray(value);
+        if (!ok) errors.push(`${key} must be ${shape === 'array' ? 'an array' : shape === 'string' ? 'a string' : 'an object'}`);
     }
     if (manifest.manifest_version === 3) {
         const background = manifest.background && typeof manifest.background === 'object' ? manifest.background : {};
@@ -222,21 +235,37 @@ function stripCssComments(css) {
     return out;
 }
 
+/** Decodes CSS escapes: \\XXXXXX (1-6 hex digits, optional trailing space) or \\<char>. */
+export function cssUnescape(value) {
+    return value.replace(/\\(?:([0-9a-f]{1,6})[ \t\n\f]?|\r\n|([\s\S]))/gi, (whole, hex, ch) => {
+        if (hex) {
+            const code = parseInt(hex, 16);
+            return code === 0 || code > 0x10FFFF || (code >= 0xD800 && code <= 0xDFFF) ? '\uFFFD' : String.fromCodePoint(code);
+        }
+        return ch === undefined || ch === '\n' ? '' : ch; // an escaped newline is a line continuation in strings
+    });
+}
+
+// Quoted CSS strings may contain escaped quotes; unquoted url() tokens may contain escapes (e.g. "\\ ").
+const CSS_DQ = '"((?:\\\\[\\s\\S]|[^"\\\\\\n])*)"';
+const CSS_SQ = "'((?:\\\\[\\s\\S]|[^'\\\\\\n])*)'";
+
 function cssRefs(css) {
     const refs = [];
     const text = stripCssComments(css);
-    for (const m of text.matchAll(/url\(\s*(?:"([^"]*)"|'([^']*)'|([^)'"\s]+))\s*\)/gi)) {
-        // An unquoted value can't contain parentheses; skip var(--x) and other functions.
-        if (m[3] !== undefined && /[()]|^var\b/.test(m[3])) continue;
-        refs.push(m[1] ?? m[2] ?? m[3]);
+    const url = new RegExp(`url\\(\\s*(?:${CSS_DQ}|${CSS_SQ}|((?:\\\\[\\s\\S]|[^)'"\\s\\\\])+))\\s*\\)`, 'gi');
+    for (const m of text.matchAll(url)) {
+        // An unquoted value can't contain unescaped parentheses; skip var(--x) and other functions.
+        if (m[3] !== undefined && /(^|[^\\])[()]|^var\b/.test(m[3])) continue;
+        refs.push(cssUnescape(m[1] ?? m[2] ?? m[3]));
     }
-    for (const m of text.matchAll(/@import\s+(?:"([^"]+)"|'([^']+)')/gi)) refs.push(m[1] ?? m[2]);
+    for (const m of text.matchAll(new RegExp(`@import\\s+(?:${CSS_DQ}|${CSS_SQ})`, 'gi'))) refs.push(cssUnescape(m[1] ?? m[2]));
     for (const m of text.matchAll(/image-set\(((?:[^()]|\([^()]*\))*)\)/gi)) {
         // Strings inside type("image/avif") are MIME types, not paths.
         const candidates = m[1].replace(/type\(\s*(?:"[^"]*"|'[^']*')\s*\)/gi, '');
-        for (const s of candidates.matchAll(/"([^"]+)"|'([^']+)'/g)) refs.push(s[1] ?? s[2]);
+        for (const s of candidates.matchAll(new RegExp(`${CSS_DQ}|${CSS_SQ}`, 'g'))) refs.push(cssUnescape(s[1] ?? s[2]));
     }
-    return refs;
+    return refs.filter(Boolean);
 }
 
 /** Removes <!-- --> comments that start outside a tag (not inside an attribute value). */
@@ -291,6 +320,18 @@ export function srcsetUrls(value) {
         if (url) urls.push(url);
     }
     return urls;
+}
+
+/** src of each <script> that isn't type="module" (it runs as a classic script). */
+function classicScriptSrcs(html) {
+    const srcs = [];
+    for (const m of stripHtmlComments(html).matchAll(/<script\b([^>]*)>/gi)) {
+        const attrs = m[1];
+        if (/(?<![\w-])type\s*=\s*(?:"module"|'module'|module\b)/i.test(attrs)) continue;
+        const src = attrs.match(/(?<![\w-])src\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>"']+))/i);
+        if (src) srcs.push(decodeEntities(src[1] ?? src[2] ?? src[3]));
+    }
+    return srcs;
 }
 
 function htmlRefs(html) {
@@ -350,7 +391,7 @@ function dynamicImports(file, source) {
  * @returns {{ refs: string[], errors: string[], dynamicImports: number }} refs are
  *   root-relative paths; dynamicImports counts import() calls (literal or not)
  */
-export function extractRefs(file, text) {
+export function extractRefs(file, text, { classic = false } = {}) {
     const refs = [];
     const errors = [];
     let dynamicImportCount = 0;
@@ -364,7 +405,19 @@ export function extractRefs(file, text) {
         const dynamic = dynamicImports(file, text);
         errors.push(...dynamic.errors);
         dynamicImportCount = dynamic.specifiers.length + dynamic.errors.length;
-        for (const specifier of [...staticImports(file, text), ...dynamic.specifiers]) {
+        let statics = [];
+        if (classic) {
+            // Content scripts and <script> without type="module" run as classic
+            // scripts: module syntax (import/export) is a SyntaxError there.
+            try {
+                new vm.Script(text, { filename: file });
+            } catch (error) {
+                errors.push(`${file} runs as a classic script (content script or <script> without type="module") but doesn't compile as one: ${error.message}`);
+            }
+        } else {
+            statics = staticImports(file, text);
+        }
+        for (const specifier of [...statics, ...dynamic.specifiers]) {
             if (specifier.startsWith('.') || specifier.startsWith('/')) {
                 add(specifier);
             } else {
@@ -387,6 +440,21 @@ export function checkReferences(root, files, manifest) {
     const errors = [];
     const edges = new Map([['manifest.json', []]]);
     const usesDynamicImport = new Set();
+    // Files that run as classic scripts: content scripts and non-module <script src>.
+    const classic = new Set();
+    if (Array.isArray(manifest.content_scripts)) {
+        for (const script of manifest.content_scripts) {
+            for (const js of Array.isArray(script?.js) ? script.js : []) {
+                if (typeof js === 'string') classic.add(posix.normalize(js.replace(/^\//, '')));
+            }
+        }
+    }
+    for (const file of files.filter((f) => f.endsWith('.html'))) {
+        for (const src of classicScriptSrcs(readFileSync(join(root, file), 'utf8'))) {
+            const resolved = resolveRef(file, src);
+            if (resolved) classic.add(resolved);
+        }
+    }
     const note = (from, ref) => {
         if (packaged.has(ref)) {
             edges.get(from).push(ref);
@@ -409,7 +477,7 @@ export function checkReferences(root, files, manifest) {
         edges.set(file, []);
         let result;
         try {
-            result = extractRefs(file, readFileSync(join(root, file), 'utf8'));
+            result = extractRefs(file, readFileSync(join(root, file), 'utf8'), { classic: classic.has(file) });
         } catch (error) {
             errors.push(error.message);
             continue;

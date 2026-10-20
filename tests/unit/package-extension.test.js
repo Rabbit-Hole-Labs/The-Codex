@@ -15,6 +15,7 @@ import {
     contentDigest,
     crc32,
     createZip,
+    cssUnescape,
     srcsetUrls,
     validateManifest
 } from '../../scripts/package-extension.js';
@@ -380,7 +381,7 @@ describe('package-extension', () => {
             .toContain('manifest "sandbox" has an unexpected shape');
         expect(buildError({ 'manifest.json': JSON.stringify({ ...MANIFEST, background: null }) }))
             .toContain('manifest "background" has an unexpected shape');
-        expect(validateManifest({ ...MANIFEST, icons: null })).toEqual(['icons must be an object of size -> path']);
+        expect(validateManifest({ ...MANIFEST, icons: null })).toEqual(['icons must be an object']);
         expect(validateManifest({ ...MANIFEST, description: 5 })).toEqual(['description must be a string']);
         expect(validateManifest({ ...MANIFEST, background: { service_worker: 'sw.js' } }))
             .toEqual(['background.type must be "module": the packager checks JS files as ES modules']);
@@ -438,6 +439,47 @@ describe('package-extension', () => {
         // fixture script.js (page-only) already uses import('../features/lazy.js')
         writeFixture(root, fixtureFiles());
         expect(() => buildPackage({ root, outDir: out })).not.toThrow();
+    });
+
+    test('a background (or other path field) of the wrong JSON type is rejected', () => {
+        for (const background of ['javascript/background/sw.js', ['x'], true]) {
+            expect(validateManifest({ ...MANIFEST, background })).toContain('background must be an object');
+        }
+        expect(validateManifest({ ...MANIFEST, content_scripts: {} })).toContain('content_scripts must be an array');
+        expect(validateManifest({ ...MANIFEST, options_page: ['o.html'] })).toContain('options_page must be a string');
+        expect(buildError({ 'manifest.json': JSON.stringify({ ...MANIFEST, background: 'javascript/background/sw.js' }) }))
+            .toContain('background must be an object');
+    });
+
+    test('CSS escapes are decoded, so escaped spaces and hex escapes are checked', () => {
+        expect(cssUnescape('my\\ icon.png')).toBe('my icon.png');
+        expect(cssUnescape('\\61 b.png')).toBe('ab.png');
+        expect(cssUnescape('a\\"b')).toBe('a"b');
+        const message = buildError({
+            'stylesheets/base.css': '.a { background: url(../assets/my\\ gone.png); }\n' +
+                '.b { background: url("../assets/\\67 one2.png"); }\n.c { background: url(\'../assets/q\\\'s.png\'); }\n'
+        });
+        expect(message).toContain('stylesheets/base.css references assets/my gone.png');
+        expect(message).toContain('stylesheets/base.css references assets/gone2.png');
+        expect(message).toContain("stylesheets/base.css references assets/q's.png");
+        writeFixture(root, fixtureFiles({
+            'assets/icons/my icon.png': 'png',
+            'stylesheets/base.css': '.x { background: url(../assets/icons/my\\ icon.png); }\n'
+        }));
+        expect(buildPackage({ root, outDir: out }).warnings).toEqual([]);
+    });
+
+    test('content scripts and non-module <script> files must compile as classic scripts', () => {
+        const withContentScript = JSON.stringify({ ...MANIFEST, content_scripts: [{ matches: ['<all_urls>'], js: ['javascript/content.js'] }] });
+        expect(buildError({
+            'manifest.json': withContentScript,
+            'javascript/content.js': "import { a } from './features/a.js';\nconsole.log(a);\n"
+        })).toContain('javascript/content.js runs as a classic script');
+        writeFixture(root, fixtureFiles({ 'manifest.json': withContentScript, 'javascript/content.js': 'with (Math) { console.log(PI); }\n' }));
+        expect(() => buildPackage({ root, outDir: out })).not.toThrow(); // sloppy classic code is fine there
+        expect(buildError({
+            'popup.html': '<script src="javascript/entry-points/popup.js"></script>'
+        })).toContain('javascript/entry-points/popup.js runs as a classic script');
     });
 
     test('createZip adds parent directories once and keeps names sorted', () => {
