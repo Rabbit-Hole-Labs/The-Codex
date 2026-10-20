@@ -501,7 +501,7 @@ describe('package-extension', () => {
             'popup.html': '<textarea><!--</textarea><img src="assets/missing.png">' +
                 '<script type="module" src="javascript/entry-points/popup.js"></script>'
         })).toContain('popup.html references assets/missing.png');
-        expect(scanHtml('<a title=">" href=x.html>').map((t) => t.attrs.get('href'))).toEqual(['x.html']);
+        expect(scanHtml('<a title=">" href=x.html>').filter((t) => t.name === 'a').map((t) => t.attrs.get('href'))).toEqual(['x.html']);
     });
 
     test('CSS: url()-like text inside a string is not a reference; @import and @font-face are typed', () => {
@@ -538,14 +538,14 @@ describe('package-extension', () => {
             .toContain('content_scripts[0].css must be a non-empty array of paths');
     });
 
-    test('HTML character references: &sol; decodes; unknown names fail loudly', () => {
+    test('HTML character references: &sol; decodes; unknown names stay literal, as in browsers', () => {
         writeFixture(root, fixtureFiles({
             'popup.html': '<img src="assets&sol;icons&sol;icon128.png"><script type="module" src="javascript/entry-points/popup.js"></script>'
         }));
         expect(buildPackage({ root, outDir: out }).warnings).toEqual([]);
         expect(buildError({
             'popup.html': '<img src="assets&frobnicate;x.png"><script type="module" src="javascript/entry-points/popup.js"></script>'
-        })).toContain("popup.html line 1: <img src> uses HTML character reference(s) the packager can't decode (&frobnicate;)");
+        })).toContain('popup.html references assets&frobnicate;x.png');
     });
 
     test('<noscript> content is text on extension pages, markup where scripting is off', () => {
@@ -699,6 +699,88 @@ describe('package-extension', () => {
         expect(() => buildPackage({ root, outDir: out })).not.toThrow();
     });
 
+    test('options_ui needs a page unless options_page provides one; MV3 forbids chrome_style', () => {
+        const message = 'options_ui has no page, so Chrome ignores it and the extension has no options page';
+        expect(validateManifest({ ...MANIFEST, options_ui: { open_in_tab: true } })).toContain(message);
+        expect(validateManifest({ ...MANIFEST, options_ui: { page: '  ' } })).toContain(message);
+        expect(validateManifest({ ...MANIFEST, options_ui: { page: 'o.html', open_in_tab: 'yes' } }))
+            .toContain('options_ui has a non-boolean open_in_tab, so Chrome ignores it and the extension has no options page');
+        expect(validateManifest({ ...MANIFEST, options_page: 'o.html', options_ui: { open_in_tab: true } })).toEqual([]);
+        expect(validateManifest({ ...MANIFEST, options_ui: { page: 'o.html', chrome_style: true } })).toContain("options_ui.chrome_style can't be used with manifest_version 3");
+    });
+
+    test('manifest CSP strings may only hold tab, form feed and printable ASCII other than a comma', () => {
+        for (const policy of ["script-src 'self';\nobject-src 'self'", "script-src 'self', object-src 'self'", "script-src 'self' https://café.example", "script-src 'self'\u0000"]) {
+            expect(validateManifest({ ...MANIFEST, content_security_policy: { extension_pages: policy } }))
+                .toContain('content_security_policy.extension_pages contains a character Chrome rejects (only tab, form feed and printable ASCII other than "," are allowed)');
+        }
+        expect(validateManifest({ ...MANIFEST, content_security_policy: { extension_pages: "script-src 'self';\tobject-src 'self'" } })).toEqual([]);
+    });
+
+    test('content script matches must be match patterns', () => {
+        const entry = (matches) => ({ ...MANIFEST, content_scripts: [{ matches, js: ['javascript/content.js'] }] });
+        expect(validateManifest(entry(['not a pattern']))).toContain('content_scripts[0].matches[0] "not a pattern" isn\'t a match pattern (<scheme>://<host><path> or <all_urls>)');
+        for (const bad of ['https://example.com', 'https://foo.*.com/*', 'chrome://settings/*', 'http:///*']) {
+            expect(validateManifest(entry([bad]))).toHaveLength(1);
+        }
+        expect(validateManifest(entry(['<all_urls>', '*://*/*', 'https://*.example.com/*', 'file:///*', 'http://localhost:8080/*', 'http://[::1]/*', 'urn:*']))).toEqual([]);
+        expect(validateManifest({ ...MANIFEST, content_scripts: [{ matches: ['<all_urls>'], exclude_matches: ['bad'], js: ['javascript/content.js'] }] }))
+            .toContain('content_scripts[0].exclude_matches[0] "bad" isn\'t a match pattern (<scheme>://<host><path> or <all_urls>)');
+    });
+
+    test('a relative url() in a CSS custom property fails (Chrome resolves it where var() uses it)', () => {
+        expect(buildError({ 'stylesheets/base.css': '.x { --bg: url(icon.png); }\n.y { background: var(--bg); }\n' }))
+            .toContain('stylesheets/base.css: url(icon.png) in a custom property resolves where var() uses it, so it can\'t be checked; use a root-relative (/...) or absolute URL');
+        expect(cssRefs('.x { --bg: url(a.png); color: red } .y { background: url(b.png) }')).toEqual([
+            { url: 'a.png', directive: 'img-src', custom: true }, { url: 'b.png', directive: 'img-src' }]);
+        writeFixture(root, fixtureFiles({ 'stylesheets/base.css': '.x { --bg: url(/assets/icons/icon128.png); --c: url(data:image/png;base64,AA); }\n' }));
+        expect(() => buildPackage({ root, outDir: out })).not.toThrow();
+    });
+
+    test('legacy named references decode as browsers do: without a semicolon, not before = or an alphanumeric', () => {
+        writeFixture(root, fixtureFiles({ 'assets/a&.png': 'png', 'assets/café.png': 'png', 'assets/x˜y.png': 'png',
+            'popup.html': '<img src="assets/a&amp.png"><img src="assets/caf&eacute.png"><img src="assets/x&tilde;y.png"><script type="module" src="javascript/entry-points/popup.js"></script>' }));
+        expect(buildPackage({ root, outDir: out }).warnings).toEqual([]);
+        const message = buildError({ 'popup.html': '<img src="assets/b&amp=1.png"><img src="assets/c&copyx.png"><script type="module" src="javascript/entry-points/popup.js"></script>' });
+        expect(message).toContain('popup.html references assets/b&amp=1.png');
+        expect(message).toContain('popup.html references assets/c&copyx.png');
+    });
+
+    test('inline import maps are JSON: checked for shape, mapped files and integrity', () => {
+        const sandboxed = JSON.stringify({ ...MANIFEST, sandbox: { pages: ['assets/s.html'] } });
+        const map = (json) => `<script type="importmap">${json}</script>`;
+        writeFixture(root, fixtureFiles({ 'manifest.json': sandboxed, 'assets/x.js': 'export const x = 1;\n',
+            'assets/s.html': `${map('{"imports": {"x": "./x.js", "lib/": "./lib/"}, "scopes": {"/assets/": {"y": "./x.js"}}}')}<script type="importmap"></script><script type="module">import "./x.js";</script>` }));
+        expect(() => buildPackage({ root, outDir: out })).not.toThrow(); // an empty map is skipped
+        const label = 'assets/s.html (import map, line 1)';
+        expect(buildError({ 'manifest.json': sandboxed, 'assets/s.html': map('{"imports": []}') })).toContain(`${label}: "imports" must be an object, so Chrome rejects the map`);
+        expect(buildError({ 'manifest.json': sandboxed, 'assets/s.html': map(' ') })).toContain(`${label} is not valid JSON, so Chrome rejects it`);
+        expect(buildError({ 'manifest.json': sandboxed, 'assets/s.html': map('{"imports": {"x": "./missing.js"}}') })).toContain('assets/s.html references assets/missing.js');
+        expect(buildError({ 'manifest.json': sandboxed, 'assets/s.html': map('{"imports": {"./a.js": "lodash", "b/": "./b.js"}}') }))
+            .toEqual(expect.stringContaining(`${label}: imports["./a.js"] is not a URL or a /, ./ or ../ path, so Chrome blocks imports of "./a.js"`));
+        expect(buildError({ 'manifest.json': sandboxed, 'assets/s.html': map('{"imports": {"b/": "./b.js"}}') })).toContain('imports["b/"] must end in "/" like its key');
+        expect(buildError({ 'manifest.json': sandboxed, 'assets/x.js': 'export const x = 1;\n', 'assets/s.html': map('{"integrity": {"./x.js": "sha256-wrong"}}') }))
+            .toContain('integrity="sha256-wrong" for assets/x.js doesn\'t match its sha256 digest');
+        expect(buildError({ 'manifest.json': sandboxed, 'assets/s.html': '<script type="importmap" src="m.json"></script>' }))
+            .toContain('<script type="importmap" src> is ignored by Chrome (import maps must be inline)');
+    });
+
+    test('nothing script-related is checked where scripting is off or a script is nomodule', () => {
+        const sandboxed = JSON.stringify({ ...MANIFEST, sandbox: { pages: ['assets/s.html'] }, content_security_policy: { sandbox: "sandbox; script-src 'self'" } });
+        writeFixture(root, fixtureFiles({ 'manifest.json': sandboxed, 'assets/legacy.js': 'with (Math) { var r = PI; }\nvar x = 010;\n',
+            'assets/s.html': '<script>not javascript (</script><script type="module">import "./missing.js";</script><div onclick="x()"></div>' +
+                '<script src="legacy.js"></script><script src="gone.js"></script><svg><script>x()</script></svg>' }));
+        expect(() => buildPackage({ root, outDir: out })).not.toThrow(); // legacy.js still compiles as a classic script
+        // An iframe sandbox without allow-scripts makes its srcdoc inert too.
+        writeFixture(root, fixtureFiles({ 'manifest.json': sandboxed, 'popup.html': '<iframe sandbox srcdoc="<script>not javascript (</script>"></iframe><script type="module" src="javascript/entry-points/popup.js"></script>' }));
+        expect(() => buildPackage({ root, outDir: out })).not.toThrow();
+        // Chrome runs modules, so it never fetches a nomodule classic script; a nomodule module still runs.
+        writeFixture(root, fixtureFiles({ 'manifest.json': sandboxed, 'popup.html': '<script nomodule src="missing.js"></script><script type="module" src="javascript/entry-points/popup.js"></script>' }));
+        expect(() => buildPackage({ root, outDir: out })).not.toThrow();
+        expect(buildError({ 'manifest.json': sandboxed, 'popup.html': '<script type="module" nomodule src="missing.js"></script><script type="module" src="javascript/entry-points/popup.js"></script>' }))
+            .toContain('popup.html references missing.js');
+    });
+
     test('an MV3 background needs a service worker', () => {
         expect(validateManifest({ ...MANIFEST, background: { type: 'module' } })).toContain('background.service_worker is required in MV3');
     });
@@ -819,7 +901,7 @@ describe('package-extension', () => {
             }));
             expect(() => buildPackage({ root, outDir: out })).not.toThrow(); // Chrome's default sandbox CSP allows inline script
             expect(buildError({
-                'manifest.json': JSON.stringify({ ...sandboxed, content_security_policy: { extension_pages: CSP, sandbox: "sandbox; script-src 'self'" } }),
+                'manifest.json': JSON.stringify({ ...sandboxed, content_security_policy: { extension_pages: CSP, sandbox: "sandbox allow-scripts; script-src 'self'" } }),
                 'assets/sandbox.html': '<script>eval("1")</script>'
             })).toContain('assets/sandbox.html line 1: inline <script>: the sandbox CSP blocks inline script');
             expect(buildError({
@@ -994,6 +1076,118 @@ describe('package-extension', () => {
                 'assets/s.html': '<script src="s.js"></script>',
                 'assets/s.js': 'console.log(1);\n'
             })).toContain("assets/s.html loads assets/s.js, which the sandbox CSP blocks (script-src doesn't allow 'self')");
+        });
+
+        test('HTML start tags that break out of SVG/MathML are checked as HTML (parse5)', () => {
+            const blocked = 'popup.html loads https://evil.example/x.png, which the manifest CSP blocks (img-src)';
+            expect(buildError({ 'manifest.json': withCsp(), 'popup.html': page('<svg><p><img src="https://evil.example/x.png"></svg>') })).toContain(blocked);
+            expect(buildError({ 'manifest.json': withCsp(), 'popup.html': page('<svg><font color="red"><input type="image" src="https://evil.example/x.png"></svg>') })).toContain(blocked);
+            expect(buildError({ 'manifest.json': withCsp(), 'popup.html': page('<svg></p><image src="https://evil.example/x.png"></svg>') })).toContain(blocked);
+            expect(buildError({ 'manifest.json': withCsp(), 'popup.html': page('<image src="https://evil.example/x.png">') })).toContain(blocked);
+            // CDATA in SVG is text, so markup-like text inside it neither breaks out nor loads anything.
+            expect(buildError({ 'manifest.json': withCsp(), 'popup.html': page('<svg><style><![CDATA[ a>b {} /* <b> */ ]]></style><image href="https://evil.example/x.png"/></svg>') }))
+                .toContain(blocked);
+            writeFixture(root, fixtureFiles({ 'manifest.json': withCsp(), 'popup.html': page('<svg><![CDATA[ a > b <img src="https://evil.example/x.png"> ]]></svg>') }));
+            expect(() => buildPackage({ root, outDir: out })).not.toThrow();
+            // MathML text integration points (mtext) hold HTML; annotation-xml only with an HTML encoding.
+            expect(buildError({ 'manifest.json': withCsp(`${CSP}; media-src 'self'`), 'popup.html': page('<math><mtext><video src="https://evil.example/v.mp4"></video></mtext></math>') }))
+                .toContain('popup.html loads https://evil.example/v.mp4, which the manifest CSP blocks (media-src)');
+            writeFixture(root, fixtureFiles({ 'manifest.json': withCsp(`${CSP}; media-src 'self'`), 'popup.html': page('<math><annotation-xml><video src="https://evil.example/v.mp4"></video></annotation-xml></math>') }));
+            expect(() => buildPackage({ root, outDir: out })).not.toThrow();
+        });
+
+        test('legacy background attributes are image loads, resolved against the document base', () => {
+            const message = buildError({ 'manifest.json': withCsp(), 'popup.html': page('<table><colgroup background="https://evil.example/c.png"></colgroup><tr><td background="https://evil.example/bg.png"></td></tr></table>') });
+            expect(message).toContain('popup.html loads https://evil.example/c.png, which the manifest CSP blocks (img-src)');
+            expect(message).toContain('popup.html loads https://evil.example/bg.png, which the manifest CSP blocks (img-src)');
+            expect(buildError({ 'popup.html': page('<body background="assets/missing.png">') })).toContain('popup.html references assets/missing.png');
+            // A later <base> still applies: Chrome resolves the attribute when styles are computed.
+            writeFixture(root, fixtureFiles({ 'popup.html': '<script type="module" src="javascript/entry-points/popup.js"></script><body background="icon128.png"><base href="assets/icons/">' }));
+            expect(() => buildPackage({ root, outDir: out })).not.toThrow();
+        });
+
+        test('hyperlink ping targets are checked against connect-src (HTTP(S) only, links with href only)', () => {
+            const withConnect = withCsp(`${CSP}; connect-src 'self'`);
+            expect(buildError({ 'manifest.json': withConnect, 'popup.html': page('<a href="https://ok.example/" ping="audit https://blocked.example/audit">x</a>') }))
+                .toContain('popup.html loads https://blocked.example/audit, which the manifest CSP blocks (connect-src)');
+            expect(buildError({ 'manifest.json': withConnect, 'popup.html': page('<svg><a href="https://ok.example/" ping="https://blocked.example/svg">x</a></svg>') }))
+                .toContain('popup.html loads https://blocked.example/svg, which the manifest CSP blocks (connect-src)');
+            // Relative pings are chrome-extension: URLs (never sent); a link without href pings nothing.
+            writeFixture(root, fixtureFiles({ 'manifest.json': withConnect, 'popup.html': page('<a href="https://ok.example/" ping="audit/missing">x</a><a ping="https://blocked.example/x">y</a>') }));
+            expect(() => buildPackage({ root, outDir: out })).not.toThrow();
+            writeFixture(root, fixtureFiles({ 'manifest.json': withCsp(`${CSP}; connect-src *`), 'popup.html': page('<a href="https://ok.example/" ping="https://any.example/audit">x</a>') }));
+            expect(() => buildPackage({ root, outDir: out })).not.toThrow();
+        });
+
+        test('a <meta> CSP in <head> applies with the manifest CSP to what follows it', () => {
+            const meta = (policy) => `<head><link rel="icon" href="assets/icons/icon128.png"><meta http-equiv="Content-Security-Policy" content="${policy}"></head>`;
+            expect(buildError({ 'manifest.json': withCsp(), 'popup.html': page(`${meta("img-src 'none'")}<body><img src="assets/icons/icon128.png">`) }))
+                .toContain("popup.html loads assets/icons/icon128.png, which the <meta> CSP in popup.html blocks (img-src doesn't allow 'self')");
+            // The icon before the <meta> is fine, and so is a <meta> outside <head> (Chrome ignores it).
+            const message = buildError({ 'manifest.json': withCsp(), 'popup.html': page(`${meta("img-src 'none'")}<body><img src="https://a.cdn.example/x.png">`) });
+            expect(message).toContain('loads https://a.cdn.example/x.png, which the <meta> CSP in popup.html blocks (img-src)');
+            expect(message).not.toContain('icon128');
+            writeFixture(root, fixtureFiles({ 'manifest.json': withCsp(), 'popup.html': page('<body><meta http-equiv="Content-Security-Policy" content="img-src \'none\'"><img src="assets/icons/icon128.png">') }));
+            expect(() => buildPackage({ root, outDir: out })).not.toThrow();
+            // It covers the page's stylesheets too.
+            expect(buildError({ 'manifest.json': withCsp(), 'popup.html': page(`${meta("img-src 'none'")}<link rel="stylesheet" href="stylesheets/base.css">`),
+                'stylesheets/base.css': '.a { background: url(../assets/icons/icon128.png) }\n' }))
+                .toContain("stylesheets/base.css loads assets/icons/icon128.png, which the <meta> CSP in popup.html blocks (img-src doesn't allow 'self')");
+        });
+
+        test("'strict-dynamic' ignores 'unsafe-inline' and 'self': markup scripts need a nonce, imports don't", () => {
+            const sandboxed = (policy) => JSON.stringify({ ...MANIFEST, sandbox: { pages: ['assets/s.html'] }, content_security_policy: { sandbox: `sandbox allow-scripts; ${policy}` } });
+            expect(buildError({ 'manifest.json': sandboxed("script-src 'unsafe-inline' 'strict-dynamic'"), 'assets/s.html': '<script>x()</script>' }))
+                .toContain('assets/s.html line 1: inline <script>: the sandbox CSP blocks inline script');
+            expect(buildError({ 'manifest.json': sandboxed("script-src 'self' 'strict-dynamic'"), 'assets/s.html': '<script src="s.js"></script>', 'assets/s.js': 'console.log(1);\n' }))
+                .toContain("assets/s.html loads assets/s.js, which the sandbox CSP blocks (script-src has 'strict-dynamic', so a <script> in the markup needs a matching nonce)");
+            writeFixture(root, fixtureFiles({ 'manifest.json': sandboxed("script-src 'nonce-Ab9' 'strict-dynamic'"),
+                'assets/s.html': '<script type="module" nonce="Ab9" src="s.js"></script>', 'assets/s.js': "import './t.js';\n", 'assets/t.js': 'export const t = 1;\n' }));
+            expect(() => buildPackage({ root, outDir: out })).not.toThrow();
+        });
+
+        test('an insecure source with port 80 also matches the upgraded scheme on 443', () => {
+            const csp = parseCsp('img-src http://cdn.example:80; connect-src ws://socket.example:80');
+            expect(cspAllows(csp, 'img-src', 'https://cdn.example/image.png')).toBe(true);
+            expect(cspAllows(csp, 'img-src', 'http://cdn.example/image.png')).toBe(true);
+            expect(cspAllows(csp, 'img-src', 'https://cdn.example:8443/image.png')).toBe(false);
+            expect(cspAllows(csp, 'connect-src', 'wss://socket.example/s')).toBe(true);
+        });
+
+        test('Subresource Integrity metadata must match the served file, as Chrome parses it', () => {
+            const body = 'console.log(1);\n';
+            const digest = (algorithm, encoding = 'base64') => createHash(algorithm).update(body).digest(encoding);
+            const files = (integrity, tag = 'script') => ({ 'assets/i.js': body,
+                'popup.html': page(tag === 'script' ? `<script src="assets/i.js" integrity="${integrity}"></script>` : tag.replace('$', integrity)) });
+            expect(buildError(files('sha256-wrong'))).toContain('popup.html line 1: integrity="sha256-wrong" for assets/i.js doesn\'t match its sha256 digest, so Chrome refuses to load it');
+            // The strongest algorithm decides; an upper-case name is an unknown algorithm (ignored).
+            expect(buildError(files(`sha256-${digest('sha256')} sha384-${digest('sha256')}`))).toContain("doesn't match its sha384 digest");
+            expect(buildError(files(`SHA512-${digest('sha512')} sha256-wrong`))).toContain("doesn't match its sha256 digest");
+            expect(buildError(files(`ed25519-${digest('sha256')}`))).toContain('asks for an ed25519 signature');
+            const base64url = digest('sha512', 'base64url');
+            for (const ok of [`sha384-${digest('sha384')}`, `sha-256-${digest('sha256')}`, `sha256-x sha512-${base64url}?opt`,
+                `sha256-${digest('sha256').replace(/=+$/, '')}===`, 'md5-unknown', 'SHA256-wrong']) {
+                writeFixture(root, fixtureFiles(files(ok)));
+                expect(() => buildPackage({ root, outDir: out })).not.toThrow();
+            }
+            expect(buildError({ 'popup.html': page('<link rel="stylesheet" href="stylesheets/base.css" integrity="sha512-wrong">') }))
+                .toContain('integrity="sha512-wrong" for stylesheets/base.css doesn\'t match its sha512 digest');
+            // Loads Chrome never checks or never makes: preloads, nomodule classic scripts, modulepreload as=image.
+            for (const tag of ['<link rel="preload" as="script" href="assets/i.js" integrity="$">', '<script nomodule src="assets/i.js" integrity="$"></script>',
+                '<link rel="modulepreload" as="image" href="assets/i.js" integrity="$">']) {
+                writeFixture(root, fixtureFiles(files('sha256-wrong', tag)));
+                expect(() => buildPackage({ root, outDir: out })).not.toThrow();
+            }
+        });
+
+        test('stylesheet integrity is checked against the bytes Chrome serves (__MSG_@@extension_id__ filled in)', () => {
+            const id = extensionIdFromKey(MANIFEST.key);
+            const css = '.a::after { content: "__MSG_@@extension_id__"; }\n';
+            const served = createHash('sha256').update(css.replace('__MSG_@@extension_id__', id)).digest('base64');
+            writeFixture(root, fixtureFiles({ 'stylesheets/base.css': css, 'popup.html': page(`<link rel="stylesheet" href="stylesheets/base.css" integrity="sha256-${served}">`) }));
+            expect(() => buildPackage({ root, outDir: out })).not.toThrow();
+            expect(buildError({ 'stylesheets/base.css': '.a::after { content: "__MSG_@@ui_locale__"; }\n', 'popup.html': page('<link rel="stylesheet" href="stylesheets/base.css" integrity="sha256-x">') }))
+                .toContain("can't be pinned: Chrome fills in the file's locale-dependent __MSG_ placeholders");
         });
 
         test('content_security_policy must be the MV3 object form', () => {
