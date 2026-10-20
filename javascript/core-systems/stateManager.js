@@ -4,6 +4,7 @@
  */
 
 import { validateLink } from '../features/securityUtils.js';
+import { SYNC_RESOLVED_AT_KEY } from './storageFormat.js';
 
 // State validation schemas
 const stateSchemas = {
@@ -557,33 +558,92 @@ const REMOVED_FIELD_RESETS = {
 // Flag to prevent circular updates (our own write triggering onChanged)
 let isWritingToStorage = false;
 
+const storageAppliedListeners = new Set();
+
+/**
+ * Be told when storage values have been applied to the state.
+ * @param {(updates: Object, source: 'sync'|'reload') => void} listener
+ * @returns {Function} unsubscribe
+ */
+export function addStorageAppliedListener(listener) {
+    storageAppliedListeners.add(listener);
+    return () => storageAppliedListeners.delete(listener);
+}
+
+/**
+ * The one place stored values enter the page state: chrome.storage.onChanged
+ * (sync area) and reloadFromStorage() both go through here. `values` maps keys
+ * to values as stored (links/categories as JSON strings); undefined means the
+ * key was removed, which resets links/categories rather than keeping the old
+ * value — or this page's next save would re-upload it. Non-persistent keys
+ * are ignored.
+ * @param {Object} values
+ * @param {{ source?: 'sync'|'reload' }} [options]
+ * @returns {Object} the updates applied
+ */
+export function applyStorageValues(values, { source = 'sync' } = {}) {
+    const updates = {};
+    for (const [key, value] of Object.entries(values)) {
+        if (value === undefined) {
+            if (Object.prototype.hasOwnProperty.call(REMOVED_FIELD_RESETS, key)) {
+                updates[key] = REMOVED_FIELD_RESETS[key]();
+            }
+        } else if (PERSISTENT_FIELDS.includes(key)) {
+            // Array fields (links, categories) may be stored as JSON strings.
+            if (JSON_ENCODED_FIELDS.includes(key) && typeof value === 'string') {
+                try { updates[key] = JSON.parse(value); } catch { /* skip corrupt */ }
+            } else {
+                updates[key] = value;
+            }
+        }
+    }
+
+    if (Object.keys(updates).length > 0) {
+        updateState(updates, { validate: false, skipPersistence: true });
+        storageAppliedListeners.forEach(listener => {
+            try {
+                listener(updates, source);
+            } catch (error) {
+                console.error('Storage-applied listener failed:', error);
+            }
+        });
+    }
+    return updates;
+}
+
+/**
+ * Re-read what the page should show, the way loadLinks does (sync, or local
+ * when sync holds nothing), and apply it. Runs in every open page after a
+ * manual sync or clear (SYNC_RESOLVED_AT_KEY): when the cloud won there was
+ * no sync write, so no sync-area onChanged reaches pages that still hold
+ * discarded data.
+ */
+export async function reloadFromStorage() {
+    let data = await chrome.storage.sync.get(PERSISTENT_FIELDS);
+    if (Object.keys(data).length === 0) {
+        data = await chrome.storage.local.get(PERSISTENT_FIELDS);
+    }
+    const values = { links: data.links, categories: data.categories };
+    for (const key of PERSISTENT_FIELDS) {
+        if (data[key] !== undefined) values[key] = data[key];
+    }
+    return applyStorageValues(values, { source: 'reload' });
+}
+
 /**
  * Listen for chrome.storage changes from other tabs/contexts.
  * Updates the stateManager singleton when storage changes externally.
  */
 if (typeof chrome !== 'undefined' && chrome.storage?.onChanged) {
     chrome.storage.onChanged.addListener((changes, areaName) => {
-        if (areaName !== 'sync' || isWritingToStorage) return;
-
-        const updates = {};
-        for (const [key, { newValue }] of Object.entries(changes)) {
-            if (newValue === undefined && Object.prototype.hasOwnProperty.call(REMOVED_FIELD_RESETS, key)) {
-                // Removed from sync (e.g. cleared): reset rather than keep the
-                // old value, or this tab's next save would re-upload it.
-                updates[key] = REMOVED_FIELD_RESETS[key]();
-            } else if (PERSISTENT_FIELDS.includes(key) && newValue !== undefined) {
-                // Array fields (links, categories) may be stored as JSON strings.
-                if (JSON_ENCODED_FIELDS.includes(key) && typeof newValue === 'string') {
-                    try { updates[key] = JSON.parse(newValue); } catch { /* skip corrupt */ }
-                } else {
-                    updates[key] = newValue;
-                }
+        if (areaName === 'local') {
+            if (changes[SYNC_RESOLVED_AT_KEY]?.newValue !== undefined) {
+                reloadFromStorage().catch(error => console.error('Failed to reload state after a sync:', error));
             }
+            return;
         }
-
-        if (Object.keys(updates).length > 0) {
-            updateState(updates, { validate: false, skipPersistence: true });
-        }
+        if (areaName !== 'sync' || isWritingToStorage) return;
+        applyStorageValues(Object.fromEntries(Object.entries(changes).map(([key, change]) => [key, change.newValue])));
     });
 }
 

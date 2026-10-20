@@ -38,10 +38,20 @@ export function parseStoredArray(value) {
  * now only while the cloud still holds that same value and hasn't been cleared
  * since — compared for equality, never as device clocks: if anything wrote the
  * field or cleared sync since (this device or another), the copy is superseded.
+ * (Markers written by builds before clearedAt was recorded — only unreleased
+ * builds of this change — therefore count as superseded: they are set aside,
+ * not lost.)
  */
 
 /** chrome.storage.sync key stamped by Clear sync data: identifies each clear. */
 export const SYNC_CLEARED_AT_KEY = 'syncClearedAt';
+
+/**
+ * chrome.storage.local key stamped after each successful manual sync or clear.
+ * Every open page re-reads storage when it changes (stateManager), since a
+ * sync where the cloud wins writes nothing to sync and fires no sync onChanged.
+ */
+export const SYNC_RESOLVED_AT_KEY = 'syncResolvedAt';
 export const PENDING_SYNC_PREFIX = 'pendingSyncSince.';
 
 /** Fields that can be pending: links, categories and the synced settings. */

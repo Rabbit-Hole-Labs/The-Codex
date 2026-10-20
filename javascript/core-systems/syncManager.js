@@ -2,7 +2,7 @@
 // Handles conflict resolution, versioning, and improved sync strategies
 
 import { debug, debugWarn, debugError } from './debug.js';
-import { parseStoredArray, pendingSyncKey, PENDING_SYNC_FIELDS, SYNC_CLEARED_AT_KEY } from './storageFormat.js';
+import { parseStoredArray, pendingSyncKey, PENDING_SYNC_FIELDS, SYNC_CLEARED_AT_KEY, SYNC_RESOLVED_AT_KEY } from './storageFormat.js';
 
 // Confirm-dialog text for the destructive manual sync actions, shared by the
 // new-tab pill and the manage page's Sync tab so both describe the same thing.
@@ -66,6 +66,11 @@ function sameStoredValue(a, b) {
     return JSON.stringify(canonical(a)) === JSON.stringify(canonical(b));
 }
 
+// A backup's data, without when/why/whether-downloaded, for comparing copies.
+function backupContent({ exportDate, reason, downloaded, ...content }) {
+    return content;
+}
+
 // Whether the cloud still holds the value a pending-sync marker recorded.
 // A marker without a readable recorded value can't tell, so it never matches.
 function markerMatchesCloud(marker, cloudValue) {
@@ -81,13 +86,16 @@ const isLinkEntry = (link) => link !== null && typeof link === 'object';
 const sameLink = (a, b) => (a.id != null && a.id === b.id) || a.url === b.url;
 
 // How many of this device's entries for `field` the cloud lacks: links with
-// no cloud link of the same id or URL, categories the cloud doesn't list, or
-// a setting whose value differs.
+// no cloud link of the same id or URL, or whose cloud counterpart differs
+// (e.g. a category move); categories the cloud doesn't list; a setting whose
+// value differs.
 function entriesCloudLacks(local, cloud, field) {
     if (field === 'links') {
         const cloudLinks = (parseStoredArray(cloud.links) ?? []).filter(isLinkEntry);
-        return (parseStoredArray(local.links) ?? []).filter(isLinkEntry)
-            .filter(link => !cloudLinks.some(other => sameLink(link, other))).length;
+        return (parseStoredArray(local.links) ?? []).filter(isLinkEntry).filter(link => {
+            const counterpart = cloudLinks.find(other => sameLink(link, other));
+            return !counterpart || !sameStoredValue(link, counterpart);
+        }).length;
     }
     if (field === 'categories') {
         const cloudCategories = new Set(parseStoredArray(cloud.categories) ?? ['Default']);
@@ -101,7 +109,7 @@ const SET_ASIDE_CAUSES = {
     superseded: 'replaced by newer changes in the cloud',
     forcePull: 'replaced by Force pull',
     cleared: 'not uploaded because the cloud was cleared',
-    ambiguous: 'not uploaded because the cloud is empty and this device has synced before'
+    ambiguous: 'not uploaded because the cloud is empty and may have been cleared by an older version'
 };
 
 // "2 links and the theme setting saved only on this device were …"
@@ -512,31 +520,25 @@ export class SyncManager {
                 debugWarn('Failed to update sync metadata:', metadataResult.error);
             }
 
-            // Update last sync time
+            // Update last sync time, and tell every open page to reload what
+            // storage holds now (stateManager): when the cloud won there was no
+            // sync write, so no sync onChanged reaches pages still holding
+            // discarded local data.
             this.lastSyncTime = Date.now();
-            await chrome.storage.local.set({ lastSyncTime: this.lastSyncTime });
+            await chrome.storage.local.set({ lastSyncTime: this.lastSyncTime, [SYNC_RESOLVED_AT_KEY]: Date.now() });
 
-            const lists = {
-                links: parseStoredArray(resolvedData.links) ?? [],
-                categories: parseStoredArray(resolvedData.categories) ?? ['Default']
-            };
-            const syncedItemsCount = lists.links.length;
+            const syncedItemsCount = (parseStoredArray(resolvedData.links) ?? []).length;
             const warning = resolution.setAside
                 ? `${resolution.setAside.reason} A copy was saved on this device and downloaded as a `
                     + 'backup file (restore it with Import on the Manage page).'
                 : undefined;
 
-            // `lists` is what this device now shows. When the cloud won there was
-            // no sync write, so no onChanged reaches open pages: listeners apply
-            // it to page state, or a page that loaded discarded local data would
-            // upload it again with its next edit.
             this.notifyListeners('syncComplete', {
                 time: this.lastSyncTime,
                 itemsSynced: syncedItemsCount,
                 strategy: strategy,
                 metadata: metadata,
-                warning,
-                lists
+                warning
             });
 
             debug(`Sync completed successfully. Synced ${syncedItemsCount} items.`);
@@ -734,32 +736,45 @@ export class SyncManager {
         };
     }
 
-    // Keep local entries a sync is about to drop without uploading, before
-    // anything is replaced: stored in chrome.storage.local[SYNC_SET_ASIDE_KEY]
-    // and downloaded as a backup file. The copy is importable: the kept data
-    // plus this device's entries for the set-aside fields (a union, so nothing
-    // from either side is lost). Throws if either step fails, so nothing is
-    // replaced without a copy the user can restore.
-    async storeSetAside({ fields, reason }, { local, cloud, metadata }, kept) {
+    // An importable copy of the kept data plus this device's values for the
+    // set-aside fields: a union of the lists in which this device's version of
+    // a link wins (so a superseded edit survives), plus its set-aside settings.
+    setAsideCopy({ fields }, { local, cloud, metadata }, kept) {
         const union = this.mergeData(
             pick(local, ['links', 'categories'].filter(field => fields.includes(field))),
-            kept, metadata, { preferRemote: true }
+            kept, metadata, { preferRemote: false }
         );
-        const backup = {
+        return {
             links: (parseStoredArray(union.links) ?? []).filter(isLinkEntry),
             categories: parseStoredArray(union.categories) ?? ['Default'],
             ...pick(cloud, SETTINGS_KEYS),
-            ...pick(local, SETTINGS_KEYS.filter(key => fields.includes(key))),
-            exportDate: new Date().toISOString(),
-            reason
+            ...pick(local, SETTINGS_KEYS.filter(key => fields.includes(key)))
         };
-        try {
-            await this.storeBackup(backup, { key: SYNC_SET_ASIDE_KEY, previousKey: SYNC_PREVIOUS_SET_ASIDE_KEY });
-        } catch (error) {
-            throw new Error(`Could not back up this device's local changes, so they were not replaced (${error.message}).`);
+    }
+
+    // Keep local entries a sync is about to drop without uploading, before
+    // anything is replaced: downloaded as a backup file, then stored in
+    // chrome.storage.local[SYNC_SET_ASIDE_KEY]. Throws if either step fails,
+    // so nothing is replaced without a copy the user can restore. A retry
+    // with the same content (already downloaded and stored) does neither again.
+    async storeSetAside(setAside, inputs, kept) {
+        const backup = {
+            ...this.setAsideCopy(setAside, inputs, kept),
+            exportDate: new Date().toISOString(),
+            reason: setAside.reason
+        };
+        const { [SYNC_SET_ASIDE_KEY]: latest } = await chrome.storage.local.get(SYNC_SET_ASIDE_KEY);
+        if (latest?.downloaded && sameStoredValue(backupContent(latest), backupContent(backup))) {
+            debug('Set-aside copy unchanged and already downloaded');
+            return;
         }
         if (!this.downloadBackupFile(backup)) {
             throw new Error('Could not download a backup of this device\'s local changes, so they were not replaced.');
+        }
+        try {
+            await this.storeBackup({ ...backup, downloaded: true }, { key: SYNC_SET_ASIDE_KEY, previousKey: SYNC_PREVIOUS_SET_ASIDE_KEY });
+        } catch (error) {
+            throw new Error(`Could not back up this device's local changes, so they were not replaced (${error.message}).`);
         }
     }
 
@@ -790,8 +805,10 @@ export class SyncManager {
     // can't rotate the older one out.
     async storeBackup(backup, { key = SYNC_BACKUP_KEY, previousKey = SYNC_PREVIOUS_BACKUP_KEY } = {}) {
         const { [key]: previous } = await chrome.storage.local.get(key);
-        const content = ({ exportDate, reason, ...rest }) => rest;
-        if (previous && sameStoredValue(content(previous), content(backup))) {
+        if (previous && sameStoredValue(backupContent(previous), backupContent(backup))) {
+            if (backup.downloaded && !previous.downloaded) {
+                await chrome.storage.local.set({ [key]: { ...previous, downloaded: true } });
+            }
             debug('Backup unchanged; keeping the stored ones');
             return;
         }
@@ -1174,16 +1191,23 @@ export class SyncManager {
             return true;
         }
 
-        const { data, syncItems } = this.resolveSyncData(inputs, { strategy: 'remote' });
+        // What Sync now would keep, plus anything it would set aside, so
+        // Import restores everything the clear removes.
+        const { data, syncItems, setAside } = this.resolveSyncData(inputs, { strategy: 'remote' });
+        const kept = setAside
+            ? this.setAsideCopy(setAside, inputs, data)
+            : {
+                links: parseStoredArray(data.links) ?? [],
+                categories: parseStoredArray(data.categories) ?? ['Default'],
+                ...pick(cloud, SETTINGS_KEYS)
+            };
         const copyOf = (source) => ({
             links: parseStoredArray(source.links) ?? [],
             categories: parseStoredArray(source.categories) ?? [],
             ...pick(source, SETTINGS_KEYS)
         });
         const backup = {
-            links: parseStoredArray(data.links) ?? [],
-            categories: parseStoredArray(data.categories) ?? ['Default'],
-            ...pick(cloud, SETTINGS_KEYS),
+            ...kept,
             ...pick(syncItems, SETTINGS_KEYS),
             exportDate: new Date().toISOString(),
             cloudCopy: copyOf(cloud),
@@ -1253,6 +1277,9 @@ export class SyncManager {
                 'syncMetadata', 'lastSyncTime', 'links', 'categories',
                 ...SETTINGS_KEYS, ...PENDING_SYNC_FIELDS.map(pendingSyncKey)
             ]);
+            // Every open page reloads from storage (stateManager), including
+            // one that missed the storage events (e.g. mid-write).
+            await chrome.storage.local.set({ [SYNC_RESOLVED_AT_KEY]: Date.now() });
             this.lastSyncTime = null;
             this.notifyListeners('syncCleared', { time: Date.now() });
             return { success: true };
