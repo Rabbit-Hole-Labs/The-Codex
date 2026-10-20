@@ -12,9 +12,12 @@
  *   (url()/@import/image-set) must be in the package, or the build fails.
  *   Every packaged page, module and stylesheet is checked, reached or not;
  *   packaged files nothing reaches from manifest.json are reported as warnings.
- * - Manifest check: MV3, a Chrome-valid string version, name <= 75 and
- *   description <= 132 characters (the Web Store's limit). Manifest keys the
- *   packager doesn't understand fail the build instead of being skipped.
+ * - Manifest check: MV3 (no MV2-only background.scripts/page or *_action), a
+ *   Chrome-valid string version, name <= 75 and description <= 132 characters
+ *   (the Web Store's limit). Manifest keys the packager doesn't understand fail
+ *   the build instead of being skipped. import() anywhere in the background
+ *   service worker's module graph fails too: extension workers can't run it.
+ * - The output directory may not sit inside a packaged directory.
  * - Deterministic: sorted entries and fixed timestamps. Rebuilding with the
  *   same Node/zlib build gives a byte-identical zip; across machines compare
  *   the printed content digest (per-file SHA-256s), which ignores zlib. Text
@@ -30,7 +33,7 @@
  */
 import { appendFileSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, writeFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
-import { dirname, join, posix, resolve } from 'node:path';
+import { basename, dirname, join, posix, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import vm from 'node:vm';
@@ -130,6 +133,15 @@ export function validateManifest(manifest) {
     }
     if ('icons' in manifest && (typeof manifest.icons !== 'object' || manifest.icons === null || Array.isArray(manifest.icons))) {
         errors.push('icons must be an object of size -> path');
+    }
+    if (manifest.manifest_version === 3) {
+        const background = manifest.background && typeof manifest.background === 'object' ? manifest.background : {};
+        for (const field of ['scripts', 'page']) {
+            if (field in background) errors.push(`background.${field} is MV2-only; MV3 uses background.service_worker`);
+        }
+        for (const key of ['browser_action', 'page_action']) {
+            if (key in manifest) errors.push(`${key} is MV2-only; MV3 uses action`);
+        }
     }
     if (manifest.background?.service_worker && manifest.background.type !== 'module') {
         errors.push('background.type must be "module": the packager checks JS files as ES modules');
@@ -254,6 +266,33 @@ function stripHtmlComments(html) {
     return out;
 }
 
+/**
+ * Candidate URLs of a srcset, following the HTML parsing rules: a URL runs to
+ * the next whitespace (so a data: URL's comma stays inside it), trailing commas
+ * end a URL, and descriptors run to the next comma outside parentheses.
+ */
+export function srcsetUrls(value) {
+    const urls = [];
+    let i = 0;
+    while (i < value.length) {
+        while (i < value.length && /[\s,]/.test(value[i])) i++;
+        const start = i;
+        while (i < value.length && !/\s/.test(value[i])) i++;
+        let url = value.slice(start, i);
+        if (url.endsWith(',')) {
+            url = url.replace(/,+$/, '');
+        } else {
+            let depth = 0;
+            for (; i < value.length && !(value[i] === ',' && depth === 0); i++) {
+                if (value[i] === '(') depth++;
+                else if (value[i] === ')') depth = Math.max(0, depth - 1);
+            }
+        }
+        if (url) urls.push(url);
+    }
+    return urls;
+}
+
 function htmlRefs(html) {
     const refs = [];
     const text = stripHtmlComments(html);
@@ -264,12 +303,7 @@ function htmlRefs(html) {
         if (/^data\s*=/i.test(m[0]) && !/^<object\b/i.test(text.slice(tagStart))) continue;
         refs.push(decodeEntities(m[1] ?? m[2] ?? m[3]));
     }
-    for (const m of text.matchAll(attr('srcset'))) {
-        for (const candidate of decodeEntities(m[1] ?? m[2] ?? m[3]).split(',')) {
-            const url = candidate.trim().split(/\s+/)[0];
-            if (url) refs.push(url);
-        }
-    }
+    for (const m of text.matchAll(attr('srcset'))) refs.push(...srcsetUrls(decodeEntities(m[1] ?? m[2] ?? m[3])));
     for (const m of text.matchAll(/<style\b[^>]*>([\s\S]*?)<\/style>/gi)) refs.push(...cssRefs(m[1]));
     for (const m of text.matchAll(attr('style'))) refs.push(...cssRefs(decodeEntities(m[1] ?? m[2] ?? m[3])));
     return refs;
@@ -313,11 +347,13 @@ function dynamicImports(file, source) {
 
 /**
  * Local references made by one packaged file.
- * @returns {{ refs: string[], errors: string[] }} refs are root-relative paths
+ * @returns {{ refs: string[], errors: string[], dynamicImports: number }} refs are
+ *   root-relative paths; dynamicImports counts import() calls (literal or not)
  */
 export function extractRefs(file, text) {
     const refs = [];
     const errors = [];
+    let dynamicImportCount = 0;
     const add = (ref) => {
         const resolved = resolveRef(file, ref);
         if (resolved) refs.push(resolved);
@@ -327,6 +363,7 @@ export function extractRefs(file, text) {
     } else if (file.endsWith('.js') || file.endsWith('.mjs')) {
         const dynamic = dynamicImports(file, text);
         errors.push(...dynamic.errors);
+        dynamicImportCount = dynamic.specifiers.length + dynamic.errors.length;
         for (const specifier of [...staticImports(file, text), ...dynamic.specifiers]) {
             if (specifier.startsWith('.') || specifier.startsWith('/')) {
                 add(specifier);
@@ -337,7 +374,7 @@ export function extractRefs(file, text) {
     } else if (file.endsWith('.css')) {
         cssRefs(text).forEach(add);
     }
-    return { refs, errors };
+    return { refs, errors, dynamicImports: dynamicImportCount };
 }
 
 /**
@@ -349,6 +386,7 @@ export function checkReferences(root, files, manifest) {
     const packaged = new Set(files);
     const errors = [];
     const edges = new Map([['manifest.json', []]]);
+    const usesDynamicImport = new Set();
     const note = (from, ref) => {
         if (packaged.has(ref)) {
             edges.get(from).push(ref);
@@ -377,7 +415,27 @@ export function checkReferences(root, files, manifest) {
             continue;
         }
         errors.push(...result.errors);
+        if (result.dynamicImports > 0) usesDynamicImport.add(file);
         for (const ref of result.refs) note(file, ref);
+    }
+    // Extension service workers don't support import(); check the worker's whole module graph.
+    const worker = typeof manifest.background?.service_worker === 'string'
+        ? posix.normalize(manifest.background.service_worker.replace(/^\//, ''))
+        : null;
+    if (worker && edges.has(worker)) {
+        const graph = new Set([worker]);
+        const pending = [worker];
+        while (pending.length) {
+            for (const next of edges.get(pending.shift()) || []) {
+                if (!graph.has(next)) {
+                    graph.add(next);
+                    pending.push(next);
+                }
+            }
+        }
+        for (const file of [...graph].filter((f) => usesDynamicImport.has(f)).sort()) {
+            errors.push(`${file} uses import(), which the extension service worker (${worker}) can't run; use a static import`);
+        }
     }
     const reached = new Set(['manifest.json']);
     const queue = ['manifest.json'];
@@ -492,6 +550,19 @@ export function contentDigest(entries) {
 
 // --- Build -------------------------------------------------------------------
 
+/** realpath of a path that may not exist yet (resolves its nearest existing ancestor). */
+function realpathLoose(path) {
+    let existing = resolve(path);
+    const rest = [];
+    while (!existsSync(existing)) {
+        const parent = dirname(existing);
+        if (parent === existing) break;
+        rest.unshift(basename(existing));
+        existing = parent;
+    }
+    return join(realpathSync(existing), ...rest);
+}
+
 /**
  * Builds the package. Throws with every problem listed if validation fails.
  * @returns {{ zipPath, zipName, version, files, warnings, bytes, sha256, contentSha256 }}
@@ -506,6 +577,15 @@ export function buildPackage({ root, outDir = join(root, 'dist'), stripKey = fal
         manifest = JSON.parse(manifestBytes.toString('utf8'));
     } catch (error) {
         throw new Error(`manifest.json is not valid JSON (the Web Store rejects comments): ${error.message}`);
+    }
+    const realOut = realpathLoose(outDir);
+    for (const entry of PACKAGE_ROOTS) {
+        const packaged = join(root, entry);
+        if (!existsSync(packaged)) continue;
+        const realPackaged = realpathSync(packaged);
+        if (realOut === realPackaged || realOut.startsWith(realPackaged + sep)) {
+            throw new Error(`Output directory ${outDir} is inside the packaged "${entry}"; the zip would package itself on the next build`);
+        }
     }
     const files = collectFiles(root);
     const problems = validateManifest(manifest);

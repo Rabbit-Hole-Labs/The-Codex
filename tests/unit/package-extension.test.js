@@ -15,6 +15,7 @@ import {
     contentDigest,
     crc32,
     createZip,
+    srcsetUrls,
     validateManifest
 } from '../../scripts/package-extension.js';
 
@@ -396,6 +397,47 @@ describe('package-extension', () => {
         delete manifest.key;
         writeFixture(root, fixtureFiles({ 'manifest.json': JSON.stringify(manifest) }));
         expect(buildPackage({ root, outDir: out, stripKey: true }).zipName).toBe('the-codex-1.2.3.4.zip');
+    });
+
+    test('srcset: a data: URL keeps its comma; other candidates are still checked', () => {
+        expect(srcsetUrls('data:image/png;base64,AAAA 1x, assets/two.png 2x')).toEqual(['data:image/png;base64,AAAA', 'assets/two.png']);
+        expect(srcsetUrls('a.png, b.png 2x , c.png (min-width: 1px, x) 3x')).toEqual(['a.png', 'b.png', 'c.png']);
+        // Per the HTML rules a URL runs to whitespace, so 'a.png,b.png' is one URL; trailing commas end it.
+        expect(srcsetUrls('a.png,b.png 2x')).toEqual(['a.png,b.png']);
+        expect(srcsetUrls('a.png, b.png,')).toEqual(['a.png', 'b.png']);
+        writeFixture(root, fixtureFiles({
+            'popup.html': '<img srcset="data:image/png;base64,AAAA 1x, assets/icons/icon128.png 2x">' +
+                '<script type="module" src="javascript/entry-points/popup.js"></script>'
+        }));
+        expect(() => buildPackage({ root, outDir: out })).not.toThrow();
+        expect(buildError({
+            'popup.html': '<img srcset="data:image/png;base64,AAAA 1x, assets/gone.png 2x">' +
+                '<script type="module" src="javascript/entry-points/popup.js"></script>'
+        })).toContain('popup.html references assets/gone.png');
+    });
+
+    test('an output directory inside a packaged directory is refused', () => {
+        writeFixture(root, fixtureFiles());
+        expect(() => buildPackage({ root, outDir: join(root, 'assets/build') }))
+            .toThrow('is inside the packaged "assets"');
+        expect(() => buildPackage({ root, outDir: join(root, 'javascript') })).toThrow('is inside the packaged "javascript"');
+        expect(() => buildPackage({ root, outDir: join(root, 'release') })).not.toThrow();
+    });
+
+    test('MV2-only background and action fields are rejected in an MV3 manifest', () => {
+        expect(validateManifest({ ...MANIFEST, background: { ...MANIFEST.background, scripts: ['a.js'] } }))
+            .toEqual(['background.scripts is MV2-only; MV3 uses background.service_worker']);
+        expect(validateManifest({ ...MANIFEST, background: { ...MANIFEST.background, page: 'bg.html' } }))
+            .toEqual(['background.page is MV2-only; MV3 uses background.service_worker']);
+        expect(validateManifest({ ...MANIFEST, browser_action: {} })).toEqual(['browser_action is MV2-only; MV3 uses action']);
+    });
+
+    test("import() anywhere in the service worker's module graph fails; pages may use it", () => {
+        expect(buildError({ 'javascript/features/a.js': "export const a = 1;\nexport const load = () => import('./lazy.js');\n" }))
+            .toContain("javascript/features/a.js uses import(), which the extension service worker (javascript/background/sw.js) can't run");
+        // fixture script.js (page-only) already uses import('../features/lazy.js')
+        writeFixture(root, fixtureFiles());
+        expect(() => buildPackage({ root, outDir: out })).not.toThrow();
     });
 
     test('createZip adds parent directories once and keeps names sorted', () => {
