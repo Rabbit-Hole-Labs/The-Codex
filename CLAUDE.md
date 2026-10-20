@@ -31,6 +31,10 @@ npm run test:coverage    # Generate coverage report
 npm run lint             # Run ESLint (CI gate: must exit 0)
 npm run lint:fix         # Auto-fix lint issues
 
+# Package (store upload zip; CI builds it on every PR and push to main as an artifact)
+npm run package          # -> dist/the-codex-<version>.zip (key kept)
+npm run package -- --strip-key  # same, without the manifest key (-nokey.zip)
+
 # Load extension in Chrome
 # 1. Open chrome://extensions/
 # 2. Enable Developer mode
@@ -127,7 +131,7 @@ javascript/
 ## Chrome Extension Specifics
 
 - **Manifest V3** with service worker background scripts ([manifest.json](manifest.json))
-- **`key`**: manifest `key` pins the extension ID to the published Web Store ID (`dimphibhkgnildpnlapckpgnonmaiddj`). Do NOT remove or change it — a stable ID is what lets an unpacked/dev build share the same `chrome.storage.sync` data as the published extension (and across devices). Without it, an unpacked build gets a per-machine ID and its data is isolated.
+- **`key`**: manifest `key` pins the extension ID to the published Web Store ID (`dimphibhkgnildpnlapckpgnonmaiddj`). Do NOT remove or change it — a stable ID is what lets an unpacked/dev build share the same `chrome.storage.sync` data as the published extension (and across devices). Without it, an unpacked build gets a per-machine ID and its data is isolated. `npm run package` keeps `key` in the zip by default for the same reason (an unpacked load of the CI artifact shares the published ID); `--strip-key` builds a copy without it if the store ever rejects the field.
 - **Versioning**: bump the `manifest.json` `version` build component (the 4th number in `7.0.0.X`) in **every PR**, so a tester can tell from `edge://extensions` which build they're running.
 - **Permissions**: storage, bookmarks, activeTab
 - **CSP**: `script-src 'self'; object-src 'none'; base-uri 'none'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdnjs.cloudflare.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https://cdn.jsdelivr.net https://selfh.st https://*.selfh.st https://www.google.com https://*.gstatic.com; connect-src 'self' https://cdn.jsdelivr.net https://*.selfh.st https://data.jsdelivr.com;` — no `img-src` wildcard: tile icons come from the [selfh.st/icons](https://selfh.st/icons) library (via jsDelivr) matched by app name, with the Google favicon proxy as fallback (served from `*.gstatic.com`); custom icons must be `data:` URIs or selfh.st/jsDelivr URLs (`*.selfh.st` covers `cdn.selfh.st`, which the code allowlist accepted but the CSP previously blocked)

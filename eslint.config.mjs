@@ -11,6 +11,7 @@ export default defineConfig([
       ".ds-sync/**",
       "coverage/**",
       "design-kit/dist/**",
+      "dist/**",
       "node_modules/**"
     ]
   },
@@ -61,7 +62,7 @@ export default defineConfig([
   },
   // Node tooling
   {
-    files: ["*.{js,mjs,cjs}", "design-kit/*.mjs"],
+    files: ["*.{js,mjs,cjs}", "design-kit/*.mjs", "scripts/**/*.js"],
     languageOptions: {
       globals: globals.node
     }

@@ -36,6 +36,7 @@ tests/
 │   ├── link-management.test.js
 │   ├── link-mutations.test.js
 │   ├── load-no-clobber.test.js
+│   ├── package-extension.test.js   # scripts/package-extension.js (store zip build + reference check)
 │   ├── security-fixes.test.js
 │   ├── security-utils.test.js
 │   ├── state-management.test.js

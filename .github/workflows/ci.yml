@@ -33,6 +33,39 @@ jobs:
       - run: npm run lint
       - run: npm test -- --ci --coverage
 
+  package:
+    # Builds the upload zip (dist/the-codex-<version>.zip) from this commit and
+    # attaches it to the run, so every PR and main commit has a downloadable,
+    # loadable build. The script validates the manifest and every file reference.
+    name: Build extension package
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+
+      # Node built-ins only, so no npm ci is needed.
+      - name: Build package
+        id: package
+        run: npm run package
+
+      - name: Test the archive with Info-ZIP
+        env:
+          ZIP_PATH: ${{ steps.package.outputs.zip-path }}
+        run: unzip -t "$ZIP_PATH"
+
+      # archive: false uploads the zip itself, so the download is the
+      # store-ready file rather than a zip wrapped in another zip.
+      - uses: actions/upload-artifact@v7
+        with:
+          path: ${{ steps.package.outputs.zip-path }}
+          archive: false
+          if-no-files-found: error
+
   manifest-version:
     # Every PR must bump manifest.json "version" (normally the 4th component)
     # above the base branch's, so a tester can tell from chrome://extensions
