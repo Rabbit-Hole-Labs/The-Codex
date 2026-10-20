@@ -22,24 +22,53 @@ async function cloudBeforeSave(fields) {
     }
 }
 
+// Ids of the pending-sync markers this page wrote (field -> id). Each page
+// (module instance) knows only its own: a later successful save from this page
+// supersedes them, but must not discard another page's pending edit.
+const knownMarkerIds = new Map();
+
 // Pending-sync markers for fields a save could only write to local storage
-// (see storageFormat.js); SyncManager pushes them on the next Sync now.
+// (see storageFormat.js); SyncManager pushes them on the next Sync now. Each
+// gets a random id: two pages can fall back in the same millisecond.
 function pendingSyncMarkers(fields, cloud) {
     const markers = {};
     for (const field of fields) {
+        const id = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
         markers[pendingSyncKey(field)] = cloud
-            ? { since: Date.now(), cloud: cloudValueFingerprint(cloud[field]), clearedAt: cloud[SYNC_CLEARED_AT_KEY] ?? null }
-            : { since: Date.now() };
+            ? { id, since: Date.now(), cloud: cloudValueFingerprint(cloud[field]), clearedAt: cloud[SYNC_CLEARED_AT_KEY] ?? null }
+            : { id, since: Date.now() };
     }
     return markers;
 }
 
-// A field that reached sync is no longer pending. For settings, also drop the
-// local copy a failed save left behind: it is stale now, and a later Force
-// push must not upload it over this newer value.
+// Write a save's fallback (its value plus markers) under the pending-sync
+// lock, and remember the markers as this page's own.
+async function writeFallback(values, fields, cloudBefore) {
+    const markers = pendingSyncMarkers(fields, cloudBefore);
+    await withPendingSyncLock(() => chrome.storage.local.set({ ...values, ...markers }));
+    for (const field of fields) knownMarkerIds.set(field, markers[pendingSyncKey(field)].id);
+}
+
+// A field that reached sync is no longer pending — as far as this page's own
+// fallback saves go. A marker another page wrote (or one from before this page
+// loaded) stays: this save didn't include that edit, and the next Sync now
+// finds the marker superseded and sets the edit aside instead of losing it.
+// For settings, a local copy left by a failed save is dropped with its marker
+// (or when unmarked: stale), so a later Force push can't upload it over this
+// newer value. Read, compare and remove happen under the pending-sync lock.
 async function clearPendingSync(fields, { localCopies = false } = {}) {
     try {
-        await chrome.storage.local.remove([...fields.map(pendingSyncKey), ...(localCopies ? fields : [])]);
+        await withPendingSyncLock(async () => {
+            const markers = await chrome.storage.local.get(fields.map(pendingSyncKey));
+            const settled = fields.filter(field => {
+                const marker = markers[pendingSyncKey(field)];
+                return !marker || (marker.id !== undefined && marker.id === knownMarkerIds.get(field));
+            });
+            settled.forEach(field => knownMarkerIds.delete(field));
+            if (settled.length > 0) {
+                await chrome.storage.local.remove([...settled.map(pendingSyncKey), ...(localCopies ? settled : [])]);
+            }
+        });
     } catch (error) {
         debugWarn('Failed to clear pending-sync markers', { errorMessage: error.message });
     }
@@ -265,7 +294,7 @@ export async function saveLinks(links) {
             
             // Fallback to local storage
             try {
-                await withPendingSyncLock(() => chrome.storage.local.set({ links: linksString, ...pendingSyncMarkers(['links'], cloudBefore) }));
+                await writeFallback({ links: linksString }, ['links'], cloudBefore);
                 debug('Successfully saved to local storage as fallback');
             } catch (localError) {
                 const storageError = new CodexError(
@@ -335,7 +364,7 @@ export async function saveSettings(settings) {
             });
             
             try {
-                await withPendingSyncLock(() => chrome.storage.local.set({ ...dataToSave, ...pendingSyncMarkers(Object.keys(dataToSave), cloudBefore) }));
+                await writeFallback(dataToSave, Object.keys(dataToSave), cloudBefore);
                 debug('Successfully saved settings to local storage as fallback');
             } catch (localError) {
                 const storageError = new CodexError(
@@ -548,7 +577,7 @@ export async function saveCategories(categories) {
             
             // Fallback to local storage
             try {
-                await withPendingSyncLock(() => chrome.storage.local.set({ categories: categoriesString, ...pendingSyncMarkers(['categories'], cloudBefore) }));
+                await writeFallback({ categories: categoriesString }, ['categories'], cloudBefore);
                 debug('Successfully saved to local storage as fallback');
             } catch (localError) {
                 const storageError = new CodexError(

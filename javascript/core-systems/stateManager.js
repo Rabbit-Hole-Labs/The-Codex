@@ -612,24 +612,23 @@ export function applyStorageValues(values, { source = 'sync' } = {}) {
 }
 
 /**
- * Re-read what the page should show, the way loadLinks does (sync, or local
- * when sync holds nothing), and apply it. Runs in every open page after a
- * manual sync or clear (SYNC_RESOLVED_AT_KEY): when the cloud won there was
- * no sync write, so no sync-area onChanged reaches pages that still hold
- * discarded data.
+ * Re-read what the page should show and apply it. Runs in every open page
+ * after a manual sync or clear (SYNC_RESOLVED_AT_KEY): when the cloud won there
+ * was no sync write, so no sync-area onChanged reaches pages that still hold
+ * discarded data. Each key comes from sync, or from chrome.storage.local when
+ * sync doesn't hold it (e.g. lists kept by a Force pull from a cloud that holds
+ * only settings, or emptied by a sync that set them aside) — never from the
+ * page's own copy. A setting neither holds shows its default, as on a fresh
+ * load; a list neither holds is emptied.
  */
 export async function reloadFromStorage() {
-    let data = await chrome.storage.sync.get(PERSISTENT_FIELDS);
-    if (Object.keys(data).length === 0) {
-        data = await chrome.storage.local.get(PERSISTENT_FIELDS);
-    }
-    // A missing setting shows its default, as on a fresh load: a page may
-    // still hold a value whose save only reached local storage. Lists storage
-    // doesn't hold are left as the page has them (e.g. after pulling a cloud
-    // that holds only settings, this device's lists are kept).
-    const values = { ...STORED_SETTING_DEFAULTS };
+    const [cloud, local] = await Promise.all([
+        chrome.storage.sync.get(PERSISTENT_FIELDS),
+        chrome.storage.local.get(PERSISTENT_FIELDS)
+    ]);
+    const values = {};
     for (const key of PERSISTENT_FIELDS) {
-        if (data[key] !== undefined) values[key] = data[key];
+        values[key] = cloud[key] ?? local[key] ?? STORED_SETTING_DEFAULTS[key];
     }
     return applyStorageValues(values, { source: 'reload' });
 }

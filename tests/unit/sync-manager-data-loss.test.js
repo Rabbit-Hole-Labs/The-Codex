@@ -1698,3 +1698,314 @@ describe('Regression: sync pill reflects manual sync failures', () => {
         expect(confirmSpy.mock.calls[0][0]).toMatch(/backup/i);
     });
 });
+
+// Several extension pages (separate module instances, via jest.resetModules)
+// on one chrome.storage fake, with an exclusive FIFO Web Locks polyfill shared
+// by all of them, as in Chrome. Gates on chrome.storage calls force the
+// interleavings. (Harness from the #48 review's v99 probes.)
+describe('Regression: pages, locks and the sync\'s local phase', () => {
+    const RATE = 'This request exceeds the MAX_WRITE_OPERATIONS_PER_MINUTE quota.';
+    const ids = (list) => (list ?? []).map((l) => (l && typeof l === 'object' ? l.id : l));
+    const parse = (v) => (v === undefined ? undefined : (typeof v === 'string' ? JSON.parse(v) : v));
+    const settle = async (n = 8) => { for (let i = 0; i < n; i++) await flushAsyncWork(); };
+    const keysOf = (k) => (Array.isArray(k) ? k : (typeof k === 'string' ? [k] : Object.keys(k ?? {})));
+    let fake;
+    let blobs;
+
+    const L = (key) => parse(fake.dump('local')[key]);
+    const C = (key) => parse(fake.dump('sync')[key]);
+    const markers = () => Object.fromEntries(Object.entries(fake.dump('local')).filter(([k]) => k.startsWith('pendingSyncSince.')));
+    const readBlob = (blob) => new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = reject;
+        reader.readAsText(blob);
+    });
+    const downloads = async () => Promise.all(blobs.map(async (b) => ids(JSON.parse(await readBlob(b)).links)));
+    const keptSomewhere = async (id) => ids(C('links')).includes(id) || ids(L('links')).includes(id)
+        || (await downloads()).some((d) => d.includes(id))
+        || ids(fake.dump('local').syncSetAside?.links).includes(id);
+
+    function installWebLocks() {
+        const tails = new Map();
+        const locks = {
+            request(name, ...rest) {
+                const callback = rest[rest.length - 1];
+                const prev = tails.get(name) ?? Promise.resolve();
+                let release;
+                const mine = new Promise((r) => { release = r; });
+                tails.set(name, prev.then(() => mine));
+                return prev.then(async () => {
+                    try {
+                        return await callback({ name, mode: 'exclusive' });
+                    } finally {
+                        release();
+                    }
+                });
+            }
+        };
+        Object.defineProperty(globalThis.navigator, 'locks', { value: locks, configurable: true });
+    }
+
+    // Pause the first call of chrome.storage[area][op] matching pred: 'before'
+    // the real call, or 'after' it completed.
+    function gate(area, op, pred, when = 'before') {
+        const real = chrome.storage[area][op];
+        let hit;
+        let open;
+        const reached = new Promise((r) => { hit = r; });
+        const opened = new Promise((r) => { open = r; });
+        let used = false;
+        chrome.storage[area][op] = async (...args) => {
+            if (!used && pred(...args)) {
+                used = true;
+                if (when === 'before') {
+                    hit(args);
+                    await opened;
+                    return real(...args);
+                }
+                const result = await real(...args);
+                hit(args);
+                await opened;
+                return result;
+            }
+            return real(...args);
+        };
+        return { reached, release: () => open() };
+    }
+
+    // Reject chrome.storage.sync.set while pred(items) holds: a save's own
+    // write ('links' without syncMetadata) is rate-limited, a sync's isn't.
+    function failSaveWrites(pred = (items) => !('syncMetadata' in items) && !('syncClearedAt' in items)) {
+        const real = chrome.storage.sync.set;
+        let on = true;
+        chrome.storage.sync.set = (items, ...rest) => (on && pred(items) ? Promise.reject(new Error(RATE)) : real(items, ...rest));
+        return () => { on = false; };
+    }
+
+    const isSyncInputsLocalRead = (k) => keysOf(k).includes('deviceId') && keysOf(k).includes('syncMetadata');
+
+    async function loadPage() {
+        jest.resetModules();
+        const sm = await import('../../javascript/core-systems/storageManager.js');
+        const syncMod = await import('../../javascript/core-systems/syncManager.js');
+        const st = await import('../../javascript/core-systems/stateManager.js');
+        const mgr = syncMod.syncManager;
+        const events = [];
+        mgr.addSyncListener((event, data) => events.push({ event, data }));
+        return { sm, st, mgr, events };
+    }
+
+    const meta = { version: 100, lastModified: 100 };
+    const seedSynced = (links) => {
+        fake.seed('sync', { links: JSON.stringify(links), categories: '["Default"]', syncMetadata: meta });
+        fake.seed('local', { links: JSON.stringify(links), categories: '["Default"]', syncMetadata: meta });
+    };
+
+    beforeEach(() => {
+        blobs = [];
+        URL.createObjectURL = jest.fn((b) => { blobs.push(b); return 'blob:x'; });
+        URL.revokeObjectURL = jest.fn();
+        jest.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+        jest.spyOn(console, 'error').mockImplementation(() => {});
+        jest.spyOn(console, 'warn').mockImplementation(() => {});
+        fake = installChromeStorageFake();
+        installWebLocks();
+    });
+
+    afterEach(() => {
+        jest.restoreAllMocks();
+        delete globalThis.chrome;
+        delete globalThis.navigator.locks;
+        document.body.innerHTML = '';
+    });
+
+    test('another page\'s successful save does not discard this page\'s pending edit (HP4b)', async () => {
+        const A = await loadPage();
+        seedSynced([link(1)]);
+        const stop = failSaveWrites();
+        await A.sm.saveLinks([link(1), link(2)]); // falls back: local value + marker
+        stop();
+        const B = await loadPage(); // a tab opened later shows the cloud
+        const loaded = await B.sm.loadLinks();
+        await B.sm.saveLinks([...loaded.links, link(3)]); // succeeds
+
+        expect(markers()['pendingSyncSince.links']).toBeDefined();
+        const result = await B.mgr.syncData();
+
+        expect(result.warning).toMatch(/replaced by newer changes in the cloud/);
+        expect(await keptSomewhere('link_2')).toBe(true);
+        expect(ids(C('links'))).toEqual(['link_1', 'link_3']);
+    });
+
+    test('a page\'s successful save does not drop the marker another page just wrote (HP5)', async () => {
+        const A = await loadPage();
+        const Cp = await loadPage();
+        seedSynced([link(1)]);
+        // A's save succeeds; hold it before it clears the links marker.
+        const g = gate('local', 'get', (k) => keysOf(k).length === 1 && keysOf(k)[0] === 'pendingSyncSince.links', 'before');
+        const saveA = A.sm.saveLinks([link(1), link(2)]);
+        await g.reached;
+        // C's save is rate-limited and falls back meanwhile.
+        const stop = failSaveWrites();
+        const saveC = Cp.sm.saveLinks([link(1), link(2), link(3)]);
+        await settle(3);
+        stop();
+        g.release();
+        await saveA;
+        await saveC;
+
+        expect(markers()['pendingSyncSince.links']).toBeDefined();
+        await A.mgr.syncData();
+        expect(await keptSomewhere('link_3')).toBe(true);
+    });
+
+    test('a page\'s later successful save supersedes its own fallback (an exact revert is not pushed back)', async () => {
+        const A = await loadPage();
+        fake.seed('sync', { links: JSON.stringify([link(1)]), categories: '["Default"]', theme: 'dark', syncMetadata: meta });
+        fake.seed('local', { links: JSON.stringify([link(1)]), categories: '["Default"]', syncMetadata: meta });
+        const stop = failSaveWrites();
+        await A.sm.saveSettings({ theme: 'light' }); // falls back
+        stop();
+        await A.sm.saveSettings({ theme: 'dark' }); // reverted, reaches sync
+
+        expect(markers()['pendingSyncSince.theme']).toBeUndefined();
+        expect(fake.dump('local').theme).toBeUndefined();
+        expect((await A.mgr.syncData()).success).toBe(true);
+        expect(fake.dump('sync').theme).toBe('dark');
+    });
+
+    test('a fallback save in the same millisecond the sync read local storage keeps its value and marker (HP3)', async () => {
+        const A = await loadPage();
+        const B = await loadPage();
+        seedSynced([link(1)]);
+        jest.spyOn(Date, 'now').mockReturnValue(Date.now());
+        const stop = failSaveWrites();
+        const g = gate('local', 'get', isSyncInputsLocalRead, 'after');
+        const sync = B.mgr.syncData();
+        await g.reached;
+        const saved = A.sm.saveLinks([link(1), link(2)]); // falls back while B's sync runs
+        await settle(3);
+        g.release();
+        const result = await sync;
+        expect(await saved).toBe(true);
+        stop();
+
+        expect(result.success).toBe(true);
+        expect(ids(L('links'))).toEqual(['link_1', 'link_2']);
+        expect(markers()['pendingSyncSince.links']).toBeDefined();
+    });
+
+    test('a fallback that lands while the sync pushes an older pending value is pushed next time (N2)', async () => {
+        const A = await loadPage();
+        const B = await loadPage();
+        seedSynced([link(1)]);
+        const stop = failSaveWrites();
+        await A.sm.saveLinks([link(1), link(2)]); // pending: L1
+        const g = gate('local', 'get', isSyncInputsLocalRead, 'after');
+        const sync = B.mgr.syncData(); // will push L1
+        await g.reached;
+        await new Promise((r) => setTimeout(r, 3));
+        await A.sm.saveLinks([link(1), link(2), link(4)]); // falls back: L2, based on the cloud before the push
+        g.release();
+        expect((await sync).success).toBe(true);
+        stop();
+        expect(ids(C('links'))).toEqual(['link_1', 'link_2']);
+
+        const next = await B.mgr.syncData();
+
+        expect(next.warning).toBeUndefined();
+        expect(ids(C('links'))).toEqual(['link_1', 'link_2', 'link_4']);
+    });
+
+    test('a failed local lists write after the cloud took a first sync does not make the next sync merge again (HP12)', async () => {
+        const A = await loadPage();
+        fake.seed('local', { links: JSON.stringify([link(1)]), categories: '["Default"]' });
+        fake.seed('sync', { links: JSON.stringify([link(2), link(3)]), categories: '["Default"]', syncMetadata: { version: 9, lastModified: 9 } });
+        const realLocalSet = chrome.storage.local.set;
+        let failed = false;
+        chrome.storage.local.set = (items, ...rest) => {
+            if (!failed && 'links' in items && !Object.keys(items).some((k) => k.startsWith('pendingSyncSince.'))) {
+                failed = true;
+                return Promise.reject(new Error('Resource::kQuotaBytes quota exceeded'));
+            }
+            return realLocalSet(items, ...rest);
+        };
+        await A.mgr.syncData();
+        chrome.storage.local.set = realLocalSet;
+        // Another device deletes link 1 (a normal edit).
+        await chrome.storage.sync.set({ links: JSON.stringify([link(2), link(3)]) });
+
+        await A.mgr.syncData();
+
+        expect(ids(C('links'))).not.toContain('link_1');
+    });
+
+    test('after a sync sets lists aside, the open page matches storage (HP2d)', async () => {
+        const A = await loadPage();
+        fake.seed('sync', { theme: 'light' });
+        fake.seed('local', { links: JSON.stringify([link(1), link(3)]), categories: '["Default","Work"]', deviceId: 'device_x' });
+        A.st.safeUpdateState({ links: [link(1), link(3)], categories: ['Default', 'Work'] }, { validate: false, skipPersistence: true });
+
+        const result = await A.mgr.syncData();
+        await settle();
+
+        expect(result.warning).toBeDefined();
+        expect(ids(A.st.getState().links)).toEqual(ids((await A.sm.loadLinks()).links));
+        expect(A.st.getState().links).toEqual([]);
+    });
+
+    test('two syncs in the same millisecond both make the page reload', async () => {
+        const A = await loadPage();
+        seedSynced([link(1)]);
+        jest.spyOn(Date, 'now').mockReturnValue(Date.now());
+        expect((await A.mgr.syncData()).success).toBe(true);
+        await settle();
+        // The page then holds a link storage doesn't have.
+        A.st.safeUpdateState({ links: [link(1), link(9)] }, { validate: false, skipPersistence: true });
+
+        expect((await A.mgr.syncData()).success).toBe(true);
+        await settle();
+
+        expect(A.st.getState().links).toEqual([link(1)]);
+    });
+
+    test('after a settings-only Force pull, the next Sync now still merges this device\'s lists (X1)', async () => {
+        const A = await loadPage();
+        fake.seed('sync', { theme: 'light' });
+        fake.seed('local', { links: JSON.stringify([link(1), link(3)]), categories: '["Default"]' });
+
+        expect((await A.mgr.forcePullFromRemote()).success).toBe(true);
+        expect(fake.dump('local').syncMetadata).toBeUndefined();
+        expect((await A.mgr.syncData()).success).toBe(true);
+
+        expect(ids(C('links'))).toEqual(['link_1', 'link_3']);
+        expect(ids(L('links'))).toEqual(['link_1', 'link_3']);
+    });
+
+    test('a set-aside copy that could not be kept after the cloud write is kept later, and the warning says only what happened', async () => {
+        const A = await loadPage();
+        seedSynced([link(1)]);
+        fake.seed('local', { links: JSON.stringify([link(1), link(9)]), 'pendingSyncSince.links': { since: 1 } });
+        const realLocalSet = chrome.storage.local.set;
+        let failed = false;
+        chrome.storage.local.set = (items, ...rest) => {
+            if (!failed && 'syncSetAside' in items) {
+                failed = true;
+                return Promise.reject(new Error('Resource::kQuotaBytes quota exceeded'));
+            }
+            return realLocalSet(items, ...rest);
+        };
+        const first = await A.mgr.syncData();
+        chrome.storage.local.set = realLocalSet;
+
+        expect(first.success).toBe(true);
+        expect(first.warning).toMatch(/A copy was downloaded as a backup file/);
+        expect(first.warning).not.toMatch(/saved on this device/);
+        expect(fake.dump('local').syncSetAsideInProgress.afterCloud).toBe(true);
+
+        expect((await A.mgr.syncData()).success).toBe(true); // nothing to set aside this time
+        expect(ids(fake.dump('local').syncSetAside?.links)).toEqual(['link_1', 'link_9']);
+        expect(fake.dump('local').syncSetAsideInProgress).toBeUndefined();
+    });
+});

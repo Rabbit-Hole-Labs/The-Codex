@@ -4,7 +4,8 @@
 import { debug, debugWarn, debugError } from './debug.js';
 import { withPendingSyncLock } from './storageLock.js';
 import {
-    parseStoredArray, pendingSyncKey, PENDING_SYNC_FIELDS, SYNC_CLEARED_AT_KEY, SYNC_RESOLVED_AT_KEY, STORED_SETTING_DEFAULTS
+    parseStoredArray, pendingSyncKey, cloudValueFingerprint, PENDING_SYNC_FIELDS,
+    SYNC_CLEARED_AT_KEY, SYNC_RESOLVED_AT_KEY, STORED_SETTING_DEFAULTS
 } from './storageFormat.js';
 
 // Confirm-dialog text for the destructive manual sync actions, shared by the
@@ -47,6 +48,22 @@ function pick(source, keys) {
         if (source?.[key] !== undefined) picked[key] = source[key];
     }
     return picked;
+}
+
+// Whether two pending-sync markers are the same one (same fallback save).
+// Markers carry a random id; older ones are compared whole.
+function sameMarker(a, b) {
+    if (a?.id !== undefined || b?.id !== undefined) return a?.id === b?.id;
+    return JSON.stringify(a) === JSON.stringify(b);
+}
+
+// Stamp SYNC_RESOLVED_AT_KEY so every open page reloads (stateManager).
+// chrome.storage fires no onChanged for a write of the value already stored,
+// so each stamp must differ from the last, even within one millisecond and
+// across pages: callers hold the pending-sync lock.
+async function writeResolvedStampLocked(extra = {}) {
+    const { [SYNC_RESOLVED_AT_KEY]: last = 0 } = await chrome.storage.local.get(SYNC_RESOLVED_AT_KEY);
+    await chrome.storage.local.set({ ...extra, [SYNC_RESOLVED_AT_KEY]: Math.max(Date.now(), last + 1) });
 }
 
 function newDeviceId() {
@@ -347,11 +364,12 @@ export class SyncManager {
             // Saves that fell back to local before the clear must not be
             // uploaded over it: drop their recorded cloud value, so the next
             // Sync now treats them as superseded (kept as a backup, not pushed).
-            const markerKeys = PENDING_SYNC_FIELDS.map(pendingSyncKey);
-            const markers = await chrome.storage.local.get(markerKeys);
-            const invalidated = Object.fromEntries(Object.entries(markers)
-                .map(([key, marker]) => [key, { since: marker?.since }]));
-            if (Object.keys(invalidated).length > 0) await chrome.storage.local.set(invalidated);
+            await withPendingSyncLock(async () => {
+                const markers = await chrome.storage.local.get(PENDING_SYNC_FIELDS.map(pendingSyncKey));
+                const invalidated = Object.fromEntries(Object.entries(markers)
+                    .map(([key, marker]) => [key, { id: marker?.id, since: marker?.since }]));
+                if (Object.keys(invalidated).length > 0) await chrome.storage.local.set(invalidated);
+            });
         } catch (error) {
             debugError('Failed to reset sync status after a remote clear:', error);
         }
@@ -440,7 +458,6 @@ export class SyncManager {
 
             // Read both storages. Abort if either fails: without knowing what
             // the cloud holds, any write could wipe it.
-            const readAt = Date.now();
             let inputs;
             try {
                 inputs = await this.readSyncInputs();
@@ -489,21 +506,31 @@ export class SyncManager {
                 ? await this.prepareSetAside(resolution.setAside, inputs, resolvedData)
                 : null;
 
+            // A Force pull from a cloud that holds only settings changes no
+            // lists and records no sync (no new version on either side): a
+            // never-synced device then still merges its lists on its next sync.
             const now = Date.now();
-            const newMetadata = { version: now, lastModified: now, deviceId: inputs.local.deviceId ?? newDeviceId() };
-            const cloudResult = await this.writeCloud(resolution.syncItems, newMetadata);
-            if (!cloudResult.syncSaved) {
-                // Already reported: fail, with nothing changed.
-                throw Object.assign(new Error(cloudResult.error), { reported: true });
+            const newMetadata = resolution.keepLocalLists
+                ? null
+                : { version: now, lastModified: now, deviceId: inputs.local.deviceId ?? newDeviceId() };
+            if (newMetadata || resolution.syncItems) {
+                const cloudResult = await this.writeCloud(resolution.syncItems, newMetadata);
+                if (!cloudResult.syncSaved) {
+                    // Already reported: fail, with nothing changed.
+                    throw Object.assign(new Error(cloudResult.error), { reported: true });
+                }
             }
 
-            // From here on the cloud has this sync: record it locally first —
-            // the kept lists and the new version in one write — so a later
-            // local failure can't leave this device looking unsynced (a first
-            // sync would then merge again and bring back links deleted since).
+            // From here on the cloud has this sync: record it locally first
+            // (the version on its own, then the kept lists), so a later local
+            // failure can't leave this device looking unsynced — a first sync
+            // would then merge again and bring back links deleted since.
             // Pushed, superseded or set-aside fields stop being pending.
+            const markerKeys = PENDING_SYNC_FIELDS.map(pendingSyncKey);
             await this.writeLocal(resolvedData, newMetadata, {
-                readAt,
+                readMarkers: pick(inputs.local, markerKeys),
+                cloudRead: inputs.cloud,
+                pushed: resolution.syncItems ?? {},
                 keepLocalLists: resolution.keepLocalLists,
                 settle: [
                     ...(resolution.keepLocalLists ? [] : ['links', 'categories']),
@@ -514,17 +541,19 @@ export class SyncManager {
             // Then keep the set-aside copy on this device. It was already
             // downloaded (and parked) before the cloud write, so a failure here
             // is logged and doesn't fail the sync. With no set-aside this time,
-            // a copy parked by an earlier, failed attempt is dropped.
+            // a copy parked by an earlier attempt is kept if that attempt got
+            // past the cloud write (afterCloud), else dropped.
+            let setAsideKept = false;
             if (parkedSetAside) {
-                await this.commitSetAside(parkedSetAside);
+                setAsideKept = await this.commitSetAside(parkedSetAside);
             } else {
-                await this.discardParkedSetAside();
+                await this.settleParkedSetAside();
             }
 
             const syncedItemsCount = (parseStoredArray(resolvedData.links) ?? []).length;
             const warning = resolution.setAside
-                ? `${resolution.setAside.reason} A copy was saved on this device and downloaded as a `
-                    + 'backup file (restore it with Import on the Manage page).'
+                ? `${resolution.setAside.reason} A copy was ${setAsideKept ? 'saved on this device and ' : ''}`
+                    + 'downloaded as a backup file (restore it with Import on the Manage page).'
                 : undefined;
 
             this.notifyListeners('syncComplete', {
@@ -812,14 +841,42 @@ export class SyncManager {
     // drop the parked one. Best effort: the copy was downloaded before the
     // cloud write, so a failure here is logged (the parked copy stays) and
     // doesn't undo a sync the cloud has already taken.
+    // Returns whether the copy was kept. On failure it stays parked, marked
+    // afterCloud (this device's data was replaced), so a later sync or clear
+    // keeps it instead of dropping it.
     async commitSetAside(backup) {
         try {
             await this.storeBackup(backup, { key: SYNC_SET_ASIDE_KEY, previousKey: SYNC_PREVIOUS_SET_ASIDE_KEY });
         } catch (error) {
             debugWarn('Could not keep the set-aside copy on this device (it was downloaded):', error);
-            return;
+            try {
+                await chrome.storage.local.set({ [SYNC_SET_ASIDE_PARKED_KEY]: { ...backup, afterCloud: true } });
+            } catch {
+                // best effort: the copy was downloaded
+            }
+            return false;
         }
         await this.discardParkedSetAside();
+        return true;
+    }
+
+    // A copy parked by an earlier attempt: keep it if that attempt replaced
+    // this device's data (afterCloud), drop it if it never got that far.
+    async settleParkedSetAside() {
+        let leftover;
+        try {
+            ({ [SYNC_SET_ASIDE_PARKED_KEY]: leftover } = await chrome.storage.local.get(SYNC_SET_ASIDE_PARKED_KEY));
+        } catch (error) {
+            debugWarn('Could not read the parked set-aside copy:', error);
+            return;
+        }
+        if (leftover?.afterCloud) {
+            const copy = { ...leftover };
+            delete copy.afterCloud;
+            await this.commitSetAside(copy);
+        } else if (leftover) {
+            await this.discardParkedSetAside();
+        }
     }
 
     async discardParkedSetAside() {
@@ -971,35 +1028,27 @@ export class SyncManager {
         }
     }
 
-    // This device's side, once the cloud has accepted the sync: the kept lists
-    // (a field the result lacks becomes empty rather than stale) and the new
-    // version in one write; then the settled fields; then the stamp that makes
-    // open pages reload. A save that fell back to local while this sync ran is
-    // newer than what the sync read, so that field is left alone, marker
-    // included, for the next sync. The pending-sync lock (storageLock.js) keeps
-    // fallback saves out of this phase, so the marker read below stays true
-    // until the markers are settled; they are re-checked before settling all
-    // the same.
+    // This device's side, once the cloud has accepted the sync: the new
+    // version on its own first, then the kept lists (a field the result lacks
+    // becomes empty rather than stale), then the settled fields, then the stamp
+    // that makes open pages reload. A fallback save that landed while this sync
+    // ran (its marker differs from the one the sync read) is newer than what
+    // the sync read, so that field is left alone, marker included, for the next
+    // sync — re-fingerprinted to what this sync pushed when it was based on the
+    // value the sync replaced, so the next sync pushes it rather than setting
+    // it aside. The pending-sync lock (storageLock.js) keeps fallback saves out
+    // of this phase; markers are re-checked before settling all the same.
     async writeLocal(data, metadata, options) {
         await withPendingSyncLock(() => this.writeLocalLocked(data, metadata, options));
     }
 
-    async writeLocalLocked(data, metadata, { readAt, settle, keepLocalLists = false }) {
+    async writeLocalLocked(data, metadata, { readMarkers = {}, cloudRead = {}, pushed = {}, settle, keepLocalLists = false }) {
         const markerKeys = PENDING_SYNC_FIELDS.map(pendingSyncKey);
-        const savedSince = (markers) => PENDING_SYNC_FIELDS.filter(
-            field => (markers[pendingSyncKey(field)]?.since ?? 0) > readAt
-        );
-        const savedDuringSync = savedSince(await chrome.storage.local.get(markerKeys));
-        const lists = keepLocalLists ? {} : {
-            links: data.links ?? JSON.stringify([]),
-            categories: data.categories ?? JSON.stringify(['Default'])
-        };
-        for (const field of savedDuringSync) delete lists[field];
-
-        try {
-            await chrome.storage.local.set({ ...lists, syncMetadata: metadata, deviceId: metadata.deviceId });
-            debug('Data saved to local storage successfully');
-        } catch (localError) {
+        const changedSinceRead = (markers) => PENDING_SYNC_FIELDS.filter(field => {
+            const marker = markers[pendingSyncKey(field)];
+            return marker !== undefined && !sameMarker(marker, readMarkers[pendingSyncKey(field)]);
+        });
+        const reportLocalFailure = (localError) => {
             debugError('Failed to save to local storage:', {
                 errorMessage: localError.message,
                 errorStack: localError.stack
@@ -1010,17 +1059,48 @@ export class SyncManager {
                 details: localError.message,
                 recommendation: 'Please check your storage permissions and available space.'
             });
+        };
+
+        const current = await chrome.storage.local.get(markerKeys);
+        const savedDuringSync = changedSinceRead(current);
+
+        if (metadata) {
+            try {
+                await chrome.storage.local.set({ syncMetadata: metadata, deviceId: metadata.deviceId });
+            } catch (localError) {
+                reportLocalFailure(localError);
+                throw localError;
+            }
+        }
+
+        const lists = keepLocalLists ? {} : {
+            links: data.links ?? JSON.stringify([]),
+            categories: data.categories ?? JSON.stringify(['Default'])
+        };
+        const refingerprinted = {};
+        for (const field of savedDuringSync) {
+            delete lists[field];
+            const key = pendingSyncKey(field);
+            if (field in pushed && markerMatchesCloud(current[key], cloudRead[field])) {
+                refingerprinted[key] = { ...current[key], cloud: cloudValueFingerprint(pushed[field]) };
+            }
+        }
+        try {
+            await chrome.storage.local.set({ ...lists, ...refingerprinted });
+            debug('Data saved to local storage successfully');
+        } catch (localError) {
+            reportLocalFailure(localError);
             throw localError;
         }
 
-        const stillPending = new Set([...savedDuringSync, ...savedSince(await chrome.storage.local.get(markerKeys))]);
+        const stillPending = new Set([...savedDuringSync, ...changedSinceRead(await chrome.storage.local.get(markerKeys))]);
         await this.settleLocalFields(settle.filter(field => !stillPending.has(field)));
 
         // Tell every open page to reload what storage holds now
         // (stateManager): when the cloud won there was no data written to
         // sync, so no sync onChanged reaches pages still holding discarded data.
         this.lastSyncTime = Date.now();
-        await chrome.storage.local.set({ lastSyncTime: this.lastSyncTime, [SYNC_RESOLVED_AT_KEY]: this.lastSyncTime });
+        await writeResolvedStampLocked({ lastSyncTime: this.lastSyncTime });
     }
 
     // Validate sync data structure with enhanced validation
@@ -1277,6 +1357,9 @@ export class SyncManager {
     // and don't clear anything if that fails.
     async clearSyncData() {
         try {
+            // A set-aside copy still parked after a sync that replaced this
+            // device's data is kept before the clear removes the parked slot.
+            await this.settleParkedSetAside();
             if (!await this.backupBeforeClear()) {
                 throw new Error('Could not download a backup, so sync data was not cleared.');
             }
@@ -1329,7 +1412,7 @@ export class SyncManager {
             ]);
             // Every open page reloads from storage (stateManager), including
             // one that missed the storage events (e.g. mid-write).
-            await chrome.storage.local.set({ [SYNC_RESOLVED_AT_KEY]: Date.now() });
+            await withPendingSyncLock(() => writeResolvedStampLocked());
             this.lastSyncTime = null;
             this.notifyListeners('syncCleared', { time: Date.now() });
             return { success: true };
