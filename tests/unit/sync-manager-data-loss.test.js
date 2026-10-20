@@ -919,6 +919,82 @@ describe('Regression: SyncManager must not revert cloud data', () => {
             expect(stored(fake, 'local', 'categories')).toEqual(['Default', 'A', 'B']);
         });
 
+        test('a save that falls back while the sync writes its local copy keeps its value and marker', async () => {
+            const meta = { version: 100, lastModified: 100 };
+            fake.seed('sync', { links: JSON.stringify([link(1)]), categories: '["Default"]', syncMetadata: meta });
+            fake.seed('local', { links: JSON.stringify([link(1)]), categories: '["Default"]', syncMetadata: meta });
+            const realGet = chrome.storage.local.get;
+            const realLocalSet = chrome.storage.local.set;
+            const realSyncSet = chrome.storage.sync.set;
+            let concurrentSave = null;
+            let fallbackLanded;
+            const fallbackWritten = new Promise((resolve) => { fallbackLanded = resolve; });
+            chrome.storage.local.get = async (keys) => {
+                const result = await realGet(keys);
+                const markerRead = Array.isArray(keys) && keys.length > 0 && keys.every((key) => key.startsWith('pendingSyncSince.'));
+                if (!concurrentSave && markerRead) {
+                    // The sync has made its cloud write and is in its local phase;
+                    // a concurrent edit's sync write is rate-limited, so it falls
+                    // back to local. Not awaited: it runs alongside the sync.
+                    chrome.storage.sync.set = () => Promise.reject(new Error('This request exceeds the MAX_WRITE_OPERATIONS_PER_MINUTE quota.'));
+                    concurrentSave = saveLinks([link(1), link(2)]);
+                }
+                return result;
+            };
+            chrome.storage.local.set = async (items) => {
+                if (concurrentSave && 'syncMetadata' in items) {
+                    // Hold the sync's local write until the fallback has landed
+                    // (the race window), unless something keeps it out (50 ms).
+                    await Promise.race([fallbackWritten, new Promise((resolve) => setTimeout(resolve, 50))]);
+                }
+                const result = await realLocalSet(items);
+                if ('pendingSyncSince.links' in items) fallbackLanded();
+                return result;
+            };
+
+            try {
+                expect((await syncManager.syncData()).success).toBe(true);
+                expect(await concurrentSave).toBe(true);
+            } finally {
+                Object.assign(chrome.storage.local, { get: realGet, set: realLocalSet });
+                chrome.storage.sync.set = realSyncSet;
+            }
+
+            expect(stored(fake, 'local', 'links')).toEqual([link(1), link(2)]);
+            expect(fake.dump('local')['pendingSyncSince.links']).toBeDefined();
+        });
+
+        test('the pending-sync lock uses Web Locks when the browser has them', async () => {
+            const { withPendingSyncLock } = await import('../../javascript/core-systems/storageLock.js');
+            const request = jest.fn((name, task) => task());
+            const hadNavigatorLocks = 'locks' in navigator;
+            Object.defineProperty(navigator, 'locks', { value: { request }, configurable: true });
+            try {
+                await expect(withPendingSyncLock(async () => 'ran')).resolves.toBe('ran');
+            } finally {
+                if (!hadNavigatorLocks) delete navigator.locks;
+            }
+            expect(request).toHaveBeenCalledWith('codex-pending-sync', expect.any(Function));
+        });
+
+        test('a settings-only set-aside backup restores through Import', async () => {
+            const { importLinks } = await import('../../javascript/core-systems/storageManager.js');
+            const { saveSettings } = await import('../../javascript/core-systems/storageManager.js');
+            fake.seed('sync', { theme: 'light' }); // no links or categories in the cloud
+            await withSyncWritesFailing(() => saveSettings({ theme: 'dark' }));
+            expect((await syncManager.forcePullFromRemote()).success).toBe(true);
+            const backup = fake.dump('local')[SYNC_SET_ASIDE_KEY]; // what was downloaded
+            expect(backup.links).toEqual([]);
+            expect(backup.theme).toBe('dark');
+
+            const state = { links: [], categories: ['Default'] };
+            const file = new Blob([JSON.stringify(backup)], { type: 'application/json' });
+            await expect(importLinks(state, file)).resolves.toBe(true);
+
+            expect(state.theme).toBe('dark');
+            expect(fake.dump('sync').theme).toBe('dark');
+        });
+
         test('a junk entry in the cloud links does not fail every Sync now', async () => {
             const meta = { version: 100, lastModified: 100 };
             fake.seed('sync', { links: JSON.stringify([null, link(1)]), categories: '["Default"]', syncMetadata: meta });

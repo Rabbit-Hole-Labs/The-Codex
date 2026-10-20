@@ -2,6 +2,7 @@
 // Handles conflict resolution, versioning, and improved sync strategies
 
 import { debug, debugWarn, debugError } from './debug.js';
+import { withPendingSyncLock } from './storageLock.js';
 import {
     parseStoredArray, pendingSyncKey, PENDING_SYNC_FIELDS, SYNC_CLEARED_AT_KEY, SYNC_RESOLVED_AT_KEY, STORED_SETTING_DEFAULTS
 } from './storageFormat.js';
@@ -983,10 +984,20 @@ export class SyncManager {
     // version in one write; then the settled fields; then the stamp that makes
     // open pages reload. A save that fell back to local while this sync ran is
     // newer than what the sync read, so that field is left alone, marker
-    // included, for the next sync.
+    // included, for the next sync. The pending-sync lock (storageLock.js) keeps
+    // fallback saves out of this phase, so the marker read below stays true
+    // until the markers are settled; they are re-checked before settling all
+    // the same.
     async writeLocal(data, metadata, { readAt, settle }) {
-        const markers = await chrome.storage.local.get(PENDING_SYNC_FIELDS.map(pendingSyncKey));
-        const savedDuringSync = PENDING_SYNC_FIELDS.filter(field => (markers[pendingSyncKey(field)]?.since ?? 0) > readAt);
+        await withPendingSyncLock(() => this.writeLocalLocked(data, metadata, { readAt, settle }));
+    }
+
+    async writeLocalLocked(data, metadata, { readAt, settle }) {
+        const markerKeys = PENDING_SYNC_FIELDS.map(pendingSyncKey);
+        const savedSince = (markers) => PENDING_SYNC_FIELDS.filter(
+            field => (markers[pendingSyncKey(field)]?.since ?? 0) > readAt
+        );
+        const savedDuringSync = savedSince(await chrome.storage.local.get(markerKeys));
         const lists = {
             links: data.links ?? JSON.stringify([]),
             categories: data.categories ?? JSON.stringify(['Default'])
@@ -1010,7 +1021,8 @@ export class SyncManager {
             throw localError;
         }
 
-        await this.settleLocalFields(settle.filter(field => !savedDuringSync.includes(field)));
+        const stillPending = new Set([...savedDuringSync, ...savedSince(await chrome.storage.local.get(markerKeys))]);
+        await this.settleLocalFields(settle.filter(field => !stillPending.has(field)));
 
         // Tell every open page to reload what storage holds now
         // (stateManager): when the cloud won there was no data written to

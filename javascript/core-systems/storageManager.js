@@ -6,6 +6,7 @@ import { sanitizeUserInput } from '../features/securityUtils.js';
 import { validateIconValue } from '../features/iconCache.js';
 import { debug, debugWarn, debugError } from './debug.js';
 import { pendingSyncKey, cloudValueFingerprint, SYNC_CLEARED_AT_KEY } from './storageFormat.js';
+import { withPendingSyncLock } from './storageLock.js';
 const { ERROR_TYPES, ERROR_SEVERITY } = errorHandler;
 
 // The cloud values a save is based on, read BEFORE its sync write: if that
@@ -264,7 +265,7 @@ export async function saveLinks(links) {
             
             // Fallback to local storage
             try {
-                await chrome.storage.local.set({ links: linksString, ...pendingSyncMarkers(['links'], cloudBefore) });
+                await withPendingSyncLock(() => chrome.storage.local.set({ links: linksString, ...pendingSyncMarkers(['links'], cloudBefore) }));
                 debug('Successfully saved to local storage as fallback');
             } catch (localError) {
                 const storageError = new CodexError(
@@ -334,7 +335,7 @@ export async function saveSettings(settings) {
             });
             
             try {
-                await chrome.storage.local.set({ ...dataToSave, ...pendingSyncMarkers(Object.keys(dataToSave), cloudBefore) });
+                await withPendingSyncLock(() => chrome.storage.local.set({ ...dataToSave, ...pendingSyncMarkers(Object.keys(dataToSave), cloudBefore) }));
                 debug('Successfully saved settings to local storage as fallback');
             } catch (localError) {
                 const storageError = new CodexError(
@@ -547,7 +548,7 @@ export async function saveCategories(categories) {
             
             // Fallback to local storage
             try {
-                await chrome.storage.local.set({ categories: categoriesString, ...pendingSyncMarkers(['categories'], cloudBefore) });
+                await withPendingSyncLock(() => chrome.storage.local.set({ categories: categoriesString, ...pendingSyncMarkers(['categories'], cloudBefore) }));
                 debug('Successfully saved to local storage as fallback');
             } catch (localError) {
                 const storageError = new CodexError(
