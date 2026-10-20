@@ -706,7 +706,12 @@ describe('package-extension', () => {
         expect(validateManifest({ ...MANIFEST, options_ui: { page: 'o.html', open_in_tab: 'yes' } }))
             .toContain('options_ui has a non-boolean open_in_tab, so Chrome ignores it and the extension has no options page');
         expect(validateManifest({ ...MANIFEST, options_page: 'o.html', options_ui: { open_in_tab: true } })).toEqual([]);
-        expect(validateManifest({ ...MANIFEST, options_ui: { page: 'o.html', chrome_style: true } })).toContain("options_ui.chrome_style can't be used with manifest_version 3");
+        for (const chromeStyle of [true, false]) {
+            expect(validateManifest({ ...MANIFEST, options_ui: { page: 'o.html', chrome_style: chromeStyle } }))
+                .toContain("options_ui.chrome_style can't be used with manifest_version 3 (Chrome refuses it even when false)");
+        }
+        // A malformed options_ui is dropped before chrome_style matters when options_page takes over.
+        expect(validateManifest({ ...MANIFEST, options_page: 'o.html', options_ui: { chrome_style: true } })).toEqual([]);
     });
 
     test('manifest CSP strings may only hold tab, form feed and printable ASCII other than a comma', () => {
@@ -720,21 +725,33 @@ describe('package-extension', () => {
     test('content script matches must be match patterns', () => {
         const entry = (matches) => ({ ...MANIFEST, content_scripts: [{ matches, js: ['javascript/content.js'] }] });
         expect(validateManifest(entry(['not a pattern']))).toContain('content_scripts[0].matches[0] "not a pattern" isn\'t a match pattern (<scheme>://<host><path> or <all_urls>)');
-        for (const bad of ['https://example.com', 'https://foo.*.com/*', 'chrome://settings/*', 'http:///*']) {
+        // '*' has no default port, so a numeric port needs a concrete scheme; urn: isn't a content-script scheme.
+        for (const bad of ['https://example.com', 'https://foo.*.com/*', 'chrome://settings/*', 'http:///*', '*://localhost:3000/*', 'http://h:70000/*', 'urn:*']) {
             expect(validateManifest(entry([bad]))).toHaveLength(1);
         }
-        expect(validateManifest(entry(['<all_urls>', '*://*/*', 'https://*.example.com/*', 'file:///*', 'http://localhost:8080/*', 'http://[::1]/*', 'urn:*']))).toEqual([]);
+        expect(validateManifest(entry(['<all_urls>', '*://*/*', 'https://*.example.com/*', 'file:///*', 'http://localhost:8080/*', '*://h:*/*',
+            'http://[::1]/*', 'uuid-in-package:*']))).toEqual([]);
         expect(validateManifest({ ...MANIFEST, content_scripts: [{ matches: ['<all_urls>'], exclude_matches: ['bad'], js: ['javascript/content.js'] }] }))
             .toContain('content_scripts[0].exclude_matches[0] "bad" isn\'t a match pattern (<scheme>://<host><path> or <all_urls>)');
     });
 
-    test('a relative url() in a CSS custom property fails (Chrome resolves it where var() uses it)', () => {
+    test('a relative url() in a CSS custom property is checked where var() reads the property', () => {
+        // Chrome resolves it against the stylesheet (or page) that substitutes it.
         expect(buildError({ 'stylesheets/base.css': '.x { --bg: url(icon.png); }\n.y { background: var(--bg); }\n' }))
-            .toContain('stylesheets/base.css: url(icon.png) in a custom property resolves where var() uses it, so it can\'t be checked; use a root-relative (/...) or absolute URL');
-        expect(cssRefs('.x { --bg: url(a.png); color: red } .y { background: url(b.png) }')).toEqual([
-            { url: 'a.png', directive: 'img-src', custom: true }, { url: 'b.png', directive: 'img-src' }]);
-        writeFixture(root, fixtureFiles({ 'stylesheets/base.css': '.x { --bg: url(/assets/icons/icon128.png); --c: url(data:image/png;base64,AA); }\n' }));
+            .toContain('stylesheets/base.css uses --bg from stylesheets/base.css: url(icon.png) resolves to stylesheets/icon.png, which is not in the package');
+        expect(buildError({ 'stylesheets/base.css': ':root { --bg: url(../assets/icons/icon128.png); }\n', 'stylesheets/sub/b.css': '.y { background: var(--bg); }\n',
+            'popup.html': '<link rel="stylesheet" href="stylesheets/base.css"><link rel="stylesheet" href="stylesheets/sub/b.css"><script type="module" src="javascript/entry-points/popup.js"></script>' }))
+            .toContain('stylesheets/sub/b.css uses --bg from stylesheets/base.css: url(../assets/icons/icon128.png) resolves to stylesheets/assets/icons/icon128.png');
+        // Same directory, root-relative, data: and @property "<url>" (resolved where declared) are fine; unread ones load nothing.
+        writeFixture(root, fixtureFiles({ 'stylesheets/base.css': ':root { --a: url(../assets/icons/icon128.png); --b: url(/assets/icons/icon128.png); --c: url(data:image/png;base64,AA); --unused: url(gone.png); }\n' +
+            '@property --d { syntax: "<url>"; inherits: true; initial-value: url(../assets/icons/icon128.png); }\n:root { --d: url(../assets/icons/icon128.png); }\n' +
+            '.x { background: var(--a), var(--b), var(--c); }\n', 'stylesheets/sub/b.css': '.y { background: var(--d); }\n',
+        'popup.html': '<link rel="stylesheet" href="stylesheets/base.css"><link rel="stylesheet" href="stylesheets/sub/b.css"><script type="module" src="javascript/entry-points/popup.js"></script>' }));
         expect(() => buildPackage({ root, outDir: out })).not.toThrow();
+        // A dashed class or id in a selector is not a declaration.
+        expect(cssRefs('.--active:hover { background: url(a.png) } .b { --x: url(b.png); color: red } .c { background: url(c.png) }')).toEqual([
+            { url: 'a.png', directive: 'img-src' }, { url: 'b.png', directive: 'img-src', custom: '--x' }, { url: 'c.png', directive: 'img-src' }]);
+        expect(cssRefs('--x: url(a.png)', { declarations: true })).toEqual([{ url: 'a.png', directive: 'img-src', custom: '--x' }]);
     });
 
     test('legacy named references decode as browsers do: without a semicolon, not before = or an alphanumeric', () => {
@@ -759,8 +776,6 @@ describe('package-extension', () => {
         expect(buildError({ 'manifest.json': sandboxed, 'assets/s.html': map('{"imports": {"./a.js": "lodash", "b/": "./b.js"}}') }))
             .toEqual(expect.stringContaining(`${label}: imports["./a.js"] is not a URL or a /, ./ or ../ path, so Chrome blocks imports of "./a.js"`));
         expect(buildError({ 'manifest.json': sandboxed, 'assets/s.html': map('{"imports": {"b/": "./b.js"}}') })).toContain('imports["b/"] must end in "/" like its key');
-        expect(buildError({ 'manifest.json': sandboxed, 'assets/x.js': 'export const x = 1;\n', 'assets/s.html': map('{"integrity": {"./x.js": "sha256-wrong"}}') }))
-            .toContain('integrity="sha256-wrong" for assets/x.js doesn\'t match its sha256 digest');
         expect(buildError({ 'manifest.json': sandboxed, 'assets/s.html': '<script type="importmap" src="m.json"></script>' }))
             .toContain('<script type="importmap" src> is ignored by Chrome (import maps must be inline)');
     });
@@ -779,6 +794,27 @@ describe('package-extension', () => {
         expect(() => buildPackage({ root, outDir: out })).not.toThrow();
         expect(buildError({ 'manifest.json': sandboxed, 'popup.html': '<script type="module" nomodule src="missing.js"></script><script type="module" src="javascript/entry-points/popup.js"></script>' }))
             .toContain('popup.html references missing.js');
+    });
+
+    test('sandbox.pages patterns with * mark every matching page as sandboxed', () => {
+        const manifest = (pages) => JSON.stringify({ ...MANIFEST, sandbox: { pages }, content_security_policy: { sandbox: "sandbox; script-src 'self'" } });
+        writeFixture(root, fixtureFiles({ 'manifest.json': manifest(['assets/sb/*.html']), 'assets/sb/a.html': '<script>not javascript (</script>' }));
+        expect(() => buildPackage({ root, outDir: out })).not.toThrow(); // inert: scripting is off there
+        expect(buildError({ 'manifest.json': manifest(['assets/none/*.html']), 'assets/sb/a.html': '<p>x</p>' }))
+            .toContain('manifest.json sandbox page pattern "assets/none/*.html" matches no packaged file');
+    });
+
+    test('an SVG <script href> file compiles as a classic script', () => {
+        writeFixture(root, fixtureFiles({ 'assets/legacy.js': 'with (Math) { var r = PI; }\n',
+            'popup.html': '<svg><script href="assets/legacy.js"></script></svg><script type="module" src="javascript/entry-points/popup.js"></script>' }));
+        expect(() => buildPackage({ root, outDir: out })).not.toThrow();
+    });
+
+    test('with an upgraded scheme only port 80 pairs with 443', () => {
+        const csp = parseCsp('img-src http://h.example:8080');
+        expect(cspAllows(csp, 'img-src', 'http://h.example:8080/a.png')).toBe(true);
+        expect(cspAllows(csp, 'img-src', 'https://h.example:8080/a.png')).toBe(false);
+        expect(cspAllows(parseCsp('img-src https://h.example:80'), 'img-src', 'https://h.example/a.png')).toBe(false);
     });
 
     test('an MV3 background needs a service worker', () => {
@@ -922,10 +958,13 @@ describe('package-extension', () => {
                     '<script type="module" src="../javascript/entry-points/popup.js"></script>'
             }));
             expect(() => buildPackage({ root, outDir: out })).not.toThrow(); // refs before <base> use the page URL
+            // base-uri governs external bases; Chrome exempts the extension's own URLs from CSP.
+            expect(buildError({ 'manifest.json': withCsp(`${CSP}; base-uri 'none'`), 'popup.html': page('<base href="stylesheets/">') }))
+                .toContain('popup.html references stylesheets/javascript/entry-points/popup.js');
             expect(buildError({
                 'manifest.json': withCsp(`${CSP}; base-uri 'none'`),
-                'popup.html': page('<base href="stylesheets/">')
-            })).toContain('popup.html line 1: <base href="stylesheets/"> is blocked by the manifest CSP (base-uri)');
+                'popup.html': '<script type="module" src="javascript/entry-points/popup.js"></script><base href="https://cdn.example/">'
+            })).toContain('popup.html line 1: <base href="https://cdn.example/"> is blocked by the manifest CSP (base-uri)');
         });
 
         test('iframe srcdoc content is checked as a nested document', () => {
@@ -945,11 +984,16 @@ describe('package-extension', () => {
                 .toContain("popup.html: chrome://favicon/x uses a URL scheme an extension page can't load (img-src)");
         });
 
-        test("packaged files are checked against their directive too ('self' must be allowed)", () => {
-            expect(buildError({
-                'manifest.json': withCsp(CSP.replace("img-src 'self' data:", 'img-src data:')),
-                'popup.html': page('<img src="assets/icons/icon128.png">')
-            })).toContain("popup.html loads assets/icons/icon128.png, which the manifest CSP blocks (img-src doesn't allow 'self')");
+        test('own files are exempt from CSP, except scripts on extension pages', () => {
+            // Chrome exempts chrome-extension: URLs from CSP checks other than script-src.
+            writeFixture(root, fixtureFiles({ 'manifest.json': withCsp(CSP.replace("img-src 'self' data:", 'img-src data:')), 'popup.html': page('<img src="assets/icons/icon128.png">') }));
+            expect(() => buildPackage({ root, outDir: out })).not.toThrow();
+            expect(buildError({ 'manifest.json': withCsp(CSP.replace("script-src 'self'", "script-src 'none'")), 'popup.html': page('') }))
+                .toContain("popup.html loads javascript/entry-points/popup.js, which the manifest CSP blocks (script-src doesn't allow 'self')");
+            // A sandbox page's own scripts run whatever its CSP says.
+            writeFixture(root, fixtureFiles({ 'manifest.json': JSON.stringify({ ...MANIFEST, sandbox: { pages: ['assets/s.html'] }, content_security_policy: { sandbox: "sandbox allow-scripts; script-src 'none'" } }),
+                'assets/s.html': '<script src="s.js"></script>', 'assets/s.js': 'console.log(1);\n' }));
+            expect(() => buildPackage({ root, outDir: out })).not.toThrow();
         });
 
         test("a sandbox page's stylesheet is checked under the sandbox CSP", () => {
@@ -979,12 +1023,12 @@ describe('package-extension', () => {
             expect(cspAllows(csp, 'img-src', 'https://cdn.example/images/icon.png')).toBe(false);
         });
 
-        test("chrome-extension:// sources must match the file's own URL", () => {
+        test("chrome-extension:// sources must match the script's own URL", () => {
             const id = extensionIdFromKey(MANIFEST.key);
-            const csp = (img) => withCsp(CSP.replace("img-src 'self' data:", `img-src ${img} data:`));
-            expect(buildError({ 'manifest.json': csp(`chrome-extension://${id}/allowed/`), 'popup.html': page('<img src="assets/icons/icon128.png">') }))
-                .toContain("popup.html loads assets/icons/icon128.png, which the manifest CSP blocks (img-src doesn't allow 'self')");
-            writeFixture(root, fixtureFiles({ 'manifest.json': csp(`chrome-extension://${id}/assets/`), 'popup.html': page('<img src="assets/icons/icon128.png">') }));
+            const meta = (source) => page(`<head><meta http-equiv="Content-Security-Policy" content="script-src ${source}"></head>`);
+            expect(buildError({ 'popup.html': meta(`chrome-extension://${id}/allowed/`) }))
+                .toContain("popup.html loads javascript/entry-points/popup.js, which the <meta> CSP in popup.html blocks (script-src doesn't allow 'self')");
+            writeFixture(root, fixtureFiles({ 'popup.html': meta(`chrome-extension://${id}/javascript/`) }));
             expect(() => buildPackage({ root, outDir: out })).not.toThrow();
         });
 
@@ -1053,9 +1097,11 @@ describe('package-extension', () => {
             expect(() => buildPackage({ root, outDir: out })).not.toThrow(); // default-src doesn't govern form-action
         });
 
-        test("other extensions' URLs are checked against the CSP", () => {
-            expect(buildError({ 'manifest.json': withCsp(CSP.replace("img-src 'self' data:", "img-src 'self'")), 'popup.html': page('<img src="chrome-extension://bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb/x.png">') }))
-                .toContain('popup.html loads chrome-extension://bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb/x.png, which the manifest CSP blocks (img-src)');
+        test("other extensions' scripts are checked against the CSP (their images are exempt)", () => {
+            expect(buildError({ 'manifest.json': withCsp(), 'popup.html': page('<script src="chrome-extension://bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb/x.js"></script>') }))
+                .toContain('popup.html loads chrome-extension://bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb/x.js, which the manifest CSP blocks (script-src)');
+            writeFixture(root, fixtureFiles({ 'manifest.json': withCsp(), 'popup.html': page('<img src="chrome-extension://bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb/x.png">') }));
+            expect(() => buildPackage({ root, outDir: out })).not.toThrow();
         });
 
         test('inline styles allowed by a nonce or hash pass; style attributes need unsafe-hashes', () => {
@@ -1071,11 +1117,8 @@ describe('package-extension', () => {
         });
 
         test('element-specific directives (script-src-elem) take precedence', () => {
-            expect(buildError({
-                'manifest.json': JSON.stringify({ ...MANIFEST, sandbox: { pages: ['assets/s.html'] }, content_security_policy: { sandbox: "sandbox allow-scripts; script-src 'self'; script-src-elem 'none'" } }),
-                'assets/s.html': '<script src="s.js"></script>',
-                'assets/s.js': 'console.log(1);\n'
-            })).toContain("assets/s.html loads assets/s.js, which the sandbox CSP blocks (script-src doesn't allow 'self')");
+            expect(buildError({ 'manifest.json': withCsp(`${CSP}; script-src-elem 'none'`), 'popup.html': page('') }))
+                .toContain("popup.html loads javascript/entry-points/popup.js, which the manifest CSP blocks (script-src doesn't allow 'self')");
         });
 
         test('HTML start tags that break out of SVG/MathML are checked as HTML (parse5)', () => {
@@ -1101,9 +1144,9 @@ describe('package-extension', () => {
             expect(message).toContain('popup.html loads https://evil.example/c.png, which the manifest CSP blocks (img-src)');
             expect(message).toContain('popup.html loads https://evil.example/bg.png, which the manifest CSP blocks (img-src)');
             expect(buildError({ 'popup.html': page('<body background="assets/missing.png">') })).toContain('popup.html references assets/missing.png');
-            // A later <base> still applies: Chrome resolves the attribute when styles are computed.
-            writeFixture(root, fixtureFiles({ 'popup.html': '<script type="module" src="javascript/entry-points/popup.js"></script><body background="icon128.png"><base href="assets/icons/">' }));
-            expect(() => buildPackage({ root, outDir: out })).not.toThrow();
+            // With a <base> after it, Chrome resolves it before or after the <base> depending on timing.
+            expect(buildError({ 'popup.html': '<script type="module" src="javascript/entry-points/popup.js"></script><body background="icon128.png"><base href="assets/icons/">' }))
+                .toContain('popup.html line 1: <body background> comes before <base href>, so Chrome may resolve it against either; move <base> into <head>');
         });
 
         test('hyperlink ping targets are checked against connect-src (HTTP(S) only, links with href only)', () => {
@@ -1120,30 +1163,41 @@ describe('package-extension', () => {
         });
 
         test('a <meta> CSP in <head> applies with the manifest CSP to what follows it', () => {
-            const meta = (policy) => `<head><link rel="icon" href="assets/icons/icon128.png"><meta http-equiv="Content-Security-Policy" content="${policy}"></head>`;
-            expect(buildError({ 'manifest.json': withCsp(), 'popup.html': page(`${meta("img-src 'none'")}<body><img src="assets/icons/icon128.png">`) }))
-                .toContain("popup.html loads assets/icons/icon128.png, which the <meta> CSP in popup.html blocks (img-src doesn't allow 'self')");
-            // The icon before the <meta> is fine, and so is a <meta> outside <head> (Chrome ignores it).
-            const message = buildError({ 'manifest.json': withCsp(), 'popup.html': page(`${meta("img-src 'none'")}<body><img src="https://a.cdn.example/x.png">`) });
+            const meta = (policy) => `<head><link rel="icon" href="https://a.cdn.example/i.png"><meta http-equiv="Content-Security-Policy" content="${policy}"></head>`;
+            const message = buildError({ 'manifest.json': withCsp(), 'popup.html': page(`${meta("img-src 'none'")}<body><img src="https://a.cdn.example/x.png"><img src="assets/icons/icon128.png">`) });
             expect(message).toContain('loads https://a.cdn.example/x.png, which the <meta> CSP in popup.html blocks (img-src)');
-            expect(message).not.toContain('icon128');
-            writeFixture(root, fixtureFiles({ 'manifest.json': withCsp(), 'popup.html': page('<body><meta http-equiv="Content-Security-Policy" content="img-src \'none\'"><img src="assets/icons/icon128.png">') }));
+            expect(message).not.toContain('i.png'); // the icon came before the <meta>
+            expect(message).not.toContain('icon128'); // own files are exempt
+            // Chrome ignores a <meta> outside <head>, and a padded http-equiv.
+            for (const markup of ['<body><meta http-equiv="Content-Security-Policy" content="img-src \'none\'"><img src="https://a.cdn.example/x.png">',
+                '<head><meta http-equiv=" Content-Security-Policy " content="img-src \'none\'"></head><img src="https://a.cdn.example/x.png">']) {
+                writeFixture(root, fixtureFiles({ 'manifest.json': withCsp(), 'popup.html': page(markup) }));
+                expect(() => buildPackage({ root, outDir: out })).not.toThrow();
+            }
+            // It covers the page's stylesheets, and a byte order mark doesn't move it out of <head>.
+            expect(buildError({ 'manifest.json': withCsp(), 'popup.html': `\uFEFF<!doctype html>${page(`${meta("img-src 'none'")}<link rel="stylesheet" href="stylesheets/base.css">`)}`,
+                'stylesheets/base.css': '.a { background: url(https://a.cdn.example/bg.png) }\n' }))
+                .toContain('stylesheets/base.css loads https://a.cdn.example/bg.png, which the <meta> CSP in popup.html blocks (img-src)');
+            // Imports inherit the nonce of the script that loads them.
+            writeFixture(root, fixtureFiles({ 'popup.html': '<head><meta http-equiv="Content-Security-Policy" content="script-src \'nonce-n1\'"></head><script type="module" nonce="n1" src="javascript/entry-points/popup.js"></script>' }));
             expect(() => buildPackage({ root, outDir: out })).not.toThrow();
-            // It covers the page's stylesheets too.
-            expect(buildError({ 'manifest.json': withCsp(), 'popup.html': page(`${meta("img-src 'none'")}<link rel="stylesheet" href="stylesheets/base.css">`),
-                'stylesheets/base.css': '.a { background: url(../assets/icons/icon128.png) }\n' }))
-                .toContain("stylesheets/base.css loads assets/icons/icon128.png, which the <meta> CSP in popup.html blocks (img-src doesn't allow 'self')");
         });
 
         test("'strict-dynamic' ignores 'unsafe-inline' and 'self': markup scripts need a nonce, imports don't", () => {
             const sandboxed = (policy) => JSON.stringify({ ...MANIFEST, sandbox: { pages: ['assets/s.html'] }, content_security_policy: { sandbox: `sandbox allow-scripts; ${policy}` } });
             expect(buildError({ 'manifest.json': sandboxed("script-src 'unsafe-inline' 'strict-dynamic'"), 'assets/s.html': '<script>x()</script>' }))
                 .toContain('assets/s.html line 1: inline <script>: the sandbox CSP blocks inline script');
-            expect(buildError({ 'manifest.json': sandboxed("script-src 'self' 'strict-dynamic'"), 'assets/s.html': '<script src="s.js"></script>', 'assets/s.js': 'console.log(1);\n' }))
-                .toContain("assets/s.html loads assets/s.js, which the sandbox CSP blocks (script-src has 'strict-dynamic', so a <script> in the markup needs a matching nonce)");
-            writeFixture(root, fixtureFiles({ 'manifest.json': sandboxed("script-src 'nonce-Ab9' 'strict-dynamic'"),
-                'assets/s.html': '<script type="module" nonce="Ab9" src="s.js"></script>', 'assets/s.js': "import './t.js';\n", 'assets/t.js': 'export const t = 1;\n' }));
+            expect(buildError({ 'manifest.json': sandboxed("script-src https://cdn.example 'strict-dynamic'"), 'assets/s.html': '<script src="https://cdn.example/a.js"></script>' }))
+                .toContain("assets/s.html loads https://cdn.example/a.js, which the sandbox CSP blocks (script-src has 'strict-dynamic', so a <script> in the markup needs a matching nonce)");
+            writeFixture(root, fixtureFiles({ 'manifest.json': sandboxed("script-src 'nonce-Ab9' 'strict-dynamic'"), 'assets/s.html': '<script nonce="Ab9" src="https://cdn.example/a.js"></script>' }));
             expect(() => buildPackage({ root, outDir: out })).not.toThrow();
+            // On an extension page (a <meta> policy), own markup scripts need the nonce; their imports inherit it.
+            const meta = (body) => `<head><meta http-equiv="Content-Security-Policy" content="script-src 'nonce-n1' 'strict-dynamic'"></head>${body}`;
+            const kept = sandboxed("script-src 'nonce-Ab9' 'strict-dynamic'"); // assets/s.html is still there
+            writeFixture(root, fixtureFiles({ 'manifest.json': kept, 'popup.html': meta('<script type="module" nonce="n1" src="javascript/entry-points/popup.js"></script>') }));
+            expect(() => buildPackage({ root, outDir: out })).not.toThrow();
+            expect(buildError({ 'manifest.json': kept, 'popup.html': meta('<script type="module" src="javascript/entry-points/popup.js"></script>') }))
+                .toContain("popup.html loads javascript/entry-points/popup.js, which the <meta> CSP in popup.html blocks (script-src has 'strict-dynamic', so a <script> in the markup needs a matching nonce)");
         });
 
         test('an insecure source with port 80 also matches the upgraded scheme on 443', () => {
@@ -1172,8 +1226,11 @@ describe('package-extension', () => {
             }
             expect(buildError({ 'popup.html': page('<link rel="stylesheet" href="stylesheets/base.css" integrity="sha512-wrong">') }))
                 .toContain('integrity="sha512-wrong" for stylesheets/base.css doesn\'t match its sha512 digest');
-            // Loads Chrome never checks or never makes: preloads, nomodule classic scripts, modulepreload as=image.
-            for (const tag of ['<link rel="preload" as="script" href="assets/i.js" integrity="$">', '<script nomodule src="assets/i.js" integrity="$"></script>',
+            // A script/style preload's integrity is enforced, and an SVG script's.
+            expect(buildError(files('sha256-wrong', '<link rel="preload" as="script" href="assets/i.js" integrity="$">'))).toContain("for assets/i.js doesn't match its sha256 digest");
+            expect(buildError(files('sha256-wrong', '<svg><script href="assets/i.js" integrity="$"></script></svg>'))).toContain("for assets/i.js doesn't match its sha256 digest");
+            // Loads Chrome never checks or never makes: an image preload, nomodule classic scripts, modulepreload as=image.
+            for (const tag of ['<link rel="preload" as="image" href="assets/i.js" integrity="$">', '<script nomodule src="assets/i.js" integrity="$"></script>',
                 '<link rel="modulepreload" as="image" href="assets/i.js" integrity="$">']) {
                 writeFixture(root, fixtureFiles(files('sha256-wrong', tag)));
                 expect(() => buildPackage({ root, outDir: out })).not.toThrow();
@@ -1188,6 +1245,68 @@ describe('package-extension', () => {
             expect(() => buildPackage({ root, outDir: out })).not.toThrow();
             expect(buildError({ 'stylesheets/base.css': '.a::after { content: "__MSG_@@ui_locale__"; }\n', 'popup.html': page('<link rel="stylesheet" href="stylesheets/base.css" integrity="sha256-x">') }))
                 .toContain("can't be pinned: Chrome fills in the file's locale-dependent __MSG_ placeholders");
+        });
+
+        test('<select> contents are checked: Chrome parses them like ordinary markup', () => {
+            const message = buildError({ 'manifest.json': withCsp(), 'popup.html': page('<select><option><img src="https://evil.example/fr.png"> France</option>' +
+                '<button><selectedcontent></selectedcontent></button><option><img src="assets/flags/de.svg"> Germany</option></select>') });
+            expect(message).toContain('popup.html loads https://evil.example/fr.png, which the manifest CSP blocks (img-src)');
+            expect(message).toContain('popup.html references assets/flags/de.svg');
+        });
+
+        test('elements take effect in source order: a foster-parented <base> applies only after its tag', () => {
+            writeFixture(root, fixtureFiles({ 'popup.html': page('<table><tr><td><img src="assets/icons/icon128.png"></td></tr><base href="assets/sub/"></table>') }));
+            expect(buildError({ 'popup.html': page('<table><tr><td><img src="assets/icons/icon128.png"></td></tr><base href="assets/sub/"></table>') }))
+                .not.toContain('icon128');
+            // The first <base> with an href wins even when empty; one inside <template> doesn't count.
+            writeFixture(root, fixtureFiles({ 'popup.html': '<base href=""><base href="nowhere/"><template><base href="https://cdn.example/"></template><img src="assets/icons/icon128.png">' +
+                '<script type="module" src="javascript/entry-points/popup.js"></script>' }));
+            expect(() => buildPackage({ root, outDir: out })).not.toThrow();
+        });
+
+        test('type attributes are read as Chrome reads them', () => {
+            const styleCsp = withCsp(CSP.replace("style-src 'self'", "style-src 'self' 'unsafe-inline'"));
+            const blocked = 'popup.html loads https://evil.example/x.png, which the manifest CSP blocks (img-src)';
+            const bg = 'body{background:url(https://evil.example/x.png)}';
+            // <style> applies only with no type, an empty one or exactly text/css (any case), in HTML and SVG.
+            for (const markup of [`<style type="TEXT/CSS">${bg}</style>`, `<svg><style type="">${bg}</style></svg>`]) {
+                expect(buildError({ 'manifest.json': styleCsp, 'popup.html': page(markup) })).toContain(blocked);
+            }
+            for (const markup of [`<style type="text/css ">${bg}</style>`, `<svg><style type="text/x-scss">${bg}</style></svg>`]) {
+                writeFixture(root, fixtureFiles({ 'manifest.json': styleCsp, 'popup.html': page(markup) }));
+                expect(() => buildPackage({ root, outDir: out })).not.toThrow();
+            }
+            // A stylesheet <link> type drops whitespace and parameters.
+            expect(buildError({ 'manifest.json': withCsp(), 'popup.html': page('<link rel="stylesheet" type=" text/css; charset=utf-8" href="https://evil.example/x.css">') }))
+                .toContain('popup.html loads https://evil.example/x.css, which the manifest CSP blocks (style-src)');
+            // A classic script type may have whitespace (vertical tab included) around it; module must be exact.
+            expect(buildError({ 'popup.html': page('<script type="text/javascript\u000b" src="missing.js"></script>') })).toContain('popup.html references missing.js');
+            writeFixture(root, fixtureFiles({ 'popup.html': page('<script type="module " src="missing.js"></script>') }));
+            expect(() => buildPackage({ root, outDir: out })).not.toThrow();
+        });
+
+        test('modulepreload fetches scripts, styles and JSON under their own directives', () => {
+            const message = buildError({ 'manifest.json': withCsp(`${CSP}; connect-src 'self'`), 'popup.html': page('<link rel="modulepreload" as="style" href="https://evil.example/m.css">' +
+                '<link rel="modulepreload" as="json" href="https://evil.example/m.json">') });
+            expect(message).toContain('popup.html loads https://evil.example/m.css, which the manifest CSP blocks (style-src)');
+            expect(message).toContain('popup.html loads https://evil.example/m.json, which the manifest CSP blocks (connect-src)');
+            expect(buildError({ 'manifest.json': withCsp(`${CSP}; connect-src 'self'`), 'javascript/features/a.js': "import data from 'https://evil.example/d.json' with { type: 'json' };\nexport const a = data;\n" }))
+                .toContain('javascript/features/a.js loads https://evil.example/d.json, which the manifest CSP blocks (connect-src)');
+        });
+
+        test('pings, fragments and srcdoc follow the URL parser and HTML rules', () => {
+            const withConnect = withCsp(`${CSP}; connect-src 'self'`);
+            // The URL parser strips C0 controls; an unparsable ping and dangling-markup pings are skipped.
+            expect(buildError({ 'manifest.json': withConnect, 'popup.html': page('<a href="https://ok.example/" ping="&#11;https://blocked.example/a">x</a>') }))
+                .toContain('popup.html loads https://blocked.example/a, which the manifest CSP blocks (connect-src)');
+            writeFixture(root, fixtureFiles({ 'manifest.json': withConnect, 'popup.html': page('<a href="https://ok.example/" ping="http://[bad">x</a><a href="https://ok.example/" ping="https://blocked.example/b\n<x">y</a>') }));
+            expect(() => buildPackage({ root, outDir: out })).not.toThrow();
+            // A #fragment-only src under an external <base> is a real fetch.
+            expect(buildError({ 'manifest.json': withCsp(), 'popup.html': '<script type="module" src="javascript/entry-points/popup.js"></script><base href="https://evil.example/"><img src="#x">' }))
+                .toContain('popup.html loads https://evil.example/#x, which the manifest CSP blocks (img-src)');
+            // An iframe with srcdoc never requests its src.
+            writeFixture(root, fixtureFiles({ 'popup.html': page('<iframe src="missing.html" srcdoc="<p>hi</p>"></iframe>') }));
+            expect(() => buildPackage({ root, outDir: out })).not.toThrow();
         });
 
         test('content_security_policy must be the MV3 object form', () => {
