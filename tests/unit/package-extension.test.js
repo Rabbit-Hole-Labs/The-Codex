@@ -641,6 +641,45 @@ describe('package-extension', () => {
             .toContain('chrome_url_overrides must override exactly one of newtab, history or bookmarks');
     });
 
+    test('&hyphen; and &dash; decode to U+2010, not ASCII -', () => {
+        writeFixture(root, fixtureFiles({ 'assets/-.png': 'png' }));
+        expect(buildError({ 'assets/-.png': 'png', 'popup.html': '<img src="assets/&dash;.png"><script type="module" src="javascript/entry-points/popup.js"></script>' }))
+            .toContain('popup.html references assets/\u2010.png');
+    });
+
+    test('a scheme-relative <base href> resolves against the extension origin', () => {
+        const id = extensionIdFromKey(MANIFEST.key);
+        expect(buildError({
+            'manifest.json': JSON.stringify({ ...MANIFEST, content_security_policy: { extension_pages: "script-src 'self'; object-src 'none'; base-uri 'self'" } }),
+            'popup.html': `<base href="//${id}/stylesheets/"><img src="missing.png"><script type="module" src="../javascript/entry-points/popup.js"></script>`
+        })).toContain('popup.html references stylesheets/missing.png');
+        expect(buildError({
+            'manifest.json': JSON.stringify({ ...MANIFEST, content_security_policy: { extension_pages: "script-src 'self'; object-src 'none'; base-uri 'self'" } }),
+            'popup.html': '<base href="//bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb/sub/"><script type="module" src="javascript/entry-points/popup.js"></script>'
+        })).toContain('is blocked by the manifest CSP (base-uri)');
+    });
+
+    test('an inline <script> inside <svg> fails as uncheckable', () => {
+        expect(buildError({ 'popup.html': '<svg><script>alert(1)</script></svg><script type="module" src="javascript/entry-points/popup.js"></script>' }))
+            .toContain("popup.html line 1: inline <script> inside <svg> isn't supported by the packager");
+    });
+
+    test('declarativeNetRequest rulesets are declared and shaped correctly', () => {
+        const dnr = (rules, resource = {}) => ({
+            'manifest.json': JSON.stringify({ ...MANIFEST, declarative_net_request: { rule_resources: [{ id: 'r', enabled: true, path: 'assets/rules.json', ...resource }] } }),
+            'assets/rules.json': typeof rules === 'string' ? rules : JSON.stringify(rules)
+        });
+        const good = [{ id: 1, action: { type: 'block' }, condition: { urlFilter: 'ads' } }];
+        writeFixture(root, fixtureFiles(dnr(good)));
+        expect(() => buildPackage({ root, outDir: out })).not.toThrow();
+        expect(buildError(dnr('{ not json'))).toContain('assets/rules.json: declarativeNetRequest ruleset is not valid JSON');
+        const message = buildError(dnr([{ id: 1, action: { type: 'nuke' }, condition: {} }, { id: 1, action: { type: 'block' } }]));
+        expect(message).toContain('assets/rules.json rule 0: action.type must be one of');
+        expect(message).toContain('assets/rules.json rule 1: duplicate id 1');
+        expect(message).toContain('assets/rules.json rule 1: condition must be an object');
+        expect(buildError(dnr(good, { enabled: 'yes' }))).toContain('declarative_net_request.rule_resources[0] needs a string id, a boolean enabled and a string path');
+    });
+
     test('a scalar or non-string icon value is rejected instead of dropped', () => {
         expect(buildError({ 'manifest.json': JSON.stringify({ ...MANIFEST, action: { default_popup: 'popup.html', default_icon: 5 } }) }))
             .toContain('manifest "action" has an unexpected shape');
@@ -850,6 +889,40 @@ describe('package-extension', () => {
             expect(() => buildPackage({ root, outDir: out })).not.toThrow();
             expect(buildError({ 'manifest.json': sandboxed("sandbox allow-scripts; script-src 'nonce-AbC123'"), 'assets/s.html': '<script nonce="abc123">x()</script>' }))
                 .toContain('assets/s.html line 1: inline <script>: the sandbox CSP blocks inline script');
+        });
+
+        test("Chrome's minimum script-src applies when a custom policy omits it", () => {
+            expect(buildError({ 'manifest.json': withCsp("style-src 'self' https://fonts.example.com"), 'popup.html': page('<script>x()</script>') }))
+                .toContain('popup.html line 1: inline <script>: the manifest CSP blocks inline script');
+        });
+
+        test('a source without a scheme only matches the extension scheme', () => {
+            const csp = parseCsp('img-src cdn.example');
+            expect(cspAllows(csp, 'img-src', 'https://cdn.example/x.png')).toBe(false);
+            expect(cspAllows(csp, 'img-src', 'chrome-extension://cdn.example/x.png')).toBe(true);
+        });
+
+        test('preload links are checked under the directive of their destination', () => {
+            const message = buildError({
+                'manifest.json': withCsp(),
+                'popup.html': page('<link rel="preload" as="image" href="https://evil.example/x.png"><link rel="preload" as="font" href="https://evil.example/f.woff2">' +
+                    '<link rel="preload" as="image" href="assets/missing.png">')
+            });
+            expect(message).toContain('popup.html loads https://evil.example/x.png, which the manifest CSP blocks (img-src)');
+            expect(message).toContain('popup.html loads https://evil.example/f.woff2, which the manifest CSP blocks (font-src)');
+            expect(message).toContain('popup.html references assets/missing.png');
+        });
+
+        test('form targets: local ones must exist; external ones obey form-action (no default-src fallback)', () => {
+            const message = buildError({
+                'manifest.json': withCsp(`${CSP}; form-action 'self'`),
+                'popup.html': page('<form action="missing.html"></form><form action="https://evil.example/post"><button formaction="gone.html">x</button></form>')
+            });
+            expect(message).toContain('popup.html references missing.html');
+            expect(message).toContain('popup.html references gone.html');
+            expect(message).toContain('popup.html loads https://evil.example/post, which the manifest CSP blocks (form-action)');
+            writeFixture(root, fixtureFiles({ 'manifest.json': withCsp("default-src 'self'; script-src 'self'; object-src 'none'; img-src 'self' data:; style-src 'self' https://fonts.example.com"), 'popup.html': page('<form action="https://ok.example/post"></form>') }));
+            expect(() => buildPackage({ root, outDir: out })).not.toThrow(); // default-src doesn't govern form-action
         });
 
         test('content_security_policy must be the MV3 object form', () => {

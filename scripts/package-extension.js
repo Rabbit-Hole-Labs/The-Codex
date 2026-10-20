@@ -210,6 +210,22 @@ export function validateManifest(manifest) {
             errors.push(`${key} must be an array of strings`);
         }
     }
+    const dnr = manifest.declarative_net_request;
+    if (dnr && typeof dnr === 'object' && !Array.isArray(dnr)) {
+        const resources = dnr.rule_resources;
+        if (!Array.isArray(resources)) {
+            errors.push('declarative_net_request.rule_resources must be an array');
+        } else {
+            const ids = new Set();
+            resources.forEach((resource, index) => {
+                const ok = resource && typeof resource === 'object' && typeof resource.id === 'string' && resource.id &&
+                    typeof resource.enabled === 'boolean' && typeof resource.path === 'string' && resource.path;
+                if (!ok) errors.push(`declarative_net_request.rule_resources[${index}] needs a string id, a boolean enabled and a string path`);
+                else if (ids.has(resource.id)) errors.push(`declarative_net_request.rule_resources[${index}] repeats the ruleset id "${resource.id}"`);
+                else ids.add(resource.id);
+            });
+        }
+    }
     if (Array.isArray(manifest.content_scripts)) {
         const strings = (value) => Array.isArray(value) && value.length > 0 && value.every((item) => typeof item === 'string' && item);
         manifest.content_scripts.forEach((entry, index) => {
@@ -283,7 +299,7 @@ const isExternal = (ref) => /^[a-z][a-z0-9+.-]*:/i.test(ref) || ref.startsWith('
 const NAMED_ENTITIES = {
     amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: '\u00A0', sol: '/', bsol: '\\', colon: ':', semi: ';',
     comma: ',', period: '.', excl: '!', quest: '?', num: '#', dollar: '$', percnt: '%', commat: '@', ast: '*',
-    midast: '*', plus: '+', equals: '=', lowbar: '_', hyphen: '-', dash: '-', lpar: '(', rpar: ')', lsqb: '[',
+    midast: '*', plus: '+', equals: '=', lowbar: '_', hyphen: '\u2010', dash: '\u2010', lpar: '(', rpar: ')', lsqb: '[',
     lbrack: '[', rsqb: ']', rbrack: ']', lcub: '{', lbrace: '{', rcub: '}', rbrace: '}', verbar: '|', vert: '|',
     tilde: '~', grave: '`', Hat: '^', Tab: '\t', NewLine: '\n'
 };
@@ -663,6 +679,11 @@ function htmlRefs(html, inheritedBase = null, scripting = true) {
         if (attrs.has('style')) styles.push(attrs.get('style'));
         const src = attrs.get('src');
         const href = attrs.get('href');
+        if (attrs.has('formaction')) add(attrs.get('formaction'), 'form-action'); // button/input submit target
+        if (tag.foreign && name === 'script' && !attrs.has('href') && !attrs.has('xlink:href')) {
+            // An SVG <script>'s body is foreign content, tokenized as markup: it can't be checked.
+            problems.push(`line ${line}: inline <script> inside <svg> isn't supported by the packager (its body can't be checked); load it from a file`);
+        }
         if (tag.foreign && attrs.has('href') && !attrs.get('href').trim().startsWith('#')) {
             // SVG 2 href: image/feImage fetch an image, script a script; use/a etc. just refer.
             add(href, name === 'image' || name === 'feimage' ? 'img-src' : name === 'script' ? 'script-src' : null);
@@ -694,6 +715,7 @@ function htmlRefs(html, inheritedBase = null, scripting = true) {
                 if (rel.includes('stylesheet')) add(href, 'style-src');
                 else if (rel.includes('icon') || rel.includes('apple-touch-icon')) add(href, 'img-src');
                 else if (rel.includes('modulepreload')) add(href, 'script-src');
+                else if (rel.includes('preload')) add(href, PRELOAD_DIRECTIVES[(attrs.get('as') || '').trim().toLowerCase()] ?? null);
                 else if (rel.includes('manifest')) add(href, 'manifest-src');
                 else if (!rel.includes('preconnect') && !rel.includes('dns-prefetch')) add(href, null);
                 break;
@@ -738,6 +760,9 @@ function htmlRefs(html, inheritedBase = null, scripting = true) {
             case 'base':
                 if (!base && href !== undefined && href.trim()) base = { href: href.trim(), line };
                 break;
+            case 'form':
+                add(attrs.get('action'), 'form-action');
+                break;
             case '':
                 // a foreign (SVG/MathML) element: its href was handled above
                 add(src, null);
@@ -757,6 +782,18 @@ function htmlRefs(html, inheritedBase = null, scripting = true) {
 /** Chrome's default extension-pages CSP for MV3 when the manifest sets none. */
 const DEFAULT_MV3_CSP = "script-src 'self'; object-src 'self';";
 
+/**
+ * Chrome enforces script-src 'self' and object-src 'self' on extension pages even
+ * when a custom policy omits them, so a missing directive (with no default-src)
+ * gets that minimum instead of meaning "unrestricted".
+ */
+function withMinimumCsp(directives) {
+    for (const directive of ['script-src', 'object-src']) {
+        if (!directives.has(directive) && !directives.has('default-src')) directives.set(directive, ["'self'"]);
+    }
+    return directives;
+}
+
 /** Chrome's default CSP for manifest sandbox pages. */
 const DEFAULT_SANDBOX_CSP = "sandbox allow-scripts allow-forms allow-popups allow-modals; script-src 'self' 'unsafe-inline' 'unsafe-eval'; child-src 'self';";
 
@@ -768,7 +805,18 @@ function baseUriAllows(csp, href, local) {
     return cspAllows(new Map([['base-uri', sources]]), 'base-uri', href);
 }
 
-const CSP_FALLBACKS = { 'frame-src': ['child-src', 'default-src'] };
+const CSP_FALLBACKS = {
+    'frame-src': ['child-src', 'default-src'],
+    'worker-src': ['child-src', 'script-src', 'default-src'],
+    'form-action': [] // no default-src fallback
+};
+
+/** CSP directive for each <link rel=preload as=...> destination. */
+const PRELOAD_DIRECTIVES = {
+    image: 'img-src', script: 'script-src', style: 'style-src', font: 'font-src', fetch: 'connect-src',
+    audio: 'media-src', video: 'media-src', track: 'media-src', document: 'frame-src', embed: 'object-src',
+    object: 'object-src', worker: 'worker-src', sharedworker: 'worker-src'
+};
 
 /** Lower-cases a CSP source's keyword, scheme and host, keeping any path's case (paths match case-sensitively). */
 const normalizeSource = (source) => {
@@ -791,7 +839,7 @@ export function parseCsp(policy) {
 }
 
 const sourcesFor = (csp, directive) => {
-    const name = [directive, ...(CSP_FALLBACKS[directive] || ['default-src'])].find((d) => csp.has(d));
+    const name = [directive, ...(CSP_FALLBACKS[directive] ?? ['default-src'])].find((d) => csp.has(d));
     return name ? csp.get(name) : null;
 };
 
@@ -818,7 +866,8 @@ function sourceMatches(source, parsed) {
     const m = /^(?:([a-z][a-z0-9+.-]*):\/\/)?(\*|(?:\*\.)?[^/:]+)(?::(\d+|\*))?(\/.*)?$/.exec(source);
     if (!m) return false;
     const [, sourceScheme, host, port, path] = m;
-    if (sourceScheme ? `${sourceScheme}:` !== scheme && !(sourceScheme === 'http' && scheme === 'https:') : !/^https?:$/.test(scheme)) {
+    // A source without a scheme matches only the protected page's scheme, chrome-extension: here.
+    if (sourceScheme ? `${sourceScheme}:` !== scheme && !(sourceScheme === 'http' && scheme === 'https:') : scheme !== 'chrome-extension:') {
         return false;
     }
     const hostname = parsed.hostname.toLowerCase();
@@ -928,27 +977,6 @@ export function extractRefs(file, text, { classic = false, csp = null, scripting
     const result = { refs: [], uses: [], external: [], errors: [], dynamicImports: 0, classicScripts: [], inline: [], inlineStyles: false };
     const kind = (/\.(html?|m?js|css)$/i.exec(file)?.[1] || '').toLowerCase();
     let baseUsable = true;
-    // Resolves url (relative to `base` when a <base href> applies) to a local path or an absolute URL.
-    const locate = (url, base) => {
-        const trimmed = url.trim();
-        if (base && baseUsable && !isExternal(trimmed)) {
-            if (/^[a-z][a-z0-9+.-]*:/i.test(base)) {
-                try {
-                    return { external: new URL(trimmed, base).href };
-                } catch {
-                    return {};
-                }
-            }
-            const resolvedBase = resolveRef(file, base) ?? '.';
-            const baseDir = base.endsWith('/') ? resolvedBase.replace(/\/$/, '') || '.' : posix.dirname(resolvedBase);
-            return { local: resolveRef(posix.join(baseDir, '_'), trimmed) };
-        }
-        const local = resolveRef(file, trimmed);
-        if (local) return { local };
-        // A scheme-relative URL takes the page's scheme: chrome-extension://.
-        if (trimmed.startsWith('//')) return { external: `chrome-extension:${trimmed}` };
-        return /^[a-z][a-z0-9+.-]*:/i.test(trimmed) ? { external: trimmed } : {};
-    };
     // chrome-extension://<this extension's id>/path is one of our own files.
     const ownPrefix = extensionId ? `chrome-extension://${extensionId}/` : null;
     const ownPath = (url) => {
@@ -958,6 +986,37 @@ export function extractRefs(file, text, { classic = false, csp = null, scripting
         } catch {
             return null;
         }
+    };
+    // A <base href> as either a local directory or an external base URL (scheme-relative takes chrome-extension:).
+    const baseInfo = (base) => {
+        const href = base.trim().startsWith('//') ? `chrome-extension:${base.trim()}` : base.trim();
+        if (/^[a-z][a-z0-9+.-]*:/i.test(href)) {
+            const own = ownPath(href);
+            if (own === null) return { externalBase: href };
+            return { localDir: own.endsWith('/') ? own.replace(/\/$/, '') || '.' : posix.dirname(own) };
+        }
+        const resolvedBase = resolveRef(file, href) ?? '.';
+        return { localDir: href.endsWith('/') ? resolvedBase.replace(/\/$/, '') || '.' : posix.dirname(resolvedBase) };
+    };
+    // Resolves url (relative to `base` when a <base href> applies) to a local path or an absolute URL.
+    const locate = (url, base) => {
+        const trimmed = url.trim();
+        if (base && baseUsable && !isExternal(trimmed)) {
+            const info = baseInfo(base);
+            if (info.externalBase) {
+                try {
+                    return { external: new URL(trimmed, info.externalBase).href };
+                } catch {
+                    return {};
+                }
+            }
+            return { local: resolveRef(posix.join(info.localDir, '_'), trimmed) };
+        }
+        const local = resolveRef(file, trimmed);
+        if (local) return { local };
+        // A scheme-relative URL takes the page's scheme: chrome-extension://.
+        if (trimmed.startsWith('//')) return { external: `chrome-extension:${trimmed}` };
+        return /^[a-z][a-z0-9+.-]*:/i.test(trimmed) ? { external: trimmed } : {};
     };
     const add = ({ url, directive, base = null }) => {
         const located = locate(url, base);
@@ -992,7 +1051,7 @@ export function extractRefs(file, text, { classic = false, csp = null, scripting
         const page = htmlRefs(text, null, scripting);
         result.errors.push(...page.problems.map((item) => `${file} ${item}`));
         if (page.base) {
-            const local = !/^[a-z][a-z0-9+.-]*:/i.test(page.base.href);
+            const local = baseInfo(page.base.href).localDir !== undefined;
             if (!baseUriAllows(csp, page.base.href, local)) {
                 baseUsable = false;
                 result.errors.push(`${file} line ${page.base.line}: <base href="${page.base.href}"> is blocked by the manifest CSP (base-uri), so Chrome ignores it; remove it`);
@@ -1051,7 +1110,7 @@ export function checkReferences(root, files, manifest) {
     const edges = new Map([['manifest.json', []]]);
     const usesDynamicImport = new Set();
     const policy = manifest.content_security_policy?.extension_pages;
-    const csp = parseCsp(typeof policy === 'string' ? policy : DEFAULT_MV3_CSP);
+    const csp = withMinimumCsp(parseCsp(typeof policy === 'string' ? policy : DEFAULT_MV3_CSP));
     const sandboxPolicy = manifest.content_security_policy?.sandbox;
     const sandboxCsp = parseCsp(typeof sandboxPolicy === 'string' ? sandboxPolicy : DEFAULT_SANDBOX_CSP);
     const sandboxPages = new Set((Array.isArray(manifest.sandbox?.pages) ? manifest.sandbox.pages : [])
@@ -1163,6 +1222,38 @@ export function checkReferences(root, files, manifest) {
                 }
             }
         }
+    }
+    // Static declarativeNetRequest rulesets: Chrome silently ignores invalid rules in a packed
+    // extension, so check each file's shape (JSON array of rules with unique positive integer
+    // ids, an action with a known type and a condition object).
+    const RULE_ACTIONS = new Set(['block', 'redirect', 'allow', 'upgradeScheme', 'modifyHeaders', 'allowAllRequests']);
+    for (const resource of Array.isArray(manifest.declarative_net_request?.rule_resources) ? manifest.declarative_net_request.rule_resources : []) {
+        if (typeof resource?.path !== 'string') continue;
+        const path = posix.normalize(resource.path.replace(/^\//, ''));
+        if (!packaged.has(path)) continue; // reported as a missing reference above
+        let rules;
+        try {
+            rules = JSON.parse(read(path));
+        } catch (error) {
+            errors.push(`${path}: declarativeNetRequest ruleset is not valid JSON (${error.message})`);
+            continue;
+        }
+        if (!Array.isArray(rules)) {
+            errors.push(`${path}: declarativeNetRequest ruleset must be a JSON array of rules`);
+            continue;
+        }
+        const ruleIds = new Set();
+        rules.forEach((rule, index) => {
+            const where = `${path} rule ${index}`;
+            if (!rule || typeof rule !== 'object' || Array.isArray(rule)) return errors.push(`${where}: must be an object`);
+            if (!Number.isInteger(rule.id) || rule.id < 1) errors.push(`${where}: id must be a positive integer`);
+            else if (ruleIds.has(rule.id)) errors.push(`${where}: duplicate id ${rule.id}`);
+            else ruleIds.add(rule.id);
+            if ('priority' in rule && (!Number.isInteger(rule.priority) || rule.priority < 1)) errors.push(`${where}: priority must be a positive integer`);
+            if (!rule.action || typeof rule.action !== 'object' || !RULE_ACTIONS.has(rule.action.type)) errors.push(`${where}: action.type must be one of ${[...RULE_ACTIONS].join(', ')}`);
+            if (!rule.condition || typeof rule.condition !== 'object' || Array.isArray(rule.condition)) errors.push(`${where}: condition must be an object`);
+            return undefined;
+        });
     }
     // Extension service workers don't support import(); check the worker's whole module graph.
     const worker = typeof manifest.background?.service_worker === 'string'
