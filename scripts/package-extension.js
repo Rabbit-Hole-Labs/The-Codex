@@ -615,7 +615,11 @@ export function scanHtml(html, { scripting = true } = {}) {
     const source = html.replace(/^\uFEFF/, ''); // a byte order mark is consumed by decoding, not parsed
     const options = { scriptingEnabled: scripting, sourceCodeLocationInfo: true };
     const tags = [];
-    const visit = (node, context) => {
+    // An explicit stack, not recursion: Chrome accepts markup nested thousands deep.
+    const stack = [{ node: parseHtml(source, options), context: { line: 1, offset: -1, lineDelta: 0, offsetDelta: 0, inHead: false, inTemplate: false, skip: null } }];
+    while (stack.length) {
+        const { node, context } = stack.pop();
+        const work = [];
         for (const child of node.childNodes ?? []) {
             if (!child.tagName) continue;
             const name = child.tagName.toLowerCase(); // parse5 keeps SVG's camelCase names (foreignObject)
@@ -639,23 +643,26 @@ export function scanHtml(html, { scripting = true } = {}) {
             }
             const inner = { ...context, line, offset: location ? location.startOffset + context.offsetDelta : context.offset, inHead: context.inHead || name === 'head' };
             if (child.content) {
-                if (!context.skip) visit(child.content, { ...inner, inTemplate: true }); // a <template>'s children live in its content fragment
+                if (!context.skip) work.push({ node: child.content, context: { ...inner, inTemplate: true } }); // a <template>'s children live in its content fragment
             } else {
-                visit(child, inner);
+                work.push({ node: child, context: inner });
             }
             if (name === 'select' && ns === 'html' && location?.startTag && !context.skip) {
                 const start = location.startTag.endOffset;
                 const end = location.endTag?.startOffset ?? location.endOffset;
-                visit(parseFragment(source.slice(start, end), options), {
-                    ...inner,
-                    skip: SELECT_KEPT, // already in the tree (their descendants are not)
-                    offsetDelta: context.offsetDelta + start,
-                    lineDelta: context.lineDelta + location.startTag.endLine - 1
+                work.push({
+                    node: parseFragment(source.slice(start, end), options),
+                    context: {
+                        ...inner,
+                        skip: SELECT_KEPT, // already in the tree (their descendants are not)
+                        offsetDelta: context.offsetDelta + start,
+                        lineDelta: context.lineDelta + location.startTag.endLine - 1
+                    }
                 });
             }
         }
-    };
-    visit(parseHtml(source, options), { line: 1, offset: -1, lineDelta: 0, offsetDelta: 0, inHead: false, inTemplate: false, skip: null });
+        stack.push(...work.reverse());
+    }
     // Source order: the parser moves some elements (foster parenting, <head>/<body> relocation),
     // but each takes effect when its tag is parsed.
     return tags.map((tag, index) => ({ tag, index }))
@@ -733,6 +740,7 @@ function htmlRefs(html, inheritedBase = null, scripting = true, inheritedPolicie
     const varUses = new Set(); // custom properties the page's CSS reads with var()
     const varChains = []; // [holder, read] custom property pairs (see cssScan)
     const pauses = []; // positions of parser-blocking scripts and stylesheets (they let styles apply)
+    const srcdocs = []; // nested srcdoc documents: their custom property readers
     const registeredUrls = new Set(); // custom properties registered with @property syntax "<url>"
     let base = null; // the first <base> with an href (an empty href keeps the fallback base)
     const currentBase = () => (base ? base.href || inheritedBase : inheritedBase);
@@ -895,8 +903,10 @@ function htmlRefs(html, inheritedBase = null, scripting = true, inheritedPolicie
                     // Custom properties don't cross documents: the srcdoc's url()s in them resolve within it.
                     const nestedRead = (property, seen = new Set()) => !seen.has(property) && (seen.add(property), nested.varUses.has(property) ||
                         nested.varChains.some(([holder, read]) => read === property && (nested.registeredUrls.has(holder) || nestedRead(holder, seen))));
-                    urls.push(...nested.urls.flatMap((item) => (item.custom === undefined ? [{ ...item, ...opaque }]
-                        : nested.registeredUrls.has(item.custom) || nestedRead(item.custom) ? [{ ...item, custom: undefined, ...opaque }] : [])));
+                    const srcdoc = `${line}:${urls.length}`; // the srcdoc document's loads, for custom properties (see checkReferences)
+                    urls.push(...nested.urls.flatMap((item) => (item.custom === undefined ? [{ srcdoc, ...item, ...opaque }]
+                        : nested.registeredUrls.has(item.custom) || nestedRead(item.custom) ? [{ srcdoc, ...item, custom: undefined, ...opaque }] : [])));
+                    srcdocs.push({ id: srcdoc, varUses: [...nested.varUses], varChains: nested.varChains }, ...nested.srcdocs);
                     problems.push(...nested.problems.map((item) => `line ${line} srcdoc ${item}`));
                     inlineScripts.push(...nested.inlineScripts.map((script) => ({ ...script, ...opaque, line: `${line} srcdoc line ${script.line}` })));
                     importMaps.push(...nested.importMaps.map((map) => ({ ...map, line: `${line} srcdoc line ${map.line}` })));
@@ -965,7 +975,7 @@ function htmlRefs(html, inheritedBase = null, scripting = true, inheritedPolicie
     }
     for (const script of inlineScripts) script.policies = [...policies];
     for (const map of importMaps) map.policies = [...policies];
-    return { urls, problems, inline, inlineScripts, importMaps, classicScripts, inertScripts, inlineStyles: styleItems, base, policies, varUses, varChains, registeredUrls };
+    return { urls, problems, inline, inlineScripts, importMaps, classicScripts, inertScripts, inlineStyles: styleItems, base, policies, varUses, varChains, registeredUrls, srcdocs };
 }
 
 // CSP ---------------------------------------------------------------------------
@@ -1222,7 +1232,7 @@ function dynamicImports(file, source) {
         const lit = literal.exec(source);
         if (lit) {
             // import(path, { with: { type: 'json' | 'css' } }) loads a JSON or CSS module.
-            const options = /\s*\{\s*with\s*:\s*\{\s*type\s*:\s*(['"])(json|css)\1\s*\}\s*\}\s*,?\s*\)/y;
+            const options = /\s*\{\s*with\s*:\s*\{\s*type\s*:\s*(['"])(json|css)\1\s*,?\s*\}\s*,?\s*\}\s*,?\s*\)/y;
             options.lastIndex = literal.lastIndex;
             const typed = lit[0].trimEnd().endsWith(',') ? options.exec(source) : null;
             specifiers.push(typed ? { specifier: lit[1] ?? lit[2] ?? lit[3], type: typed[2] } : lit[1] ?? lit[2] ?? lit[3]);
@@ -1303,12 +1313,12 @@ function locator(file, extensionId) {
 export function extractRefs(file, text, { classic = false, csp = null, scripting = true, extensionId = null } = {}) {
     const result = {
         refs: [], uses: [], external: [], errors: [], dynamicImports: 0, classicScripts: [], inertScripts: [], inline: [], inlineStyles: [],
-        integrity: [], mapIntegrity: [], preloads: [], opaqueRefs: [], policies: [], customRefs: [], varUses: [], varChains: [], registeredUrls: [], documentBase: null
+        integrity: [], mapIntegrity: [], preloads: [], opaqueRefs: [], srcdocRefs: [], srcdocs: [], policies: [], customRefs: [], varUses: [], varChains: [], registeredUrls: [], documentBase: null
     };
     const kind = (/\.(html?|m?js|css)$/i.exec(file)?.[1] || '').toLowerCase();
     const { ownPrefix, ownPath, baseInfo, locate } = locator(file, extensionId);
     let baseUsable = true;
-    const add = ({ url, directive, base = null, policies = [], nonce = null, parserInserted = false, integrity, line, ping = false, fragments = false, custom, cors = false, module = false, preload, hint = false, mapAddress = false, sandboxed = false, order = null }) => {
+    const add = ({ url, directive, base = null, policies = [], nonce = null, parserInserted = false, integrity, line, ping = false, fragments = false, custom, cors = false, module = false, preload, hint = false, mapAddress = false, sandboxed = false, order = null, srcdoc = null }) => {
         if (custom && !/^([a-z][a-z0-9+.-]*:|\/|#)/i.test(urlTrim(url))) {
             // Resolved where var() substitutes the property: see checkReferences.
             result.customRefs.push({ name: custom, url: urlTrim(url), directive });
@@ -1331,6 +1341,7 @@ export function extractRefs(file, text, { classic = false, csp = null, scripting
         if (local) {
             result.refs.push(local);
             if (sandboxed) result.opaqueRefs.push(local);
+            if (srcdoc) result.srcdocRefs.push({ id: srcdoc, path: local });
             if (directive) result.uses.push({ path: local, ...load });
             if (integrity !== undefined) result.integrity.push({ path: local, integrity, line });
             if (preload) result.preloads.push({ path: local, order, ...preload });
@@ -1451,6 +1462,7 @@ export function extractRefs(file, text, { classic = false, csp = null, scripting
         result.varUses = [...page.varUses];
         result.varChains = page.varChains;
         result.registeredUrls = [...page.registeredUrls];
+        result.srcdocs = page.srcdocs;
     } else if (kind === 'js' || kind === 'mjs') {
         const dynamic = dynamicImports(file, text);
         result.errors.push(...dynamic.errors);
@@ -1637,7 +1649,7 @@ export function checkReferences(root, files, manifest) {
         // import, or a font.
         for (const preload of result.preloads) {
             const consumed = loads.some((load) => load.path === preload.path && !load.hint &&
-                (load.from !== page || load.order > preload.order) && (preload.as === 'font'
+                (load.from !== page || load.order == null || load.order > preload.order) && (preload.as === 'font'
                 ? load.directive === 'font-src' && preload.cors
                 : load.directive === (preload.as === 'script' ? 'script-src' : 'style-src') && Boolean(load.cors) === preload.cors && !load.ownIntegrity));
             if (!consumed || !packaged.has(preload.path)) continue;
@@ -1647,9 +1659,12 @@ export function checkReferences(root, files, manifest) {
         }
         // An import map's integrity entry applies to module fetches of that URL with no integrity
         // attribute of their own: module scripts, modulepreloads and imports (not classic scripts).
-        const moduleFetched = new Set(loads.filter((load) => load.module && !load.mapAddress && !(load.from === page && load.integrityAttr)).map((load) => load.path));
+        // A module script or modulepreload with its own integrity attribute fetches the URL once for
+        // the page's module map, so the map's entry for it is never used.
+        const moduleFetched = new Set(loads.filter((load) => load.module && !load.mapAddress).map((load) => load.path));
+        const ownIntegrity = new Set(result.uses.filter((load) => load.module && load.integrityAttr).map((load) => load.path));
         for (const entry of result.mapIntegrity) {
-            if (!moduleFetched.has(entry.path) || !packaged.has(entry.path)) continue;
+            if (!moduleFetched.has(entry.path) || ownIntegrity.has(entry.path) || !packaged.has(entry.path)) continue;
             const problem = integrityProblem(entry.integrity, readFileSync(join(root, entry.path)));
             if (problem) errors.push(`${page} line ${entry.line}: import map integrity "${entry.integrity}" for ${entry.path} ${problem}`);
         }
@@ -1660,22 +1675,38 @@ export function checkReferences(root, files, manifest) {
     // resolves where it is declared (also when it holds a chain).
     const registeredUrls = new Set([...results.values()].flatMap((result) => result.registeredUrls));
     const reachedSheets = new Set(pages.flatMap((page) => [...documentOf(page).all]));
+    // Each document's members: files with their var() readers, chains and custom url()s. A srcdoc
+    // is its own document: the stylesheets it links plus its inline styles (resolved at the page).
+    const member = (file) => ({ file, ...results.get(file) });
+    const cssSheets = (roots) => [...reachFrom(roots)].filter((file) => /\.css$/i.test(file));
     const cssDocuments = [
-        ...pages.map((page) => [...documentOf(page).all].filter((file) => file === page || /\.css$/i.test(file))),
-        ...files.filter((file) => /\.css$/i.test(file) && results.has(file) && !reachedSheets.has(file)).map((file) => [file])
+        ...pages.flatMap((page) => {
+            const result = results.get(page);
+            const fromSrcdoc = new Set(result.srcdocRefs.map((ref) => ref.path));
+            const pageRoots = (edges.get(page) || []).filter((path) => !isPage(path) && !(fromSrcdoc.has(path) &&
+                (edges.get(page) || []).filter((ref) => ref === path).length <= result.srcdocRefs.filter((ref) => ref.path === path).length));
+            return [
+                [member(page), ...cssSheets(pageRoots).map(member)],
+                ...result.srcdocs.map((srcdoc) => [
+                    { file: page, varUses: srcdoc.varUses, varChains: srcdoc.varChains, customRefs: [] },
+                    ...cssSheets(result.srcdocRefs.filter((ref) => ref.id === srcdoc.id).map((ref) => ref.path)).map(member)
+                ])
+            ];
+        }),
+        ...files.filter((file) => /\.css$/i.test(file) && results.has(file) && !reachedSheets.has(file)).map((file) => [member(file)])
     ];
-    for (const sheets of cssDocuments) {
+    for (const members of cssDocuments) {
         const readersOf = (property, seen = new Set()) => {
             if (seen.has(property)) return [];
             seen.add(property);
-            const direct = sheets.filter((file) => results.get(file)?.varUses.includes(property));
-            const viaChains = sheets.flatMap((file) => (results.get(file)?.varChains ?? [])
+            const direct = members.filter((entry) => entry.varUses?.includes(property)).map((entry) => entry.file);
+            const viaChains = members.flatMap((entry) => (entry.varChains ?? [])
                 .filter(([, read]) => read === property)
-                .flatMap(([holder]) => (registeredUrls.has(holder) ? [file] : readersOf(holder, seen))));
+                .flatMap(([holder]) => (registeredUrls.has(holder) ? [entry.file] : readersOf(holder, seen))));
             return [...new Set([...direct, ...viaChains])];
         };
-        for (const file of sheets) {
-            for (const ref of results.get(file)?.customRefs ?? []) {
+        for (const { file, customRefs = [] } of members) {
+            for (const ref of customRefs) {
                 for (const site of registeredUrls.has(ref.name) ? [file] : readersOf(ref.name)) {
                     const siteResult = results.get(site);
                     const base = siteResult.documentBase;

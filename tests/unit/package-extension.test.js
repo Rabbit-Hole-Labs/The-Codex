@@ -866,6 +866,34 @@ describe('package-extension', () => {
         expect(() => buildPackage({ root, outDir: out })).not.toThrow();
     });
 
+    test('deeply nested markup, srcdoc stylesheets and other push-gate cases', () => {
+        // Chrome accepts thousands of nested elements; the scan must not overflow the stack.
+        writeFixture(root, fixtureFiles({ 'popup.html': `${'<div>'.repeat(4000)}x${'</div>'.repeat(4000)}<script type="module" src="javascript/entry-points/popup.js"></script>` }));
+        expect(() => buildPackage({ root, outDir: out })).not.toThrow();
+        // A srcdoc's linked stylesheet is its own document: reusing a token name there is fine...
+        const srcdocPage = (sheet) => '<link rel="stylesheet" href="stylesheets/app.css"><div class="x"></div>' +
+            `<iframe sandbox srcdoc="<link rel=stylesheet href=${sheet}><div class=c></div>"></iframe><script type="module" src="javascript/entry-points/popup.js"></script>`;
+        writeFixture(root, fixtureFiles({ 'stylesheets/app.css': ':root { --icon: url(icons/a.svg); } .x { background-image: var(--icon); }\n', 'stylesheets/icons/a.svg': 'svg',
+            'stylesheets/preview/preview.css': ':root { --icon: url(img/p.svg); } .c { background-image: var(--icon); }\n', 'stylesheets/preview/img/p.svg': 'svg',
+            'popup.html': srcdocPage('stylesheets/preview/preview.css') }));
+        expect(() => buildPackage({ root, outDir: out })).not.toThrow();
+        // ...and its inline styles read the tokens of the sheets it links.
+        expect(buildError({ 'stylesheets/app.css': '.x { color: red }\n', 'stylesheets/preview/tokens.css': ':root { --p: url(gone.svg); }\n',
+            'popup.html': '<iframe srcdoc="<link rel=stylesheet href=stylesheets/preview/tokens.css><style>.c { background-image: var(--p) }</style>"></iframe><script type="module" src="javascript/entry-points/popup.js"></script>' }))
+            .toContain('popup.html uses --p from stylesheets/preview/tokens.css: url(gone.svg) resolves to gone.svg, which is not in the package');
+        // A module script with its own integrity attribute shadows the import map's entry for that URL.
+        const sandboxed = JSON.stringify({ ...MANIFEST, sandbox: { pages: ['assets/s.html'] } });
+        const x = 'export const x = 1;\n';
+        const good = `sha256-${createHash('sha256').update(x).digest('base64')}`;
+        writeFixture(root, fixtureFiles({ 'manifest.json': sandboxed, 'assets/x.js': x,
+            'assets/s.html': `<script type="importmap">{"integrity": {"./x.js": "sha256-wrong"}}</script><script type="module" src="x.js" integrity="${good}"></script><script type="module">import './x.js';</script>` }));
+        expect(() => buildPackage({ root, outDir: out })).not.toThrow();
+        // Prettier's typed import() with trailing commas.
+        writeFixture(root, fixtureFiles({ 'manifest.json': sandboxed, 'assets/s.html': '<script type="module" src="dyn.js"></script>',
+            'assets/dyn.js': "const s = await import('../stylesheets/base.css', {\n  with: { type: 'css' },\n});\nexport const a = s;\n" }));
+        expect(() => buildPackage({ root, outDir: out })).not.toThrow();
+    });
+
     test('an MV3 background needs a service worker', () => {
         expect(validateManifest({ ...MANIFEST, background: { type: 'module' } })).toContain('background.service_worker is required in MV3');
     });
