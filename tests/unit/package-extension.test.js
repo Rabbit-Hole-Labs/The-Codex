@@ -5,6 +5,7 @@
  */
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
+import { createHash, generateKeyPairSync } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -68,12 +69,15 @@ function writeFixture(root, files) {
     }
 }
 
+// A real public key in the Web Store's format (base64 DER SubjectPublicKeyInfo).
+const FIXTURE_KEY = generateKeyPairSync('rsa', { modulusLength: 1024 }).publicKey.export({ type: 'spki', format: 'der' }).toString('base64');
+
 const MANIFEST = {
     manifest_version: 3,
     name: 'Fixture',
     version: '1.2.3.4',
     description: 'A fixture extension.',
-    key: 'FIXTUREKEY',
+    key: FIXTURE_KEY,
     background: { service_worker: 'javascript/background/sw.js', type: 'module' },
     chrome_url_overrides: { newtab: 'index.html' },
     action: { default_popup: 'popup.html' },
@@ -151,7 +155,7 @@ describe('package-extension', () => {
             expect(entries.get(name).equals(Buffer.from(files[name]))).toBe(true);
         }
         expect(entries.has('manifest.json')).toBe(true);
-        expect(JSON.parse(entries.get('manifest.json')).key).toBe('FIXTUREKEY');
+        expect(JSON.parse(entries.get('manifest.json')).key).toBe(FIXTURE_KEY);
         expect(entries.has('javascript/')).toBe(true);
         expect(entries.has('javascript/features/a.d.ts')).toBe(false);
         expect([...entries.keys()].some((name) => name.startsWith('tests/'))).toBe(false);
@@ -601,6 +605,42 @@ describe('package-extension', () => {
         expect(validateManifest({ ...MANIFEST, permissions: ['storage'], optional_host_permissions: ['https://*/*'] })).toEqual([]);
     });
 
+    test('abruptly closed HTML comments end at once', () => {
+        expect(buildError({ 'popup.html': '<!--><img src="assets/missing1.png"><!---><img src="assets/missing2.png"><!-- x --!><img src="assets/missing3.png">' +
+            '<script type="module" src="javascript/entry-points/popup.js"></script>' }))
+            .toEqual(expect.stringMatching(/missing1[\s\S]*missing2[\s\S]*missing3/));
+    });
+
+    test('CSS: @namespace url() is not a fetch, and late or nested @import is ignored', () => {
+        expect(cssRefs('@namespace svg url(http://www.w3.org/2000/svg); .a { background: url(ok.png) }')).toEqual([{ url: 'ok.png', directive: 'img-src' }]);
+        expect(cssRefs('@charset "utf-8"; @import "a.css"; body { color: red } @import url("late.css");')).toEqual([{ url: 'a.css', directive: 'style-src' }]);
+        expect(cssRefs('@media print { @import "nested.css"; }')).toEqual([]);
+    });
+
+    test('SVG: modern href on image is an image load; <title> inside <svg> is not RCDATA', () => {
+        const message = buildError({
+            'manifest.json': JSON.stringify({ ...MANIFEST, content_security_policy: { extension_pages: "script-src 'self'; object-src 'none'; img-src 'self'" } }),
+            'popup.html': '<svg><image href="https://evil.example/x.png"/><title><img src="assets/missing.png"></title></svg><title><img src="nope.png"></title>' +
+                '<script type="module" src="javascript/entry-points/popup.js"></script>'
+        });
+        expect(message).toContain('popup.html loads https://evil.example/x.png, which the manifest CSP blocks (img-src)');
+        expect(message).toContain('popup.html references assets/missing.png');
+        expect(message).not.toContain('nope.png'); // an HTML <title> is still RCDATA
+    });
+
+    test('the manifest key must be a real public key', () => {
+        for (const key of ['FIXTUREKEY', 'not base64!!', 5, 'QUJD']) {
+            expect(validateManifest({ ...MANIFEST, key })).toContain('key must be the base64 public key from the Chrome Web Store dashboard');
+        }
+    });
+
+    test('chrome_url_overrides must override exactly one supported page', () => {
+        expect(validateManifest({ ...MANIFEST, chrome_url_overrides: { newtab: 'index.html', history: 'index.html' } }))
+            .toContain('chrome_url_overrides must override exactly one of newtab, history or bookmarks');
+        expect(validateManifest({ ...MANIFEST, chrome_url_overrides: { downloads: 'index.html' } }))
+            .toContain('chrome_url_overrides must override exactly one of newtab, history or bookmarks');
+    });
+
     test('a scalar or non-string icon value is rejected instead of dropped', () => {
         expect(buildError({ 'manifest.json': JSON.stringify({ ...MANIFEST, action: { default_popup: 'popup.html', default_icon: 5 } }) }))
             .toContain('manifest "action" has an unexpected shape');
@@ -798,6 +838,18 @@ describe('package-extension', () => {
                 'manifest.json': JSON.stringify({ ...MANIFEST, sandbox: { pages: ['assets/sandbox.html'] } }),
                 'assets/sandbox.html': "<script type=\"module\">import('./lazy-missing.js');</script>"
             })).toContain('assets/sandbox.html references assets/lazy-missing.js');
+        });
+
+        test('inline scripts allowed by a matching nonce or hash pass (sandbox CSP)', () => {
+            const body = 'console.log(1)';
+            const hash = createHash('sha256').update(body).digest('base64');
+            const sandboxed = (policy) => JSON.stringify({ ...MANIFEST, sandbox: { pages: ['assets/s.html'] }, content_security_policy: { sandbox: policy } });
+            writeFixture(root, fixtureFiles({ 'manifest.json': sandboxed("sandbox allow-scripts; script-src 'nonce-AbC123'"), 'assets/s.html': `<script nonce="AbC123">${body}</script>` }));
+            expect(() => buildPackage({ root, outDir: out })).not.toThrow();
+            writeFixture(root, fixtureFiles({ 'manifest.json': sandboxed(`sandbox allow-scripts; script-src 'sha256-${hash}'`), 'assets/s.html': `<script>${body}</script>` }));
+            expect(() => buildPackage({ root, outDir: out })).not.toThrow();
+            expect(buildError({ 'manifest.json': sandboxed("sandbox allow-scripts; script-src 'nonce-AbC123'"), 'assets/s.html': '<script nonce="abc123">x()</script>' }))
+                .toContain('assets/s.html line 1: inline <script>: the sandbox CSP blocks inline script');
         });
 
         test('content_security_policy must be the MV3 object form', () => {

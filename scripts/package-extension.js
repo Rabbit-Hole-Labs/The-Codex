@@ -38,7 +38,7 @@
  * Usage: npm run package -- [--strip-key] [--out-dir <dir>]
  */
 import { appendFileSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, writeFileSync } from 'node:fs';
-import { createHash } from 'node:crypto';
+import { createHash, createPublicKey } from 'node:crypto';
 import { basename, dirname, join, posix, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
@@ -165,6 +165,25 @@ export function validateManifest(manifest) {
         }
         for (const key of ['browser_action', 'page_action']) {
             if (key in manifest) errors.push(`${key} is MV2-only; MV3 uses action`);
+        }
+    }
+    if ('key' in manifest) {
+        // The Web Store's public key: strict base64 of a DER SubjectPublicKeyInfo.
+        let validKey = typeof manifest.key === 'string' && manifest.key.length % 4 === 0 && /^[A-Za-z0-9+/]+={0,2}$/.test(manifest.key);
+        if (validKey) {
+            try {
+                createPublicKey({ key: Buffer.from(manifest.key, 'base64'), format: 'der', type: 'spki' });
+            } catch {
+                validKey = false;
+            }
+        }
+        if (!validKey) errors.push('key must be the base64 public key from the Chrome Web Store dashboard');
+    }
+    const overrides = manifest.chrome_url_overrides;
+    if (overrides && typeof overrides === 'object' && !Array.isArray(overrides)) {
+        const keys = Object.keys(overrides);
+        if (keys.length !== 1 || !['newtab', 'history', 'bookmarks'].includes(keys[0])) {
+            errors.push('chrome_url_overrides must override exactly one of newtab, history or bookmarks');
         }
     }
     const cspField = manifest.content_security_policy;
@@ -352,9 +371,11 @@ export function cssRefs(css) {
         }
         return [cssUnescape(raw), Math.min(j + 1, css.length)];
     };
+    let importsAllowed = true; // @import only counts before any other rule (after @charset/@layer statements)
+    let skipPrelude = false; // inside an @namespace or an ignored @import: its url() is not a fetch
     const directive = () => (pendingImport ? 'style-src' : fontFaceDepth !== -1 ? 'font-src' : 'img-src');
     const push = (url) => {
-        if (url) refs.push({ url, directive: directive() });
+        if (url && !skipPrelude) refs.push({ url, directive: directive() });
         pendingImport = false;
     };
     while (i < css.length) {
@@ -369,6 +390,8 @@ export function cssRefs(css) {
             else if (pendingImport && functions.length === 0) push(value);
             i = end;
         } else if (c === '{') {
+            if (depth === 0) importsAllowed = false;
+            skipPrelude = false;
             depth++;
             if (pendingFontFace) {
                 fontFaceDepth = depth;
@@ -383,13 +406,23 @@ export function cssRefs(css) {
         } else if (c === ';') {
             pendingImport = false;
             pendingFontFace = false;
+            skipPrelude = false;
             i++;
         } else if (c === '@') {
             // An at-keyword may contain escapes (@\\69 mport is @import).
             let j = i + 1;
             while (j < css.length && (css[j] === '\\' || /[\w\-\u0080-\uFFFF]/.test(css[j]))) j = css[j] === '\\' ? cssEscapeEnd(css, j) : j + 1;
             const keyword = cssUnescape(css.slice(i + 1, j)).toLowerCase();
-            if (keyword === 'import') pendingImport = true;
+            if (keyword === 'import') {
+                // Browsers ignore an @import after other rules or nested in a block.
+                if (importsAllowed && depth === 0) pendingImport = true;
+                else skipPrelude = true;
+            } else if (keyword === 'namespace') {
+                importsAllowed = false;
+                skipPrelude = true; // @namespace url(...) names a namespace; nothing is fetched
+            } else if (keyword !== 'charset' && keyword !== 'layer') {
+                importsAllowed = false;
+            }
             if (keyword === 'font-face') pendingFontFace = true;
             i = Math.max(j, i + 1);
         } else if (c === '(') {
@@ -463,17 +496,43 @@ export function scanHtml(html, { scripting = true } = {}) {
     // With scripting enabled (every extension page, and sandbox pages that allow
     // scripts), <noscript> content is text, not markup.
     const textElements = scripting ? new Set([...TEXT_ELEMENTS, 'noscript']) : TEXT_ELEMENTS;
+    // Open svg/math subtrees: inside them elements are foreign, and raw-text/RCDATA rules
+    // (title, style, script, ...) don't apply, except under an HTML integration point
+    // (svg foreignObject/desc/title, math annotation-xml), where HTML parsing resumes.
+    const foreign = []; // [{ name, html: boolean }]
+    const inHtml = () => foreign.length === 0 || foreign[foreign.length - 1].html;
     const tags = [];
     let i = 0;
     while (i < html.length) {
         const lt = html.indexOf('<', i);
         if (lt === -1) break;
         if (html.startsWith('<!--', lt)) {
-            const end = html.indexOf('-->', lt + 4);
-            i = end === -1 ? html.length : end + 3;
+            // <!--> and <!---> are abruptly closed empty comments; --!> also closes one.
+            if (html.startsWith('<!-->', lt)) {
+                i = lt + 5;
+                continue;
+            }
+            if (html.startsWith('<!--->', lt)) {
+                i = lt + 6;
+                continue;
+            }
+            const close = /--!?>/g;
+            close.lastIndex = lt + 4;
+            const end = close.exec(html);
+            i = end ? end.index + end[0].length : html.length;
             continue;
         }
         const next = html[lt + 1] || '';
+        if (next === '/' && /[A-Za-z]/.test(html[lt + 2] || '')) {
+            // An end tag: pop the foreign-content stack back to the matching element.
+            const m = /^<\/([^\s/>]+)/.exec(html.slice(lt, lt + 64));
+            const endName = m[1].toLowerCase();
+            const at = foreign.map((frame) => frame.name).lastIndexOf(endName);
+            if (at !== -1) foreign.length = at;
+            const end = html.indexOf('>', lt + 2);
+            i = end === -1 ? html.length : end + 1;
+            continue;
+        }
         if (next === '/' || next === '!' || next === '?') {
             const end = html.indexOf('>', lt + 2);
             i = end === -1 ? html.length : end + 1;
@@ -488,7 +547,9 @@ export function scanHtml(html, { scripting = true } = {}) {
         const name = html.slice(lt + 1, j).toLowerCase();
         const attrs = new Map();
         const raw = new Map();
+        let selfClosing = false;
         while (j < html.length && html[j] !== '>') {
+            if (html[j] === '/' && html[j + 1] === '>') selfClosing = true;
             if (/[\s/]/.test(html[j])) {
                 j++;
                 continue;
@@ -519,8 +580,17 @@ export function scanHtml(html, { scripting = true } = {}) {
             }
         }
         i = j + 1;
-        const tag = { name, attrs, raw, line: html.slice(0, lt).split('\n').length };
-        if (textElements.has(name)) {
+        const htmlContext = inHtml();
+        const tag = { name, attrs, raw, foreign: !htmlContext, line: html.slice(0, lt).split('\n').length };
+        if (!selfClosing) {
+            if (htmlContext && (name === 'svg' || name === 'math')) {
+                foreign.push({ name, html: false });
+            } else if (!htmlContext) {
+                const integrationPoint = ['foreignobject', 'desc', 'title', 'annotation-xml'].includes(name);
+                foreign.push({ name, html: integrationPoint });
+            }
+        }
+        if (htmlContext && textElements.has(name)) {
             const close = new RegExp(`</${name}(?=[\\s/>])`, 'gi');
             close.lastIndex = i;
             const end = name === 'plaintext' ? null : close.exec(html);
@@ -588,18 +658,22 @@ function htmlRefs(html, inheritedBase = null, scripting = true) {
             }
         }
         for (const attr of attrs.keys()) {
-            if (/^on./.test(attr)) inline.push(`line ${line}: inline event handler ${attr}= on <${name}>`);
+            if (/^on./.test(attr)) inline.push({ kind: 'handler', desc: `line ${line}: inline event handler ${attr}= on <${name}>` });
         }
         if (attrs.has('style')) styles.push(attrs.get('style'));
         const src = attrs.get('src');
         const href = attrs.get('href');
+        if (tag.foreign && attrs.has('href') && !attrs.get('href').trim().startsWith('#')) {
+            // SVG 2 href: image/feImage fetch an image, script a script; use/a etc. just refer.
+            add(href, name === 'image' || name === 'feimage' ? 'img-src' : name === 'script' ? 'script-src' : null);
+        }
         if (attrs.has('xlink:href')) {
             // SVG's legacy xlink:href: <image> and <feImage> load images, <script> a script, others (use, a) just refer.
             const directive = name === 'image' || name === 'feimage' ? 'img-src' : name === 'script' ? 'script-src' : null;
             const target = attrs.get('xlink:href');
             if (!target.trim().startsWith('#')) add(target, directive);
         }
-        switch (name) {
+        switch (tag.foreign ? '' : name) {
             case 'script': {
                 const type = (attrs.get('type') || '').trim();
                 if (!JS_TYPES.test(type)) break; // a data block, not a script
@@ -607,7 +681,7 @@ function htmlRefs(html, inheritedBase = null, scripting = true) {
                     add(src, 'script-src');
                     if (type.toLowerCase() !== 'module' && src.trim()) classicScripts.push({ url: src.trim(), base: currentBase() });
                 } else if (tag.text.trim()) {
-                    inline.push(`line ${line}: inline <script>`);
+                    inline.push({ kind: 'script', desc: `line ${line}: inline <script>`, text: tag.text, nonce: attrs.get('nonce') ?? null });
                     inlineScripts.push({ text: tag.text, module: type.toLowerCase() === 'module', line, base: currentBase() });
                 }
                 break;
@@ -648,7 +722,7 @@ function htmlRefs(html, inheritedBase = null, scripting = true) {
                     problems.push(...nested.problems.map((item) => `line ${line} srcdoc ${item}`));
                     inlineScripts.push(...nested.inlineScripts.map((script) => ({ ...script, line: `${line} srcdoc line ${script.line}` })));
                     classicScripts.push(...nested.classicScripts);
-                    inline.push(...nested.inline.map((item) => `line ${line} srcdoc ${item}`));
+                    inline.push(...nested.inline.map((item) => ({ ...item, desc: `line ${line} srcdoc ${item.desc}` })));
                     if (nested.inlineStyles) styles.push('');
                 }
                 break;
@@ -663,6 +737,12 @@ function htmlRefs(html, inheritedBase = null, scripting = true) {
                 break;
             case 'base':
                 if (!base && href !== undefined && href.trim()) base = { href: href.trim(), line };
+                break;
+                case '':
+                break; // foreign (SVG/MathML) element: handled above
+            case '':
+                // a foreign (SVG/MathML) element: its href was handled above
+                add(src, null);
                 break;
             default:
                 // a, area and anything else: a navigation or unknown use; check local targets exist.
@@ -694,6 +774,9 @@ const CSP_FALLBACKS = { 'frame-src': ['child-src', 'default-src'] };
 
 /** Lower-cases a CSP source's keyword, scheme and host, keeping any path's case (paths match case-sensitively). */
 const normalizeSource = (source) => {
+    // Nonce and hash values are case-sensitive base64: lower-case only their prefix.
+    const token = /^'(nonce|sha256|sha384|sha512)-(.*)'$/i.exec(source);
+    if (token) return `'${token[1].toLowerCase()}-${token[2]}'`;
     if (source.startsWith("'")) return source.toLowerCase();
     const m = /^((?:[a-z][a-z0-9+.-]*:\/\/)?[^/]*)(\/.*)?$/i.exec(source);
     return m ? m[1].toLowerCase() + (m[2] ?? '') : source;
@@ -779,6 +862,18 @@ export function extensionIdFromKey(key) {
     if (typeof key !== 'string' || !key) return null;
     const hex = createHash('sha256').update(Buffer.from(key, 'base64')).digest('hex').slice(0, 32);
     return [...hex].map((digit) => String.fromCharCode(97 + parseInt(digit, 16))).join('');
+}
+
+/** Whether one inline <script> may run: 'unsafe-inline' (when no nonce/hash disables it), a matching nonce, or a matching hash. */
+function inlineScriptAllowed(csp, { text, nonce }) {
+    const sources = sourcesFor(csp, 'script-src');
+    if (!sources) return true;
+    if (cspAllowsInline(csp, 'script-src')) return true;
+    if (nonce && sources.includes(`'nonce-${nonce}'`)) return true;
+    return sources.some((source) => {
+        const m = /^'(sha256|sha384|sha512)-(.+)'$/.exec(source);
+        return Boolean(m) && createHash(m[1]).update(text, 'utf8').digest('base64') === m[2];
+    });
 }
 
 /** Whether inline content is allowed: 'unsafe-inline' with no hash/nonce (which would disable it). */
@@ -1022,9 +1117,10 @@ export function checkReferences(root, files, manifest) {
         if (!isPage(file)) continue;
         const pageCsp = cspFor(file);
         const policyName = sandboxPages.has(file) ? 'sandbox CSP' : 'manifest CSP';
-        if (!cspAllowsInline(pageCsp, 'script-src')) {
-            for (const item of result.inline) {
-                errors.push(`${file} ${item}: the ${policyName} blocks inline script (MV3 extension pages never run it); move it to a file`);
+        for (const item of result.inline) {
+            const allowed = item.kind === 'script' ? inlineScriptAllowed(pageCsp, item) : cspAllowsInline(pageCsp, 'script-src');
+            if (!allowed) {
+                errors.push(`${file} ${item.desc}: the ${policyName} blocks inline script (MV3 extension pages never run it); move it to a file`);
             }
         }
         if (result.inlineStyles && !cspAllowsInline(pageCsp, 'style-src')) {
