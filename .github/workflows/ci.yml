@@ -55,10 +55,23 @@ jobs:
           const read = (file) => JSON.parse(fs.readFileSync(file, "utf8")).version;
           const base = read(process.argv[2]);
           const pr = read("manifest.json");
-          const [b, p] = [base, pr].map((v) => v.split(".").map(Number));
+          console.log(`${process.env.BASE_REF}: ${base}, this PR: ${pr}`);
+          // Chrome's manifest version format: 1-4 dot-separated integers
+          // 0-65535 with no leading zeros. Reject anything else up front so a
+          // malformed version can't sneak past the numeric comparison.
+          const parse = (v, where) => {
+            const ok = typeof v === "string" && /^(0|[1-9]\d{0,4})(\.(0|[1-9]\d{0,4})){0,3}$/.test(v);
+            const parts = ok ? v.split(".").map(Number) : [];
+            if (!ok || parts.some((n) => n > 65535)) {
+              console.log(`::error file=manifest.json::manifest.json version ${JSON.stringify(v)} on ${where} is malformed: expected 1-4 dot-separated integers 0-65535 with no leading zeros (e.g. 7.0.0.38).`);
+              process.exit(1);
+            }
+            return parts;
+          };
+          const b = parse(base, process.env.BASE_REF);
+          const p = parse(pr, "this PR");
           let cmp = 0;
           for (let i = 0; i < 4 && cmp === 0; i++) cmp = Math.sign((p[i] || 0) - (b[i] || 0));
-          console.log(`${process.env.BASE_REF}: ${base}, this PR: ${pr}`);
           if (cmp <= 0) {
             console.log(`::error file=manifest.json::manifest.json version ${pr} must be greater than ${base} on ${process.env.BASE_REF}. Bump the 4th component.`);
             process.exit(1);
