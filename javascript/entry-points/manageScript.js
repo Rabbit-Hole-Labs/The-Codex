@@ -6,6 +6,7 @@ import * as UIManager from '../core-systems/uiManager.js';
 import * as StorageManager from '../core-systems/storageManager.js';
 import { getState, safeUpdateState, addStorageAppliedListener } from '../core-systems/stateManager.js';
 import { escapeHtml } from '../features/utils.js';
+import { MAX_CATEGORY_LENGTH } from '../core-systems/storageFormat.js';
 import { syncStatusIndicator } from '../features/syncStatusIndicator.js';
 import { syncSettingsController } from '../features/syncSettingsController.js';
 import { syncManager } from '../core-systems/syncManager.js';
@@ -522,8 +523,9 @@ function renderCategoryReorderList() {
         return;
     }
 
-    // Count links per category
-    const counts = {};
+    // Count links per category. No prototype, so a category named
+    // 'constructor' or '__proto__' counts like any other name.
+    const counts = Object.create(null);
     getState().links.forEach(link => {
         const cat = link.category || 'Default';
         counts[cat] = (counts[cat] || 0) + 1;
@@ -545,7 +547,7 @@ function renderCategoryReorderList() {
         <li class="cat-row" data-category="${category}" data-index="${index}" draggable="true">
             <span class="grip" title="Drag to reorder">${grip}</span>
             <span class="cat-name" title="Click to rename">${category}${isDefault ? '<span class="default-badge">default</span>' : ''}</span>
-            <input type="text" class="mc-field cat-rename" value="${category}" hidden aria-label="Rename category">
+            <input type="text" class="mc-field cat-rename" value="${category}" maxlength="${MAX_CATEGORY_LENGTH}" hidden aria-label="Rename category">
             <span class="cat-count">${n} ${n === 1 ? 'link' : 'links'}</span>
             <span class="cat-acts">
                 <button type="button" class="mc-icon-btn act-up" title="Move up" aria-label="Move up" ${index === 0 ? 'disabled' : ''}>${up}</button>

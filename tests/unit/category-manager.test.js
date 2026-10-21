@@ -150,6 +150,47 @@ describe('Category Manager', () => {
             expect(result).toBe(false);
             expect(showMessage).toHaveBeenCalledWith('Category name cannot be empty.', 'error');
         });
+
+        // A name over the 50-char schema cap used to save fine here and then
+        // fail new-tab validation on every load.
+        test('should reject a category name longer than 50 characters', async () => {
+            const storageModule = await import('../../javascript/core-systems/storageManager.js');
+            const categoryModule = await import('../../javascript/core-systems/categoryManager.js');
+
+            const state = {
+                links: [],
+                categories: ['Default']
+            };
+
+            const result = await categoryModule.createCategory(state, 'x'.repeat(51));
+
+            expect(result).toBe(false);
+            expect(showMessage).toHaveBeenCalledWith('Category names can be at most 50 characters.', 'error');
+            expect(storageModule.saveCategories).not.toHaveBeenCalled();
+            expect(state.categories).toEqual(['Default']);
+        });
+
+        test('should accept a category name of exactly 50 characters', async () => {
+            const storageModule = await import('../../javascript/core-systems/storageManager.js');
+            const categoryModule = await import('../../javascript/core-systems/categoryManager.js');
+
+            const name = 'x'.repeat(50);
+            const state = {
+                links: [],
+                categories: ['Default']
+            };
+
+            // createCategory reads storage, then populateCategories reads it again.
+            storageModule.loadCategories
+                .mockResolvedValueOnce(['Default'])
+                .mockResolvedValueOnce(['Default', name]);
+            storageModule.saveCategories.mockResolvedValueOnce(['Default', name]);
+
+            const result = await categoryModule.createCategory(state, name);
+
+            expect(result).toBe(true);
+            expect(state.categories).toContain(name);
+        });
     });
 
     describe('renameCategory', () => {
@@ -162,6 +203,10 @@ describe('Category Manager', () => {
                 categories: ['Default', 'Work']
             };
 
+            // renameCategory reads storage, then populateCategories reads it again.
+            storageModule.loadCategories
+                .mockResolvedValueOnce(['Default', 'Work'])
+                .mockResolvedValueOnce(['Default', 'Office']);
             storageModule.saveCategories.mockResolvedValue(['Default', 'Office']);
             populateCategoryDropdowns.mockResolvedValue();
 
@@ -187,6 +232,25 @@ describe('Category Manager', () => {
 
             expect(result).toBe(false);
             expect(showMessage).toHaveBeenCalledWith('Category name already exists.', 'error');
+        });
+
+        test('should reject renaming to a name longer than 50 characters', async () => {
+            const storageModule = await import('../../javascript/core-systems/storageManager.js');
+            const categoryModule = await import('../../javascript/core-systems/categoryManager.js');
+
+            const state = {
+                links: [{ id: '1', url: 'https://example1.com', category: 'Work' }],
+                categories: ['Default', 'Work']
+            };
+
+            const result = await categoryModule.renameCategory(state, 'Work', 'x'.repeat(51));
+
+            expect(result).toBe(false);
+            expect(showMessage).toHaveBeenCalledWith('Category names can be at most 50 characters.', 'error');
+            expect(storageModule.saveCategories).not.toHaveBeenCalled();
+            expect(storageModule.saveLinks).not.toHaveBeenCalled();
+            expect(state.categories).toEqual(['Default', 'Work']);
+            expect(state.links[0].category).toBe('Work');
         });
     });
 
