@@ -1,8 +1,19 @@
 import * as StorageManager from './storageManager.js';
 import * as UIManager from './uiManager.js';
 import { debug, debugError } from './debug.js';
+import { MAX_CATEGORY_LENGTH } from './storageFormat.js';
 
 const defaultCategory = 'Default';
+
+// The links/categories schemas cap names at MAX_CATEGORY_LENGTH; a longer name
+// saved here would fail new-tab validation, so reject it up front.
+function rejectOverlongName(name) {
+    if (typeof name === 'string' && name.length > MAX_CATEGORY_LENGTH) {
+        UIManager.showMessage(`Category names can be at most ${MAX_CATEGORY_LENGTH} characters.`, 'error');
+        return true;
+    }
+    return false;
+}
 
 export async function populateCategories(state, { persist = true } = {}) {
     try {
@@ -43,6 +54,10 @@ export async function createCategory(state, categoryName) {
             return false;
         }
 
+        if (rejectOverlongName(categoryName)) {
+            return false;
+        }
+
         if (!state.categories.includes(categoryName)) {
             // Get fresh categories from storage first
             const currentCategories = await StorageManager.loadCategories();
@@ -78,6 +93,9 @@ export async function renameCategory(state, oldCategory, newCategory) {
     try {
         if (oldCategory === defaultCategory) {
             UIManager.showMessage('Cannot rename the default category.', 'error');
+            return false;
+        }
+        if (rejectOverlongName(newCategory)) {
             return false;
         }
         if (state.categories.includes(newCategory)) {

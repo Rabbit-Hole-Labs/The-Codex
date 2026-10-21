@@ -4,7 +4,7 @@
  */
 
 import { validateLink } from '../features/securityUtils.js';
-import { SYNC_RESOLVED_AT_KEY, STORED_SETTING_DEFAULTS } from './storageFormat.js';
+import { SETTING_ENUMS, MAX_CATEGORY_LENGTH, SYNC_RESOLVED_AT_KEY, STORED_SETTING_DEFAULTS } from './storageFormat.js';
 
 // State validation schemas
 const stateSchemas = {
@@ -22,19 +22,19 @@ const stateSchemas = {
             }
         }
     },
+    // Setting enums live in storageFormat.js so load paths can coerce stored
+    // values against the exact lists validated here (see coerceSettings).
     theme: {
         type: 'string',
-        enum: ['dark', 'light']
+        enum: SETTING_ENUMS.theme
     },
     colorTheme: {
-        // Accent preset. 'default' is kept for backward-compat with data
-        // saved before the accent presets replaced the old color themes.
         type: 'string',
-        enum: ['default', 'slate', 'blue', 'teal', 'violet', 'amber']
+        enum: SETTING_ENUMS.colorTheme
     },
     view: {
         type: 'string',
-        enum: ['grid', 'list']
+        enum: SETTING_ENUMS.view
     },
     searchTerm: {
         type: 'string',
@@ -42,14 +42,14 @@ const stateSchemas = {
     },
     defaultTileSize: {
         type: 'string',
-        enum: ['compact', 'small', 'medium', 'large', 'square', 'wide', 'tall', 'giant']
+        enum: SETTING_ENUMS.defaultTileSize
     },
     categories: {
         type: 'array',
         items: {
             type: 'string',
             minLength: 1,
-            maxLength: 50
+            maxLength: MAX_CATEGORY_LENGTH
         }
     }
 };
@@ -558,6 +558,28 @@ const REMOVED_FIELD_RESETS = {
 // Flag to prevent circular updates (our own write triggering onChanged)
 let isWritingToStorage = false;
 
+// Fields a page applies itself instead of taking the raw stored value here,
+// mapped to that page's handler (see claimStorageFields).
+const claimedFields = new Map();
+
+/**
+ * Opt this page out of the raw update for the given fields, because it
+ * applies them itself: applyStorageValues hands their stored values to
+ * `apply` instead — for every sync change (including the echo of this page's
+ * own saves) and every reloadFromStorage() after a manual sync or clear. The
+ * newtab claims links/categories so its load-time salvage/quarantine covers
+ * all of them; raw values could re-show hidden links or crash rendering.
+ * Pages that don't call this (e.g. manage) are unaffected.
+ * @param {string[]} fields - persistent field names
+ * @param {(values: Object, source: 'sync'|'reload') => (Object|void)} [apply] -
+ *   gets { field: stored value } for the claimed fields present (undefined =
+ *   absent/removed); may return cleaned state changes, which are applied in
+ *   the same state update as the unclaimed fields (one re-render per change)
+ */
+export function claimStorageFields(fields, apply = null) {
+    fields.forEach(field => claimedFields.set(field, apply));
+}
+
 const storageAppliedListeners = new Set();
 
 /**
@@ -576,15 +598,21 @@ export function addStorageAppliedListener(listener) {
  * to values as stored (links/categories as JSON strings); undefined means the
  * key was removed, which resets links/categories rather than keeping the old
  * value — or this page's next save would re-upload it. Non-persistent keys
- * are ignored.
+ * are ignored. Fields a page claimed (claimStorageFields) never enter the
+ * state raw: their stored values go, as stored, to that page's handler, and
+ * only the cleaned changes it returns are applied.
  * @param {Object} values
  * @param {{ source?: 'sync'|'reload' }} [options]
  * @returns {Object} the updates applied
  */
 export function applyStorageValues(values, { source = 'sync' } = {}) {
     const updates = {};
+    const claimed = new Map(); // handler -> { key: stored value }
     for (const [key, value] of Object.entries(values)) {
-        if (value === undefined) {
+        if (claimedFields.has(key)) {
+            const apply = claimedFields.get(key);
+            if (apply) claimed.set(apply, { ...claimed.get(apply), [key]: value });
+        } else if (value === undefined) {
             if (Object.prototype.hasOwnProperty.call(REMOVED_FIELD_RESETS, key)) {
                 updates[key] = REMOVED_FIELD_RESETS[key]();
             }
@@ -597,6 +625,15 @@ export function applyStorageValues(values, { source = 'sync' } = {}) {
             }
         }
     }
+
+    claimed.forEach((claimedValues, apply) => {
+        try {
+            const changes = apply(claimedValues, source);
+            if (changes && typeof changes === 'object') Object.assign(updates, changes);
+        } catch (error) {
+            console.error('Claimed storage handler failed:', error);
+        }
+    });
 
     if (Object.keys(updates).length > 0) {
         updateState(updates, { validate: false, skipPersistence: true });
@@ -645,8 +682,12 @@ if (typeof chrome !== 'undefined' && chrome.storage?.onChanged) {
             }
             return;
         }
-        if (areaName !== 'sync' || isWritingToStorage) return;
-        applyStorageValues(Object.fromEntries(Object.entries(changes).map(([key, change]) => [key, change.newValue])));
+        if (areaName !== 'sync') return;
+        let entries = Object.entries(changes);
+        // Skip the echo of this page's own persistToStorage write — except
+        // claimed fields: the page that claimed them tracks every change.
+        if (isWritingToStorage) entries = entries.filter(([key]) => claimedFields.has(key));
+        applyStorageValues(Object.fromEntries(entries.map(([key, change]) => [key, change.newValue])));
     });
 }
 

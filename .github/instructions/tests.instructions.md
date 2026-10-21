@@ -21,8 +21,11 @@ Jest's `testMatch` (see [package.json](../../package.json)) is `["<rootDir>/test
 ```
 tests/
 ├── setup.js                  # 3 lines: just exposes `jest` globally
+├── helpers/
+│   └── chromeStorageFake.js  # Quota-faithful chrome.storage fake (sync/local, async onChanged)
 ├── unit/                     # Single-module tests with mocked deps (npm run test:unit)
 │   ├── category-manager.test.js
+│   ├── chrome-storage-fake.test.js       # The chrome.storage fake itself
 │   ├── debug.test.js
 │   ├── domOptimizer.test.js
 │   ├── error-capture-funnel.test.js
@@ -36,10 +39,13 @@ tests/
 │   ├── link-management.test.js
 │   ├── link-mutations.test.js
 │   ├── load-no-clobber.test.js
+│   ├── load-quarantine.test.js           # New tab: bad stored values are coerced/hidden, never blank the page or get saved back
 │   ├── security-fixes.test.js
 │   ├── security-utils.test.js
+│   ├── service-worker-migration.test.js  # One-time legacy colorTheme rewrite on extension update
 │   ├── state-management.test.js
 │   ├── storage-format.test.js
+│   ├── sync-manager-data-loss.test.js    # Manual sync never reverts or loses cloud data
 │   ├── sync-manager.test.js
 │   ├── syncSettingsController.test.js
 │   ├── syncStatusIndicator.test.js

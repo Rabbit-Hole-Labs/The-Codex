@@ -13,9 +13,17 @@ import { loadIconWithCache, getCacheStats } from '../features/iconCache.js';
 import { syncStatusIndicator } from '../features/syncStatusIndicator.js';
 import '../features/consoleCommands.js';
 import { debug } from '../core-systems/debug.js';
+import { validateLink } from '../features/securityUtils.js';
+import { claimStorageFields } from '../core-systems/stateManager.js';
+import { coerceSettings, parseStoredArray, backfillLinkIds, SETTING_DEFAULTS, MAX_CATEGORY_LENGTH } from '../core-systems/storageFormat.js';
 
 // Register global error capture as early as possible (newtab context).
 initErrorCapture('newtab');
+
+// This page applies links/categories itself, through the same cleanup as the
+// load (receiveStoredChange), never as raw stored values: every sync change
+// and every reload after a manual sync or clear reaches it there.
+claimStorageFields(['links', 'categories'], receiveStoredChange);
 
 // State is managed exclusively through stateManager — no local state object.
 // Use getState() for reads, safeUpdateState() for writes.
@@ -63,6 +71,19 @@ function cleanupAllEventListeners() {
 // DOM Elements
 let searchInput, searchSuggestions, linksContainer;
 
+// links and categories exactly as stored, before any load-time salvage or
+// quarantine. Drops apply their move to this copy and save it (persistDrop),
+// so nothing the load cleaned up or hid for display is ever written back.
+// Kept current by receiveStoredChange() so a drop never overwrites another
+// device's edit or re-uploads one a sync discarded.
+let storedLinks = [];
+let storedCategories = [];
+
+// Stored values that arrive while initializeState() is still loading; applied
+// once it finishes (flushStoredChanges) so none is lost between read and render.
+let storedDataLoaded = false;
+let pendingStoredChange = null;
+
 // Functions
 async function initializeState() {
     try {
@@ -72,16 +93,109 @@ async function initializeState() {
         if (!loadedState || typeof loadedState !== 'object') {
             throw new Error('Invalid state data loaded from storage');
         }
-        
-        // Ensure links is an array - handle corrupted data
-        if (!loadedState.links) {
-            console.warn('Links property is missing, setting to empty array');
-            loadedState.links = [];
-        } else if (!Array.isArray(loadedState.links)) {
-            console.warn('Links is not an array, resetting to empty array');
-            loadedState.links = [];
+
+        // Kept raw for persistDrop: cleanStoredData copies each link before
+        // cleaning it, so these stay exactly as stored.
+        storedLinks = Array.isArray(loadedState.links) ? [...loadedState.links] : [];
+        storedCategories = Array.isArray(loadedState.categories) ? [...loadedState.categories] : [];
+
+        // Each setting falls back to its own default when the stored value is
+        // unknown (e.g. a colorTheme from before the accent presets), so one
+        // stale value can't fail validation for the whole page.
+        const { settings } = coerceSettings(loadedState);
+        const { links, categories } = cleanStoredData(storedLinks, storedCategories);
+
+        const cleanUpdates = {
+            ...settings,
+            links,
+            categories,
+            searchTerm: '',
+            isDragging: false,
+            draggedElement: null,
+            draggedLink: null,
+            draggedCategory: null,
+            draggedIndex: null
+        };
+
+        // Apply state updates safely. skipPersistence is critical here: this is
+        // a LOAD, not a user edit. On a fresh install the account's synced
+        // storage may not have downloaded yet, so loadLinks() returns empty
+        // app-defaults. Without skipPersistence, safeUpdateState would write
+        // those empty defaults straight back to chrome.storage.sync and — via
+        // sync's last-writer-wins — clobber the user's real links on every
+        // device. Loading must only populate in-memory state, never echo to sync.
+        const updateResult = await safeUpdateState(cleanUpdates, { validate: true, skipPersistence: true });
+
+        if (!updateResult.success) {
+            console.error('Failed to initialize state:', updateResult.error);
+            // Log detailed information about the state that failed validation
+            console.error('State that failed validation:', {
+                links,
+                categories,
+                ...settings
+            });
+
+            // Links and categories were validated individually by
+            // cleanStoredData, so this should be unreachable. If it happens
+            // anyway, reset only the settings — never blank the links and
+            // categories that passed (in-memory only — never persist a load).
+            const fallbackResult = await safeUpdateState({
+                ...SETTING_DEFAULTS,
+                links,
+                categories
+            }, { validate: true, skipPersistence: true });
+
+            if (!fallbackResult.success) {
+                console.error('Critical: Fallback initialization also failed');
+            }
         }
+
+    } catch (error) {
+        console.error('Critical error during state initialization:', error);
+        // Log detailed information about the error
+        console.error('Error details:', {
+            message: error.message,
+            stack: error.stack,
+            name: error.name
+        });
         
+        // Ultimate fallback (in-memory only — never persist a load).
+        await safeUpdateState({
+            theme: 'dark',
+            colorTheme: 'default',
+            view: 'grid',
+            defaultTileSize: 'medium',
+            links: []
+        }, { validate: true, skipPersistence: true });
+    }
+}
+
+/**
+ * The new tab's display pipeline for stored links and categories: the salvage
+ * and quarantine below, plus sanitizeLoadedCategories. Used for the initial
+ * load and for every later stored value (receiveStoredChange), so the page never
+ * renders — or validates — raw stored values. Pure: never persists, and never
+ * mutates the stored arrays or their objects.
+ * @param {*} links - stored links array (raw)
+ * @param {*} categories - stored categories array (raw)
+ * @returns {{links: Object[], categories: string[]}} what may be rendered
+ */
+function cleanStoredData(links, categories) {
+    return {
+        links: cleanStoredLinks(links),
+        categories: sanitizeLoadedCategories(categories)
+    };
+}
+
+/**
+ * Salvage what can be repaired in each stored link (on a copy) and quarantine
+ * the rest. See cleanStoredData.
+ * @param {*} stored - stored links array (raw)
+ * @returns {Object[]} links that pass validateLink
+ */
+function cleanStoredLinks(stored) {
+    const loadedState = { links: Array.isArray(stored) ? stored : [] };
+    try {
         // Enhanced cleanup and validation for corrupted link data
         if (Array.isArray(loadedState.links)) {
             debug(`Processing ${loadedState.links.length} links for cleanup and validation`);
@@ -317,137 +431,250 @@ async function initializeState() {
                 .filter(link => link !== null); // Remove null links that couldn't be salvaged
             
             debug(`After cleanup: ${loadedState.links.length} valid links remaining`);
-        }
-        
-        // Create state updates with validated data
-        const stateUpdates = {};
-        
-        // Only add links if it's a valid array
-        if (Array.isArray(loadedState.links)) {
-            stateUpdates.links = loadedState.links;
-        } else {
-            stateUpdates.links = []; // Force empty array
-        }
 
-        if (loadedState.theme) stateUpdates.theme = loadedState.theme;
-        if (loadedState.colorTheme) stateUpdates.colorTheme = loadedState.colorTheme;
-        if (loadedState.view) stateUpdates.view = loadedState.view;
-        if (loadedState.defaultTileSize) stateUpdates.defaultTileSize = loadedState.defaultTileSize;
-        if (loadedState.categories && Array.isArray(loadedState.categories)) {
-            stateUpdates.categories = loadedState.categories;
-        }
-
-        // Set defaults if not provided
-        if (!loadedState.theme) stateUpdates.theme = 'dark';
-        if (!loadedState.colorTheme) stateUpdates.colorTheme = 'default';
-        if (!loadedState.view) stateUpdates.view = 'grid';
-        if (!loadedState.defaultTileSize) stateUpdates.defaultTileSize = 'medium';
-        if (!stateUpdates.categories) stateUpdates.categories = ['Default'];
-
-        // Create clean state object with guaranteed array for links
-        const cleanUpdates = {
-            theme: stateUpdates.theme || 'dark',
-            colorTheme: stateUpdates.colorTheme || 'default',
-            view: stateUpdates.view || 'grid',
-            defaultTileSize: stateUpdates.defaultTileSize || 'medium',
-            links: stateUpdates.links || [], // Use validated links
-            categories: stateUpdates.categories || ['Default'],
-            searchTerm: stateUpdates.searchTerm || '',
-            isDragging: stateUpdates.isDragging || false,
-            draggedElement: stateUpdates.draggedElement || null,
-            draggedLink: stateUpdates.draggedLink || null,
-            draggedCategory: stateUpdates.draggedCategory || null,
-            draggedIndex: stateUpdates.draggedIndex || null
-        };
-        
-        // Apply state updates safely. skipPersistence is critical here: this is
-        // a LOAD, not a user edit. On a fresh install the account's synced
-        // storage may not have downloaded yet, so loadLinks() returns empty
-        // app-defaults. Without skipPersistence, safeUpdateState would write
-        // those empty defaults straight back to chrome.storage.sync and — via
-        // sync's last-writer-wins — clobber the user's real links on every
-        // device. Loading must only populate in-memory state, never echo to sync.
-        const updateResult = await safeUpdateState(cleanUpdates, { validate: true, skipPersistence: true });
-        
-        if (!updateResult.success) {
-            console.error('Failed to initialize state:', updateResult.error);
-            // Log detailed information about the state that failed validation
-            console.error('State that failed validation:', {
-                links: stateUpdates.links,
-                theme: stateUpdates.theme,
-                colorTheme: stateUpdates.colorTheme,
-                view: stateUpdates.view,
-                defaultTileSize: stateUpdates.defaultTileSize
+            // Quarantine links the salvage couldn't repair (e.g. an imported
+            // data: icon over the 500-char limit): hide them from this render
+            // instead of letting one bad link fail validation for all of them.
+            // Storage is untouched — the manage page still lists them, and
+            // drops save onto storedLinks (persistDrop), so they survive those.
+            const quarantined = [];
+            loadedState.links = loadedState.links.filter(link => {
+                const result = validateLink(link);
+                if (!result.valid) quarantined.push({ id: link.id, name: link.name, errors: result.errors });
+                return result.valid;
             });
-            
-            // Fallback to safe defaults (in-memory only — never persist a load).
-            const fallbackResult = await safeUpdateState({
-                theme: 'dark',
-                colorTheme: 'default',
-                view: 'grid',
-                defaultTileSize: 'medium',
-                links: []
-            }, { validate: true, skipPersistence: true });
-            
-            if (!fallbackResult.success) {
-                console.error('Critical: Fallback initialization also failed');
+            if (quarantined.length > 0) {
+                console.warn(`[The Codex] Hiding ${quarantined.length} stored link(s) that failed validation (storage untouched):`, quarantined);
             }
         }
-        
+        return loadedState.links;
     } catch (error) {
-        console.error('Critical error during state initialization:', error);
-        // Log detailed information about the error
-        console.error('Error details:', {
-            message: error.message,
-            stack: error.stack,
-            name: error.name
-        });
-        
-        // Ultimate fallback (in-memory only — never persist a load).
-        await safeUpdateState({
-            theme: 'dark',
-            colorTheme: 'default',
-            view: 'grid',
-            defaultTileSize: 'medium',
-            links: []
-        }, { validate: true, skipPersistence: true });
+        console.error('Failed to clean stored links:', error);
+        return [];
     }
+}
+
+/**
+ * The name a stored category renders under: the salvage's link.category
+ * cleanup (C0 controls and DEL stripped, like its /[\x00-\x1F\x7F]/g — spelled
+ * without a control-character regex for no-control-regex — then cut to the
+ * length cap and trimmed).
+ * @param {string} name - stored category name
+ * @returns {string}
+ */
+function renderedCategoryName(name) {
+    return Array.from(name).filter(ch => {
+        const code = ch.charCodeAt(0);
+        return code > 0x1F && code !== 0x7F;
+    }).join('').substring(0, MAX_CATEGORY_LENGTH).trim();
+}
+
+/**
+ * Receive the stored links/categories values this page claimed
+ * (claimStorageFields): each sync change, including the echo of this page's
+ * own saves, and each reload after a manual sync or clear, where the cloud may
+ * have won without any sync write. Returns the cleaned changes, which
+ * stateManager applies in the same state update as any unclaimed fields (one
+ * re-render). Values that arrive before the load finishes are buffered.
+ * @param {{links?: *, categories?: *}} update - stored value per key
+ *   (undefined = absent/removed)
+ * @returns {Object|undefined} cleaned state changes
+ */
+function receiveStoredChange(update) {
+    if (!storedDataLoaded) {
+        pendingStoredChange = { ...pendingStoredChange, ...update };
+        return undefined;
+    }
+    return cleanStoredChange(update);
+}
+
+/** Apply stored values buffered during the load; later ones arrive directly. */
+function flushStoredChanges() {
+    storedDataLoaded = true;
+    if (!pendingStoredChange) return;
+    const changes = cleanStoredChange(pendingStoredChange);
+    pendingStoredChange = null;
+    if (Object.keys(changes).length === 0) return;
+
+    // In-memory only: this is someone's write arriving, never one to repeat.
+    const result = safeUpdateState(changes, { validate: true, skipPersistence: true });
+    if (!result.success) {
+        console.error('[The Codex] Could not apply a storage change:', result.error);
+    }
+}
+
+/**
+ * Turn stored links/categories values into what this page may show
+ * (cleanStoredData), refreshing the raw stored copy that drops save onto. A key
+ * absent from storage (e.g. cleared) resets to empty, matching what a reload
+ * would show. A value that no longer parses leaves what is on screen alone but
+ * empties the stored copy, so a later drop finds nothing to move and writes
+ * nothing — never resurrecting the old list.
+ * @param {{links?: *, categories?: *}} update - stored value per key
+ * @returns {Object} cleaned state changes (empty if nothing to show changed)
+ */
+function cleanStoredChange(update) {
+    const changes = {};
+    if ('links' in update) {
+        const links = update.links === undefined ? [] : parseStoredArray(update.links);
+        storedLinks = links ? backfillLinkIds(links) : [];
+        if (links) changes.links = cleanStoredLinks(links);
+    }
+    if ('categories' in update) {
+        const categories = update.categories === undefined ? [] : parseStoredArray(update.categories);
+        storedCategories = categories ?? [];
+        if (categories) changes.categories = sanitizeLoadedCategories(categories);
+    }
+    return changes;
+}
+
+/**
+ * Index of a rendered link's entry in a stored links array: by id, then by
+ * name + url. Stored arrays may hold non-object junk, which never matches.
+ * @returns {number} index, or -1
+ */
+function findStoredLinkIndex(list, link) {
+    if (!link) return -1;
+    const isLink = (s) => s !== null && typeof s === 'object';
+    if (link.id != null && link.id !== '') {
+        const byId = list.findIndex(s => isLink(s) && s.id === link.id);
+        if (byId !== -1) return byId;
+    }
+    return list.findIndex(s => isLink(s) && s.name === link.name && s.url === link.url);
+}
+
+/**
+ * The stored category name behind a rendered one: an exact match first, then
+ * a name that renders under it (an over-long name truncated for display). If
+ * two long names share the rendered prefix, the first stored one wins.
+ * @param {string} renderedName - category as rendered (tile/grid data-category)
+ * @returns {string}
+ */
+function storedCategoryName(renderedName) {
+    const candidates = [...storedCategories, ...storedLinks.map(l => l?.category)]
+        .filter(c => typeof c === 'string');
+    return candidates.find(c => c === renderedName)
+        ?? candidates.find(c => renderedCategoryName(c) === renderedName)
+        ?? renderedName;
+}
+
+/**
+ * Persist a drop. The handlers compute the new order over the rendered links,
+ * which load-time salvage may have cleaned and quarantine may have thinned;
+ * this maps that one move onto the stored array instead, so every other
+ * stored entry — hidden links, original category names, junk entries — is
+ * written back exactly as stored. saveLinks is the only writer. Writes (and
+ * shows) nothing if the moved link isn't in storage.
+ * @param {Object[]} newLinks - rendered links in their new order
+ * @param {Object} movedLink - the rendered link as it was before the move
+ * @param {Object} updatedLink - the moved link as placed in newLinks
+ */
+async function persistDrop(newLinks, movedLink, updatedLink) {
+    try {
+        const full = [...storedLinks];
+        const from = findStoredLinkIndex(full, movedLink);
+        if (from === -1) {
+            console.warn('[The Codex] Moved link not found in storage; not saving this move.', movedLink);
+            return;
+        }
+        const [stored] = full.splice(from, 1);
+        // A reorder within a category keeps the stored category untouched
+        // (even a missing one that only renders as 'Default').
+        const moved = movedLink.category === updatedLink.category
+            ? stored
+            : { ...stored, category: storedCategoryName(updatedLink.category) };
+
+        // Place it before the stored entry of its new rendered successor, so
+        // the visible order matches newLinks; hidden entries keep their slots.
+        const successor = newLinks[newLinks.indexOf(updatedLink) + 1];
+        const to = successor ? findStoredLinkIndex(full, successor) : -1;
+        full.splice(to === -1 ? full.length : to, 0, moved);
+
+        const result = safeUpdateState({ links: newLinks }, { validate: true, skipPersistence: true });
+        if (!result.success) {
+            console.warn('[The Codex] Not saving a drop that failed validation:', result.error);
+            return;
+        }
+        renderLinks();
+
+        // saveLinks refuses (returns false) e.g. over the sync item quota;
+        // then the copy must keep matching what is actually stored.
+        if (await saveLinks(full)) {
+            storedLinks = full;
+        }
+    } catch (error) {
+        console.error('Failed to save dropped link:', error);
+    }
+}
+
+/**
+ * Sanitize the stored category order for rendering. Each name gets the same
+ * cleanup the load salvage applies to link.category (control characters
+ * stripped, cut to the length cap, trimmed), so an over-long name keeps its
+ * place under the same truncated name its links now carry. Non-strings and
+ * names left empty are dropped. In-memory only: the stored list is untouched.
+ * @param {*} stored - categories as returned by loadLinks()
+ * @returns {string[]} unique valid names, always including 'Default'
+ */
+function sanitizeLoadedCategories(stored) {
+    const list = Array.isArray(stored) ? stored : [];
+    const categories = [];
+    const adjusted = [];
+    list.forEach(raw => {
+        const name = typeof raw === 'string' ? renderedCategoryName(raw) : '';
+        if (name !== raw) adjusted.push(raw);
+        if (name && !categories.includes(name)) categories.push(name);
+    });
+    if (!categories.includes('Default')) categories.unshift('Default');
+    if (adjusted.length > 0) {
+        console.warn(`[The Codex] Truncated or skipped ${adjusted.length} stored category name(s) that failed validation (storage untouched):`, adjusted);
+    }
+    return categories;
 }
 
 async function renderLinksTraditional() {
     const currentState = getState();
-    const filteredLinks = currentState.links.filter(link =>
-        link.name.toLowerCase().includes(currentState.searchTerm.toLowerCase()) ||
-        link.url.toLowerCase().includes(currentState.searchTerm.toLowerCase())
-    );
-    const groupedLinks = groupBy(filteredLinks, 'category');
+    // Build the whole view off-DOM and swap it in only once it is complete:
+    // a throw part-way must leave the last good view, not a cleared page.
+    const fragment = document.createDocumentFragment();
+    let filteredLinks;
+    try {
+        filteredLinks = currentState.links.filter(link =>
+            link.name.toLowerCase().includes(currentState.searchTerm.toLowerCase()) ||
+            link.url.toLowerCase().includes(currentState.searchTerm.toLowerCase())
+        );
+        const groupedLinks = groupBy(filteredLinks, 'category');
 
-    linksContainer.innerHTML = '';
-
-    // Sort categories by stored order, with any new categories at the end
-    const sortedCategories = Object.keys(groupedLinks).sort((a, b) => {
-        const indexA = currentState.categories.indexOf(a);
-        const indexB = currentState.categories.indexOf(b);
-        // Categories not in the order array go to the end
-        if (indexA === -1 && indexB === -1) return 0;
-        if (indexA === -1) return 1;
-        if (indexB === -1) return -1;
-        return indexA - indexB;
-    });
-
-    sortedCategories.forEach(category => {
-        const links = groupedLinks[category];
-        const section = createCategorySection(category, links, {
-            defaultTileSize: currentState.defaultTileSize,
-            view: currentState.view,
-            lazyIcons: true
+        // Sort categories by stored order, with any new categories at the end
+        const sortedCategories = Object.keys(groupedLinks).sort((a, b) => {
+            const indexA = currentState.categories.indexOf(a);
+            const indexB = currentState.categories.indexOf(b);
+            // Categories not in the order array go to the end
+            if (indexA === -1 && indexB === -1) return 0;
+            if (indexA === -1) return 1;
+            if (indexB === -1) return -1;
+            return indexA - indexB;
         });
-        linksContainer.appendChild(section);
-    });
 
-    if (filteredLinks.length === 0) {
-        renderNoResults(linksContainer);
+        sortedCategories.forEach(category => {
+            const links = groupedLinks[category];
+            const section = createCategorySection(category, links, {
+                defaultTileSize: currentState.defaultTileSize,
+                view: currentState.view,
+                lazyIcons: true
+            });
+            fragment.appendChild(section);
+        });
+
+        if (filteredLinks.length === 0) {
+            renderNoResults(fragment);
+        }
+    } catch (error) {
+        console.error('[The Codex] Rendering links failed; keeping the previous view:', error);
+        return;
     }
+
+    linksContainer.replaceChildren(fragment);
 
     // Load icons asynchronously with caching
     loadIconsWithCaching(filteredLinks);
@@ -630,14 +857,8 @@ function handleDrop(e) {
             // Insert the link at the new position
             newLinks.splice(targetIndex, 0, updatedLink);
 
-            // Update state with new links array
-            safeUpdateState({ links: newLinks }, { validate: true });
-
-            // Save the new order
-            saveLinks(newLinks);
-
-            // Re-render the links
-            renderLinks();
+            // Update state, re-render, and save the move onto stored links
+            persistDrop(newLinks, removedLink, updatedLink);
         }
     }
 
@@ -668,7 +889,9 @@ function handleDragEnd(e) {
 
 // Render links function that calls the traditional rendering
 function renderLinks() {
-    renderLinksTraditional();
+    // Not awaited by callers (state listeners, drops): never let a failure
+    // become an unhandled rejection.
+    renderLinksTraditional().catch(error => console.error('[The Codex] Rendering links failed:', error));
 }
 
 // Grid drop handlers for category-level drops
@@ -748,14 +971,8 @@ function handleGridDrop(e) {
             // Insert the link at the end of the target category
             newLinks.splice(insertIndex, 0, updatedLink);
 
-            // Update state with new links array
-            safeUpdateState({ links: newLinks }, { validate: true });
-
-            // Save the new order
-            saveLinks(newLinks);
-
-            // Re-render the links
-            renderLinks();
+            // Update state, re-render, and save the move onto stored links
+            persistDrop(newLinks, removedLink, updatedLink);
         }
     }
 
@@ -885,7 +1102,7 @@ function groupBy(array, key) {
     return array.reduce((result, currentValue) => {
         (result[currentValue[key]] = result[currentValue[key]] || []).push(currentValue);
         return result;
-    }, {});
+    }, Object.create(null)); // no prototype: a category named 'constructor' or '__proto__' is just a key
 }
 
 function updateSearchSuggestions() {
@@ -994,6 +1211,7 @@ const init = safeAsync(async function init() {
     try {
         initializeDOMElements();
         await initializeState();
+        flushStoredChanges();
         applyTheme();  // Apply theme from saved state
         setupEventListeners();
         

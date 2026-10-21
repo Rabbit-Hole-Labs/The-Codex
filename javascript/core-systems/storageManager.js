@@ -5,7 +5,7 @@ import { validateAndSanitizeUrl } from '../features/utils.js';
 import { sanitizeUserInput } from '../features/securityUtils.js';
 import { validateIconValue } from '../features/iconCache.js';
 import { debug, debugWarn, debugError } from './debug.js';
-import { pendingSyncKey, cloudValueFingerprint, SYNC_CLEARED_AT_KEY } from './storageFormat.js';
+import { pendingSyncKey, cloudValueFingerprint, SYNC_CLEARED_AT_KEY, coerceSettings, backfillLinkIds, SETTING_ENUMS } from './storageFormat.js';
 import { withPendingSyncLock } from './storageLock.js';
 const { ERROR_TYPES, ERROR_SEVERITY } = errorHandler;
 
@@ -193,11 +193,8 @@ export async function loadLinks() {
         // row back to its stored entry by id; without one it falls back to a
         // brittle object-reference match that fails against JSON-cloned state
         // snapshots (see linkManager.resolveLinkIndex). Ids persist on next save.
-        links.forEach((link, i) => {
-            if (link && typeof link === 'object' && link.id == null) {
-                link.id = `link_${Date.now()}_${i}_${Math.random().toString(36).slice(2, 8)}`;
-            }
-        });
+        // Any falsy id ('' too) counts as missing, and so does a duplicate.
+        backfillLinkIds(links);
 
         debug('STORAGE_MANAGER: Final links data ready for return', {
             linksCount: links.length,
@@ -205,12 +202,18 @@ export async function loadLinks() {
             hasInvalidLinks: links.some(link => !link || typeof link !== 'object')
         });
 
+        // Coerce each setting independently: one unknown value (e.g. a
+        // colorTheme from before the accent presets) must fall back to its own
+        // default, not fail startup validation for everything. In-memory only.
+        const { settings, coerced } = coerceSettings(data);
+        if (coerced.length > 0) {
+            console.warn('[The Codex] Ignoring unsupported stored setting(s), using defaults in memory:',
+                Object.fromEntries(coerced.map(key => [key, data[key]])));
+        }
+
         return {
             links: links,
-            theme: data.theme || 'dark',
-            view: data.view || 'grid',
-            colorTheme: data.colorTheme || 'default',
-            defaultTileSize: data.defaultTileSize || 'medium',
+            ...settings,
             categories: categories
         };
     } catch (error) {
@@ -330,18 +333,10 @@ export async function saveSettings(settings) {
         const dataToSave = {};
 
         // Only save valid settings
-        if (settings.theme && ['dark', 'light'].includes(settings.theme)) {
-            dataToSave.theme = settings.theme;
-        }
-        if (settings.colorTheme &&
-            ['default', 'slate', 'blue', 'teal', 'violet', 'amber'].includes(settings.colorTheme)) {
-            dataToSave.colorTheme = settings.colorTheme;
-        }
-        if (settings.view && ['grid', 'list'].includes(settings.view)) {
-            dataToSave.view = settings.view;
-        }
-        if (settings.defaultTileSize && ['compact', 'small', 'medium', 'large', 'square', 'wide', 'tall', 'giant'].includes(settings.defaultTileSize)) {
-            dataToSave.defaultTileSize = settings.defaultTileSize;
+        for (const [key, allowed] of Object.entries(SETTING_ENUMS)) {
+            if (allowed.includes(settings[key])) {
+                dataToSave[key] = settings[key];
+            }
         }
 
         // Validate that we have something to save

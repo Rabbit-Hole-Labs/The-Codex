@@ -139,8 +139,13 @@ export function createCategorySection(categoryName, links, options = {}) {
     grid.dataset.category = categoryName;
 
     links.forEach((link, index) => {
-        const tile = createTile(link, { index, category: categoryName, defaultTileSize, lazyIcons });
-        grid.appendChild(tile);
+        // One link that can't be rendered hides only itself, not the page.
+        // `index` stays the link's position in its category (drag relies on it).
+        try {
+            grid.appendChild(createTile(link, { index, category: categoryName, defaultTileSize, lazyIcons }));
+        } catch (error) {
+            console.error('[The Codex] Skipping a tile that failed to render:', link?.name, error);
+        }
     });
 
     section.appendChild(grid);
