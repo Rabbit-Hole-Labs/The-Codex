@@ -986,8 +986,44 @@ describe('package-extension', () => {
         expect(preload).toContain('popup.html loads https://blocked.example/page, which the manifest CSP blocks (default-src)');
     });
 
+    test('round 14: an import map after a module script is not relied on', () => {
+        // Chrome may resolve that script's imports before the map is seen (always, for an inline module).
+        const sandboxed = JSON.stringify({ ...MANIFEST, sandbox: { pages: ['assets/s.html'] } });
+        const late = buildError({ 'manifest.json': sandboxed, 'assets/x.js': 'export const x = 1;\n', 'assets/m.js': "import { x } from 'x';\nexport const m = x;\n",
+            'assets/s.html': '<script type="module" src="m.js"></script><script type="importmap">{"imports": {"x": "./x.js"}}</script>' });
+        expect(late).toContain('assets/s.html line 1: this import map comes after the module script on line 1, so Chrome may resolve that script\'s imports without it; put import maps first');
+        expect(late).toContain('bare module specifier "x" cannot be loaded by an unbundled extension (assets/s.html has no import map)');
+    });
+
+    test('round 14: late import maps, window handlers, formaction, empty worker, fragment bases, url() syntax, javascript: links, SVG url attributes', () => {
+        const entry = '<script type="module" src="javascript/entry-points/popup.js"></script>';
+        // Window handlers on <body> are inline script too.
+        expect(buildError({ 'popup.html': `<body onunhandledrejection="handle(event)">${entry}` })).toContain('inline event handler onunhandledrejection= on <body>');
+        // formaction counts only on controls that submit.
+        writeFixture(root, fixtureFiles({ 'popup.html': `<button type="button" formaction="missing.html"></button><input type="text" formaction="missing.html">${entry}` }));
+        expect(() => buildPackage({ root, outDir: out })).not.toThrow();
+        expect(buildError({ 'popup.html': `<button formaction="gone.html"></button><input type="image" formaction="gone2.html">${entry}` }))
+            .toEqual(expect.stringMatching(/references gone\.html[\s\S]*references gone2\.html|references gone2\.html[\s\S]*references gone\.html/));
+        // background.service_worker must be a non-empty path.
+        expect(validateManifest({ ...MANIFEST, background: { service_worker: '', type: 'module' } })).toContain('background.service_worker is required in MV3 (a non-empty path)');
+        // A fragment- or query-only <base> keeps the document's directory.
+        writeFixture(root, fixtureFiles({ 'assets/icons/page.html': '<base href="#frag"><img src="icon128.png">', 'popup.html': `<a href="assets/icons/page.html">p</a>${entry}` }));
+        expect(() => buildPackage({ root, outDir: out })).not.toThrow();
+        // A quoted url() followed by anything but ')' is invalid: nothing loads.
+        expect(cssRefs('.a { background: url("missing.png" garbage) } .b { background: url( "ok.png" ) }')).toEqual([{ url: 'ok.png', directive: 'img-src' }]);
+        // Following a javascript: link runs inline script.
+        expect(buildError({ 'popup.html': `<a href="javascript:run()">x</a><map><area href=" javascript:go()"></map>${entry}` }))
+            .toEqual(expect.stringContaining('line 1: javascript: URL in <a href>: the manifest CSP blocks inline script'));
+        // SVG presentation attributes load their url()s.
+        const svg = buildError({ 'manifest.json': JSON.stringify({ ...MANIFEST, content_security_policy: { extension_pages: "script-src 'self'; object-src 'self'; img-src 'self'" } }),
+            'popup.html': `<svg><rect fill="url(assets/missing.svg#paint)" filter="url(https://evil.example/f.svg#f)" stroke="url(#local)"/></svg>${entry}` });
+        expect(svg).toContain('popup.html references assets/missing.svg');
+        expect(svg).toContain('popup.html loads https://evil.example/f.svg#f, which the manifest CSP blocks (img-src)');
+        expect(svg).not.toContain('local');
+    });
+
     test('an MV3 background needs a service worker', () => {
-        expect(validateManifest({ ...MANIFEST, background: { type: 'module' } })).toContain('background.service_worker is required in MV3');
+        expect(validateManifest({ ...MANIFEST, background: { type: 'module' } })).toContain('background.service_worker is required in MV3 (a non-empty path)');
     });
 
     test('<meta http-equiv=refresh> targets are checked', () => {

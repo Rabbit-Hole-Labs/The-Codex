@@ -300,8 +300,8 @@ export function validateManifest(manifest) {
         }
     }
     if (manifest.manifest_version === 3 && manifest.background && typeof manifest.background === 'object' &&
-        !Array.isArray(manifest.background) && typeof manifest.background.service_worker !== 'string') {
-        errors.push('background.service_worker is required in MV3');
+        !Array.isArray(manifest.background) && !(typeof manifest.background.service_worker === 'string' && manifest.background.service_worker.trim())) {
+        errors.push('background.service_worker is required in MV3 (a non-empty path)');
     }
     if (manifest.background?.service_worker && manifest.background.type !== 'module') {
         errors.push('background.type must be "module": the packager checks JS files as ES modules');
@@ -534,7 +534,11 @@ export function cssScan(input, { declarations = false } = {}) {
                 while (k < css.length && /[ \t\n]/.test(css[k])) k++;
                 if (css[k] === '"' || css[k] === "'") {
                     const [value, end] = readString(k);
-                    push(value);
+                    // url("x") must close after optional whitespace; anything else makes the value invalid.
+                    let after = end;
+                    while (after < css.length && /[ \t\n]/.test(css[after])) after++;
+                    if (css[after] === ')') push(value);
+                    else pendingImport = false;
                     const close = css.indexOf(')', end);
                     i = close === -1 ? css.length : close + 1;
                 } else {
@@ -709,10 +713,13 @@ const CLASSIC_JS_TYPES = /^(|(text|application)\/(x-)?(java|ecma)script|text\/(j
 
 /**
  * Event-handler content attributes (on + name) that Chrome compiles as inline script: the
- * names in Blink's attribute-to-event maps (HTML, body/frameset, SVG, SMIL) and the
- * GlobalEventHandlers IDL. Other on* attributes (only, once) are ordinary attributes.
+ * names in Blink's attribute-to-event maps (HTML, body/frameset, SVG, SMIL) and its
+ * GlobalEventHandlers, WindowEventHandlers and media IDLs. Other on* attributes
+ * (only, once) are ordinary attributes.
  */
 const EVENT_HANDLER_ATTRIBUTES = new Set((
+    'move openerchange rejectionhandled unhandledrejection encrypted waitingforkey enterpictureinpicture ' +
+    'leavepictureinpicture ' +
     'abort afterprint animationcancel animationend animationiteration animationstart auxclick beforecopy ' +
     'beforecut beforefilter beforeinput beforematch beforepaste beforeprint beforetoggle beforeunload ' +
     'begin blur cancel canplay canplaythrough change click close command complete ' +
@@ -731,6 +738,9 @@ const EVENT_HANDLER_ATTRIBUTES = new Set((
     'validationstatuschange volumechange waiting webkitanimationend webkitanimationiteration ' +
     'webkitanimationstart webkitfullscreenchange webkitfullscreenerror webkittransitionend wheel'
 ).split(' ').map((name) => `on${name}`));
+
+/** SVG presentation attributes whose url() values Chrome fetches (checked in Chromium 147). */
+const SVG_URL_ATTRIBUTES = ['fill', 'stroke', 'filter', 'clip-path', 'mask', 'marker-start', 'marker-mid', 'marker-end', 'cursor'];
 
 /** Elements whose legacy background attribute is a background image (HTML's rendering rules; Chrome adds col and colgroup). */
 const BACKGROUND_ELEMENTS = new Set(['body', 'table', 'thead', 'tbody', 'tfoot', 'tr', 'td', 'th', 'col', 'colgroup']);
@@ -773,6 +783,7 @@ function htmlRefs(html, inheritedBase = null, scripting = true, inheritedPolicie
     const varChains = []; // [holder, read] custom property pairs (see cssScan)
     const pauses = []; // positions of parser-blocking scripts and stylesheets (they let styles apply)
     const srcdocs = []; // nested srcdoc documents: their custom property readers
+    let firstModule = null; // line of the first module script: import maps after it can't be relied on
     const registeredUrls = new Set(); // custom properties registered with @property syntax "<url>"
     let base = null; // the first <base> with an href (an empty href keeps the fallback base)
     const currentBase = () => (base ? base.href || inheritedBase : inheritedBase);
@@ -808,7 +819,10 @@ function htmlRefs(html, inheritedBase = null, scripting = true, inheritedPolicie
         }
         const src = attrs.get('src');
         const href = attrs.get('href');
-        if (attrs.has('formaction')) add(attrs.get('formaction'), 'form-action'); // button/input submit target
+        // formaction is a submit target only on submit buttons and image/submit inputs.
+        const controlType = (attrs.get('type') ?? '').toLowerCase();
+        const submits = (name === 'button' && !['button', 'reset'].includes(controlType)) || (name === 'input' && ['submit', 'image'].includes(asciiTrim(controlType)));
+        if (attrs.has('formaction') && !tag.foreign && submits) add(attrs.get('formaction'), 'form-action');
         if (tag.foreign) {
             // SVG 2 href (or the legacy xlink:href, which href overrides): image and feImage load an
             // image, script a classic script; use, a and the rest refer to their target. MathML
@@ -822,8 +836,15 @@ function htmlRefs(html, inheritedBase = null, scripting = true, inheritedPolicie
             if (svg && name === 'script') {
                 markScript(target, { classic: !svgModule, inert: !scripting });
                 if (!scripting) continue;
+                if (svgModule && firstModule === null) firstModule = line;
                 if (target === undefined && text.trim()) {
                     problems.push(`line ${line}: inline <script> inside <svg> isn't supported by the packager; load it from a file`);
+                }
+            }
+            // Presentation attributes take CSS values: url() in them loads a resource (an image load).
+            if (svg) {
+                for (const attr of SVG_URL_ATTRIBUTES) {
+                    if (attrs.has(attr)) styles.push({ text: attrs.get(attr), declarations: false });
                 }
             }
             if (svg && name === 'style' && isCssType(attrs.get('type'))) {
@@ -852,10 +873,13 @@ function htmlRefs(html, inheritedBase = null, scripting = true, inheritedPolicie
                         problems.push(`line ${line}: <script type="importmap" src> is ignored by Chrome (import maps must be inline)`);
                     } else if (text !== '') { // an empty one is skipped before anything is parsed
                         inline.push({ kind: 'script', desc: `line ${line}: inline import map`, text, nonce, policies: here });
-                        importMaps.push({ text, line, base: currentBase() });
+                        // A module script before the map may resolve its imports first (always, when inline).
+                        if (firstModule !== null) problems.push(`line ${line}: this import map comes after the module script on line ${firstModule}, so Chrome may resolve that script's imports without it; put import maps first`);
+                        else importMaps.push({ text, line, base: currentBase() });
                     }
                     break;
                 }
+                if (module && scripting && firstModule === null) firstModule = line;
                 if (!scripting || (!module && attrs.has('nomodule'))) {
                     // Never run: scripting is off (a sandbox without allow-scripts), or it is a nomodule
                     // script, which Chrome skips because it runs modules. A classic file stays classic.
@@ -989,7 +1013,13 @@ function htmlRefs(html, inheritedBase = null, scripting = true, inheritedPolicie
                 }
                 add(src, null);
                 add(href, null);
-                if ((name === 'a' || name === 'area') && href !== undefined) ping(attrs.get('ping'));
+                if ((name === 'a' || name === 'area') && href !== undefined) {
+                    ping(attrs.get('ping'));
+                    // Following a javascript: link runs its code as inline script.
+                    if (scripting && /^javascript:/i.test(urlTrim(href))) {
+                        inline.push({ kind: 'navigation', desc: `line ${line}: javascript: URL in <${name} href>`, text: urlTrim(href).slice('javascript:'.length), policies: here });
+                    }
+                }
         }
     }
     // Styles, legacy backgrounds and pings load once the page is parsed: against the document's
@@ -1347,8 +1377,15 @@ function locator(file, extensionId) {
             if (own === null) return { externalBase: href };
             return { localDir: own.endsWith('/') ? own.replace(/\/$/, '') || '.' : posix.dirname(own) };
         }
-        const resolvedBase = resolveRef(file, href) ?? '.';
-        return { localDir: href.endsWith('/') ? resolvedBase.replace(/\/$/, '') || '.' : posix.dirname(resolvedBase) };
+        // Resolve like a URL against the document: "#frag" or "?q" keeps the document itself.
+        let path = posix.dirname(file);
+        try {
+            const url = new URL(href, `chrome-extension://base/${file.split('/').map(encodeURIComponent).join('/')}`);
+            path = decodeURIComponent(url.pathname).replace(/^\//, '');
+            return { localDir: url.pathname.endsWith('/') ? path.replace(/\/$/, '') || '.' : posix.dirname(path) || '.' };
+        } catch {
+            return { localDir: path };
+        }
     };
     // A #fragment-only URL names part of a stylesheet or SVG document and loads nothing, unless
     // `fragments` (HTML attributes and pings, which resolve it against the base like any URL).
@@ -1710,9 +1747,11 @@ export function checkReferences(root, files, manifest) {
         results.set(file, result);
         if (!isPage(file)) continue;
         for (const item of result.inline) {
+            // A javascript: navigation is checked like a script element that needs 'unsafe-hashes' for a hash.
             const blocked = policiesAt(file, item.policies).find(([pagePolicy]) => !(item.kind === 'script'
                 ? inlineAllowed(pagePolicy, 'script-src', item)
-                : inlineAllowed(pagePolicy, 'script-src-attr', { text: item.text, attribute: true })));
+                : item.kind === 'navigation' ? inlineAllowed(pagePolicy, 'script-src', { text: item.text, attribute: true })
+                    : inlineAllowed(pagePolicy, 'script-src-attr', { text: item.text, attribute: true })));
             if (blocked) {
                 errors.push(`${file} ${item.desc}: the ${blocked[1]} blocks inline script (MV3 extension pages never run it); move it to a file`);
             }
