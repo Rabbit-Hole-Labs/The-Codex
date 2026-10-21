@@ -5,12 +5,8 @@
 
 describe('Security Utils', () => {
     let mockDocument;
-    let mockURL;
 
     beforeEach(() => {
-        // Mock URL constructor
-        mockURL = global.URL;
-
         // Mock document for DOM operations
         const mockElement = {
             innerHTML: '',
@@ -439,6 +435,38 @@ describe('Security Utils', () => {
             const result = validateLink(invalidLink);
             expect(result.valid).toBe(false);
             expect(result.errors).toContain('size: Invalid size value: invalid-size');
+        });
+
+        test('should reject non-string icon', async () => {
+            const securityUtils = await import('../../javascript/features/securityUtils.js');
+            const validateLink = securityUtils.validateLink;
+
+            const invalidLink = {
+                name: 'Example Site',
+                url: 'https://example.com',
+                category: 'Test',
+                icon: 123
+            };
+
+            const result = validateLink(invalidLink);
+            expect(result.valid).toBe(false);
+            expect(result.errors).toContain('icon: Expected string or null, got number');
+        });
+
+        test('should reject non-string size', async () => {
+            const securityUtils = await import('../../javascript/features/securityUtils.js');
+            const validateLink = securityUtils.validateLink;
+
+            const invalidLink = {
+                name: 'Example Site',
+                url: 'https://example.com',
+                category: 'Test',
+                size: 123
+            };
+
+            const result = validateLink(invalidLink);
+            expect(result.valid).toBe(false);
+            expect(result.errors).toContain('size: Expected string or null, got number');
         });
 
         test('should handle null link object', async () => {

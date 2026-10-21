@@ -11,7 +11,7 @@ applyTo: "tests/**/*.test.js, tests/real-chrome-tests/**"
 
 | Environment | Where it runs | How it's invoked | Use it for |
 |---|---|---|---|
-| **Jest + jsdom** (default) | `tests/*.test.js`, `javascript/**/*.test.js` | `npm test`, `npm run test:unit`, etc. | Unit, integration, regression. The everyday workhorse. |
+| **Jest + jsdom** (default) | `tests/unit/*.test.js`, `tests/integration/*.test.js` | `npm test`, `npm run test:unit`, `npm run test:integration` | Unit, integration, regression. The everyday workhorse. |
 | **Real Chrome harness** | `tests/real-chrome-tests/*` (own `manifest.json` + `package.json`) | Loaded as an unpacked extension in Chrome; `run-tests.js` is the entry | Critical-bug regression tests that need real Chrome APIs. |
 
 Jest's `testMatch` (see [package.json](../../package.json)) is `["<rootDir>/tests/**/*.test.js", "<rootDir>/javascript/**/*.test.js"]`, so any `*.test.js` file under either tree is picked up automatically.
@@ -24,18 +24,32 @@ tests/
 ├── unit/                     # Single-module tests with mocked deps (npm run test:unit)
 │   ├── category-manager.test.js
 │   ├── debug.test.js
+│   ├── domOptimizer.test.js
+│   ├── error-capture-funnel.test.js
+│   ├── error-capture.test.js
 │   ├── error-handler.test.js
 │   ├── icon-cache.test.js
+│   ├── icon-index.test.js
+│   ├── icon-matching.test.js
+│   ├── icon-store.test.js
+│   ├── icon-validation.test.js
 │   ├── link-management.test.js
+│   ├── link-mutations.test.js
+│   ├── load-no-clobber.test.js
+│   ├── security-fixes.test.js
 │   ├── security-utils.test.js
 │   ├── state-management.test.js
+│   ├── storage-format.test.js
 │   ├── sync-manager.test.js
+│   ├── syncSettingsController.test.js
+│   ├── syncStatusIndicator.test.js
+│   ├── uiManager.test.js
 │   └── utils.test.js
 ├── integration/              # Multi-module / cross-system tests (npm run test:integration)
 │   ├── chrome-storage-fixes.test.js
 │   └── critical-bug-fixes.test.js
-├── real-chrome-tests/        # Real-Chrome harness (load as unpacked extension; not via npm)
-└── root-test-files/          # Standalone runners (not picked up by Jest)
+├── e2e/                      # Playwright helpers only; no specs yet, not run by npm scripts or CI
+└── real-chrome-tests/        # Real-Chrome harness (load as unpacked extension; not via npm)
 ```
 
 When adding a new test, decide first whether it's **unit** (tests a single module, mocks its deps) or **integration** (exercises multiple real modules together). Put it in the matching folder so the right `npm run` script picks it up.
@@ -116,7 +130,10 @@ test('returns empty array when no markets match query', async () => {
 });
 ```
 
-`tests/error-handler.test.js` and `tests/security-utils.test.js` use module-scoped `let` variables assigned in `beforeEach` to grab exports — that's the established style for code-under-test exports. Match it instead of inventing a new pattern.
+There are two established ways to get the module under test — pick by whether the test needs per-test mocks:
+
+- **No module mocks or pre-import globals** → one static top-level `import { … } from '../../javascript/…';` (see `tests/unit/error-handler.test.js`). Module state is shared across the file, so reset it explicitly in each test (e.g. `clearErrorLog()`).
+- **Mocks or globals must exist before the module loads** → set up `jest.unstable_mockModule(…)` and/or `global.chrome` / `global.document` first, then `await import()` the module inside each test (see `tests/unit/category-manager.test.js` and `tests/unit/security-utils.test.js`).
 
 ## Critical-bug tests — bug IDs and the real-Chrome harness
 
@@ -138,7 +155,7 @@ The harness's `run-tests.js` is itself a Node script that:
 2. Constructs a `CriticalBugTester` and calls `runAllCriticalTests()`.
 3. Calls `process.exit(0 | 1)` based on the result.
 
-To run it: load `tests/real-chrome-tests/` as an unpacked extension in Chrome and follow [TESTING.md](../../TESTING.md). For day-to-day work, **write the unit/integration test in `tests/*.test.js` first**; only escalate to the real-Chrome harness if a bug can only be reproduced in real Chrome.
+To run it: load `tests/real-chrome-tests/` as an unpacked extension in Chrome and follow [TESTING.md](../../TESTING.md). For day-to-day work, **write the unit/integration test in `tests/unit/` or `tests/integration/` first**; only escalate to the real-Chrome harness if a bug can only be reproduced in real Chrome.
 
 ## Coverage
 

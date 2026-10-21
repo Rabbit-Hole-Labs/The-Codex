@@ -1,5 +1,7 @@
 # Task Completion Summary
 
+> **Later update (manifest 7.0.0.38):** `tests/root-test-files/` and the other loose runner scripts under `tests/` were removed — superseded by the Jest suites in `tests/unit/` and `tests/integration/` and the CI workflow in `.github/workflows/ci.yml`.
+
 ## Status Check
 
 1. **Test Files Location**: [COMPLETE] All test files are in the proper location according to the project structure

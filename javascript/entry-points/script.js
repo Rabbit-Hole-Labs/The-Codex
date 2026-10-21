@@ -4,7 +4,7 @@
 // - preloadIcons, batchLoadIcons (from iconCache.js) — for icon preloading optimization
 import { initErrorCapture } from '../features/errorCapture.js';
 import { loadLinks, saveLinks, saveSettings } from '../core-systems/storageManager.js';
-import { debounce, sanitizeHTML, validateAndSanitizeUrl } from '../features/utils.js';
+import { debounce } from '../features/utils.js';
 import { getState, addStateChangeListener, safeUpdateState } from '../core-systems/stateManager.js';
 import { getPerformanceMetrics, resetPerformanceMetrics } from '../features/domOptimizer.js';
 import { createCategorySection, renderNoResults } from '../core-systems/tileRenderer.js';
@@ -117,6 +117,7 @@ async function initializeState() {
                     if (typeof cleanLink.name === 'string') {
                         // Remove control characters and limit length
                         cleanLink.name = cleanLink.name
+                            // eslint-disable-next-line no-control-regex -- strip C0/DEL from user text
                             .replace(/[\x00-\x1F\x7F]/g, '')
                             .substring(0, 100)
                             .trim();
@@ -151,6 +152,7 @@ async function initializeState() {
                     // Sanitize category
                     if (typeof cleanLink.category === 'string') {
                         cleanLink.category = cleanLink.category
+                            // eslint-disable-next-line no-control-regex -- strip C0/DEL from user text
                             .replace(/[\x00-\x1F\x7F]/g, '')
                             .substring(0, 50)
                             .trim();

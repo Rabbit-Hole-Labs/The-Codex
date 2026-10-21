@@ -347,7 +347,7 @@ export class SyncSettingsController {
 
         try {
             // Test by attempting to read sync storage
-            const testData = await chrome.storage.sync.get(['test']);
+            await chrome.storage.sync.get(['test']);
             await chrome.storage.sync.set({ syncTest: Date.now() });
             await chrome.storage.sync.remove(['syncTest']);
 

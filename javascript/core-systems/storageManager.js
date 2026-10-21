@@ -656,7 +656,7 @@ export async function importLinks(state, file) {
             // Validate URL format
             try {
                 new URL(link.url);
-            } catch (urlError) {
+            } catch {
                 throw new Error(`Invalid link at index ${i}: Link has an invalid URL format`);
             }
 

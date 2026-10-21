@@ -71,7 +71,7 @@ Feature modules provide specialized functionality:
 
 ## Test Conventions
 
-- Test files use `*.test.js` naming and live under [tests/](../tests/) (Jest picks up `tests/**/*.test.js`; the `test:unit` / `test:integration` / `test:e2e` scripts reference `tests/unit`, `tests/integration`, `tests/e2e` folders per [package.json](../package.json))
+- Test files use `*.test.js` naming and live under [tests/](../tests/) (Jest picks up `tests/**/*.test.js`; the `test:unit` / `test:integration` scripts reference the `tests/unit` and `tests/integration` folders per [package.json](../package.json))
 - Critical bug tests in [tests/real-chrome-tests/critical-bug-tests.js](../tests/real-chrome-tests/critical-bug-tests.js)
-- Jest with jsdom test environment; Chrome APIs are mocked in [tests/setup.js](../tests/setup.js)
+- Jest with jsdom test environment; [tests/setup.js](../tests/setup.js) only exposes `jest` globally — each suite stubs `global.chrome` itself
 - See [TESTING.md](../TESTING.md) for the full testing guide

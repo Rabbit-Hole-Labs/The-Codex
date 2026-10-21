@@ -139,7 +139,7 @@ function validateUrls(element, options) {
                     return;
                 }
 
-            } catch (error) {
+            } catch {
                 // Invalid URL format
                 link.removeAttribute('href');
             }
