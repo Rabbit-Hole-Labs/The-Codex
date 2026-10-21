@@ -55,6 +55,22 @@ describe('selfhstCandidateSlugs', () => {
         expect(Array.isArray(slugs)).toBe(true);
         expect(slugs[0]).toBe('sonarr');
     });
+
+    it('is quiet while the URL is empty or half-typed (the icon picker can open before one exists)', () => {
+        const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+        try {
+            expect(selfhstCandidateSlugs({ name: 'Plex', url: '' })).toEqual(['plex']);
+            expect(selfhstCandidateSlugs({ name: 'Plex', url: 'http://' })).toEqual(['plex']);
+            expect(warn).not.toHaveBeenCalled();
+        } finally {
+            warn.mockRestore();
+        }
+    });
+
+    it('strips only a leading www. from the host', () => {
+        expect(selfhstCandidateSlugs({ name: '', url: 'https://www.grafana.example.com' })).toEqual(['grafana', 'example']);
+        expect(selfhstCandidateSlugs({ name: '', url: 'https://nowww.example.com' })).toEqual(['nowww', 'example']);
+    });
 });
 
 describe('selfhstIconUrl', () => {
