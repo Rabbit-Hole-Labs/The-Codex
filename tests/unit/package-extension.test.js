@@ -898,7 +898,7 @@ describe('package-extension', () => {
     test('round 12: srcset whitespace, <source> parents, DNR actions, CSS newlines, CSP escapes, overrides', () => {
         const entry = '<script type="module" src="javascript/entry-points/popup.js"></script>';
         // srcset splits on ASCII whitespace only: U+00A0 stays part of the URL.
-        expect(srcsetUrls('assets/a b.png 1x, c.png 2x')).toEqual(['assets/a b.png', 'c.png']);
+        expect(srcsetUrls('assets/a\u00a0b.png 1x, c.png 2x')).toEqual(['assets/a\u00a0b.png', 'c.png']);
         // <source>: srcset under <picture>, src under <audio>/<video>, nothing elsewhere.
         writeFixture(root, fixtureFiles({ 'popup.html': `<picture><source src="missing.mp4" srcset="assets/icons/icon128.png"><img src="assets/icons/icon128.png"></picture>${entry}` }));
         expect(() => buildPackage({ root, outDir: out })).not.toThrow();
@@ -967,7 +967,7 @@ describe('package-extension', () => {
     test('round 13: CSS whitespace in url(), poster, event handlers, IPv6 sources, imagesrcset, prefetch', () => {
         const entry = '<script type="module" src="javascript/entry-points/popup.js"></script>';
         // CSS whitespace is ASCII: U+00A0 stays in an unquoted url().
-        expect(cssRefs('.a { background: url(assets/a b.png) }')).toEqual([{ url: 'assets/a b.png', directive: 'img-src' }]);
+        expect(cssRefs('.a { background: url(assets/a\u00a0b.png) }')).toEqual([{ url: 'assets/a\u00a0b.png', directive: 'img-src' }]);
         // poster loads only on <video>.
         writeFixture(root, fixtureFiles({ 'popup.html': `<audio poster="missing.png"></audio><track poster="missing.png">${entry}` }));
         expect(() => buildPackage({ root, outDir: out })).not.toThrow();
@@ -1068,9 +1068,9 @@ describe('package-extension', () => {
         writeFixture(root, fixtureFiles({ 'popup.html': `<img src="chrome-extension://${id}/assets/icons/icon128.png">${entry}` }));
         expect(() => buildPackage({ root, outDir: out })).not.toThrow();
         expect(() => buildPackage({ root, outDir: out, stripKey: true })).toThrow(`popup.html: chrome-extension://${id}/assets/icons/icon128.png can't be checked without a manifest key`);
-        // CSP whitespace is ASCII: "img-src 'none'" is a malformed directive name, ignored.
+        // CSP whitespace is ASCII: "img-src\u00a0'none'" is a malformed directive name, ignored.
         writeFixture(root, fixtureFiles({ 'manifest.json': JSON.stringify({ ...MANIFEST, content_security_policy: { extension_pages: "script-src 'self'; object-src 'self'; img-src https://ok.example data:" } }),
-            'popup.html': `<head><meta http-equiv="Content-Security-Policy" content="img-src 'none'"></head><img src="https://ok.example/x.png">${entry}` }));
+            'popup.html': `<head><meta http-equiv="Content-Security-Policy" content="img-src\u00a0'none'"></head><img src="https://ok.example/x.png">${entry}` }));
         expect(() => buildPackage({ root, outDir: out })).not.toThrow();
         // Hash sources may be base64url (and unpadded).
         const css = '.a { color: red }';
