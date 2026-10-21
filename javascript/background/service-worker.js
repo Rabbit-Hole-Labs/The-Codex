@@ -2,7 +2,7 @@
  * Background Service Worker - Extension lifecycle and storage management
  */
 import { initErrorCapture } from '../features/errorCapture.js';
-import { parseStoredArray } from '../core-systems/storageFormat.js';
+import { parseStoredArray, LEGACY_COLOR_THEMES } from '../core-systems/storageFormat.js';
 
 // Register global error capture as early as possible (service-worker context).
 initErrorCapture('service-worker');
@@ -15,8 +15,11 @@ initErrorCapture('service-worker');
 // via sync's last-writer-wins, clobber the user's real data on every device.
 // The app tolerates absent keys everywhere (loadLinks/initializeFromStorage
 // fall back to in-memory defaults), so seeding is unnecessary as well as unsafe.
-chrome.runtime.onInstalled.addListener(() => {
+chrome.runtime.onInstalled.addListener((details) => {
     verifyStorage();
+    if (details?.reason === 'update') {
+        migrateLegacyColorTheme();
+    }
 });
 
 chrome.runtime.onStartup.addListener(() => {
@@ -47,5 +50,22 @@ async function verifyStorage() {
         }
     } catch (error) {
         console.error('[The Codex] Storage verification failed:', error);
+    }
+}
+
+// One-time cleanup for colorTheme values from before the accent presets
+// (7.0.0.24). Loads already coerce them in memory; this rewrites the stored
+// value so every surface agrees. It is a deliberate, one-time exception to
+// "loads never persist": it runs only on an extension update, touches only
+// that one key, and only when it holds a known legacy value — an absent or
+// empty value (e.g. sync not yet downloaded) is never written.
+async function migrateLegacyColorTheme() {
+    try {
+        const { colorTheme } = await chrome.storage.sync.get('colorTheme');
+        if (typeof colorTheme === 'string' && LEGACY_COLOR_THEMES.includes(colorTheme)) {
+            await chrome.storage.sync.set({ colorTheme: 'default' });
+        }
+    } catch (error) {
+        console.error('[The Codex] colorTheme migration failed:', error);
     }
 }
