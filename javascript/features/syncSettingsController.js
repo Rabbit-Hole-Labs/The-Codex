@@ -1,5 +1,5 @@
 // Sync Settings Page Controller
-import { syncManager } from '../core-systems/syncManager.js';
+import { syncManager, SYNC_CONFIRMATIONS } from '../core-systems/syncManager.js';
 import { dataVerification } from './dataVerification.js';
 import { getCapturedErrors, clearCapturedErrors, formatCapturedErrors } from './errorCapture.js';
 
@@ -8,16 +8,23 @@ export class SyncSettingsController {
         this.elements = {};
         this.syncLog = [];
         this.logUpdateInterval = null;
+        this.initialized = false;
     }
 
     // Initialize the sync settings controller
+    // Runs every time the Sync tab is shown: listeners and the periodic
+    // refresh are set up once (repeating them stacked duplicate handlers and
+    // confirm dialogs); later calls only refresh the displayed status.
     init() {
-        this.getElements();
-        this.attachEventListeners();
-        this.startPeriodicUpdates();
+        if (!this.initialized) {
+            this.initialized = true;
+            this.getElements();
+            this.attachEventListeners();
+            this.startPeriodicUpdates();
+            this.addLogEntry('info', 'Sync settings page loaded');
+        }
         this.updateSyncStatus();
         this.updateErrorDisplay();
-        this.addLogEntry('info', 'Sync settings page loaded');
     }
 
     // Get all DOM elements
@@ -85,10 +92,7 @@ export class SyncSettingsController {
         this.elements.clearSyncBtn?.addEventListener('click', () => this.handleClearSync());
 
         // Strategy selection
-        this.elements.syncStrategySelect?.addEventListener('change', (e) => {
-            syncManager.conflictResolutionStrategy = e.target.value;
-            this.addLogEntry('info', `Conflict resolution strategy changed to: ${e.target.value}`);
-        });
+        this.elements.syncStrategySelect?.addEventListener('change', (e) => this.handleStrategyChange(e.target));
 
         // Diagnostics
         this.elements.testSyncBtn?.addEventListener('click', () => this.handleTestSync());
@@ -116,6 +120,17 @@ export class SyncSettingsController {
         // Network status
         window.addEventListener('online', () => this.updateNetworkStatus());
         window.addEventListener('offline', () => this.updateNetworkStatus());
+    }
+
+    // Apply the conflict-strategy select. "This device's last sync wins" can
+    // overwrite the cloud on every device, so it needs a confirmation.
+    handleStrategyChange(select) {
+        if (select.value === 'local' && !confirm(SYNC_CONFIRMATIONS.localWins)) {
+            select.value = syncManager.conflictResolutionStrategy;
+            return;
+        }
+        syncManager.conflictResolutionStrategy = select.value;
+        this.addLogEntry('info', `Conflict resolution strategy changed to: ${select.value}`);
     }
 
     // Start periodic status updates
@@ -272,7 +287,7 @@ export class SyncSettingsController {
 
     // Handle force push
     async handleForcePush() {
-        if (!confirm('This will overwrite cloud data with your local data. Continue?')) {
+        if (!confirm(SYNC_CONFIRMATIONS.forcePush)) {
             return;
         }
 
@@ -295,7 +310,7 @@ export class SyncSettingsController {
 
     // Handle force pull
     async handleForcePull() {
-        if (!confirm('This will overwrite local data with cloud data. Continue?')) {
+        if (!confirm(SYNC_CONFIRMATIONS.forcePull)) {
             return;
         }
 
@@ -318,7 +333,7 @@ export class SyncSettingsController {
 
     // Handle clear sync data
     async handleClearSync() {
-        if (!confirm('This will clear all sync data. This action cannot be undone. Continue?')) {
+        if (!confirm(SYNC_CONFIRMATIONS.clearSync)) {
             return;
         }
 
@@ -538,16 +553,18 @@ export class SyncSettingsController {
                 break;
             case 'syncComplete':
                 this.addLogEntry('success', `Sync completed - ${data.itemsSynced || 0} items synced`);
+                if (data.warning) this.addLogEntry('warning', data.warning);
                 this.updateSyncStatus();
                 break;
             case 'syncError':
-                this.addLogEntry('error', `Sync error: ${data.error}`);
+                this.addLogEntry('error', `Sync error: ${data?.error || data?.message}`);
                 break;
             case 'quotaExceeded':
                 this.addLogEntry('warning', 'Sync storage quota exceeded');
                 break;
             case 'syncCleared':
                 this.addLogEntry('info', 'Sync data cleared');
+                this.updateSyncStatus();
                 break;
         }
     }
