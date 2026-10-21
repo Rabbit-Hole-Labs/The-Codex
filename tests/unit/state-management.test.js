@@ -267,5 +267,20 @@ describe('State Management Functionality', () => {
       expect(result.success).toBe(false);
       expect(result).toHaveProperty('rollbackState');
     });
+
+    test('should reject links that are not an array', async () => {
+      // Import the state manager
+      const stateManagerModule = await import('../../javascript/core-systems/stateManager.js');
+      const stateManager = stateManagerModule.default;
+
+      // Corrupted storage shape: an object where the links array belongs
+      const result = await stateManager.safeUpdateState(
+        { links: { not: 'an array' }, theme: 'dark' },
+        { validate: true }
+      );
+
+      expect(result.success).toBe(false);
+      expect(Array.isArray(stateManager.getState().links)).toBe(true);
+    });
   });
 });

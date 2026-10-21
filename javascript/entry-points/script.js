@@ -4,7 +4,7 @@
 // - preloadIcons, batchLoadIcons (from iconCache.js) — for icon preloading optimization
 import { initErrorCapture } from '../features/errorCapture.js';
 import { loadLinks, saveLinks, saveSettings } from '../core-systems/storageManager.js';
-import { debounce, sanitizeHTML, validateAndSanitizeUrl } from '../features/utils.js';
+import { debounce } from '../features/utils.js';
 import { getState, addStateChangeListener, safeUpdateState } from '../core-systems/stateManager.js';
 import { getPerformanceMetrics, resetPerformanceMetrics } from '../features/domOptimizer.js';
 import { createCategorySection, renderNoResults } from '../core-systems/tileRenderer.js';
@@ -20,9 +20,10 @@ import { coerceSettings, parseStoredArray, backfillLinkIds, SETTING_DEFAULTS, MA
 // Register global error capture as early as possible (newtab context).
 initErrorCapture('newtab');
 
-// This page applies links/categories changes from sync itself, through the
-// same cleanup as the load (watchStoredData), never as raw stored values.
-claimStorageFields(['links', 'categories']);
+// This page applies links/categories itself, through the same cleanup as the
+// load (receiveStoredChange), never as raw stored values: every sync change
+// and every reload after a manual sync or clear reaches it there.
+claimStorageFields(['links', 'categories'], receiveStoredChange);
 
 // State is managed exclusively through stateManager — no local state object.
 // Use getState() for reads, safeUpdateState() for writes.
@@ -73,12 +74,12 @@ let searchInput, searchSuggestions, linksContainer;
 // links and categories exactly as stored, before any load-time salvage or
 // quarantine. Drops apply their move to this copy and save it (persistDrop),
 // so nothing the load cleaned up or hid for display is ever written back.
-// Kept current by watchStoredData() so a drop never overwrites another
-// device's edit.
+// Kept current by receiveStoredChange() so a drop never overwrites another
+// device's edit or re-uploads one a sync discarded.
 let storedLinks = [];
 let storedCategories = [];
 
-// Sync changes that arrive while initializeState() is still loading; applied
+// Stored values that arrive while initializeState() is still loading; applied
 // once it finishes (flushStoredChanges) so none is lost between read and render.
 let storedDataLoaded = false;
 let pendingStoredChange = null;
@@ -172,7 +173,7 @@ async function initializeState() {
 /**
  * The new tab's display pipeline for stored links and categories: the salvage
  * and quarantine below, plus sanitizeLoadedCategories. Used for the initial
- * load and for every later change to sync (watchStoredData), so the page never
+ * load and for every later stored value (receiveStoredChange), so the page never
  * renders — or validates — raw stored values. Pure: never persists, and never
  * mutates the stored arrays or their objects.
  * @param {*} links - stored links array (raw)
@@ -230,6 +231,7 @@ function cleanStoredLinks(stored) {
                     if (typeof cleanLink.name === 'string') {
                         // Remove control characters and limit length
                         cleanLink.name = cleanLink.name
+                            // eslint-disable-next-line no-control-regex -- strip C0/DEL from user text
                             .replace(/[\x00-\x1F\x7F]/g, '')
                             .substring(0, 100)
                             .trim();
@@ -264,6 +266,7 @@ function cleanStoredLinks(stored) {
                     // Sanitize category
                     if (typeof cleanLink.category === 'string') {
                         cleanLink.category = cleanLink.category
+                            // eslint-disable-next-line no-control-regex -- strip C0/DEL from user text
                             .replace(/[\x00-\x1F\x7F]/g, '')
                             .substring(0, 50)
                             .trim();
@@ -467,46 +470,50 @@ function renderedCategoryName(name) {
 }
 
 /**
- * Keep storedLinks/storedCategories — and the rendered state — in step with
- * chrome.storage.sync, including the echo of this page's own saves. Each
- * change runs through cleanStoredData, like the load, so a hidden link stays
- * hidden and junk entries never reach rendering. Registered before the load;
- * changes that arrive during it are buffered.
+ * Receive the stored links/categories values this page claimed
+ * (claimStorageFields): each sync change, including the echo of this page's
+ * own saves, and each reload after a manual sync or clear, where the cloud may
+ * have won without any sync write. Returns the cleaned changes, which
+ * stateManager applies in the same state update as any unclaimed fields (one
+ * re-render). Values that arrive before the load finishes are buffered.
+ * @param {{links?: *, categories?: *}} update - stored value per key
+ *   (undefined = absent/removed)
+ * @returns {Object|undefined} cleaned state changes
  */
-function watchStoredData() {
-    if (typeof chrome === 'undefined' || !chrome.storage?.onChanged) return;
-    chrome.storage.onChanged.addListener((changes, areaName) => {
-        if (areaName !== 'sync' || !(changes.links || changes.categories)) return;
-        const update = {};
-        if (changes.links) update.links = changes.links.newValue;
-        if (changes.categories) update.categories = changes.categories.newValue;
-        if (!storedDataLoaded) {
-            pendingStoredChange = { ...pendingStoredChange, ...update };
-            return;
-        }
-        applyStoredChange(update);
-    });
+function receiveStoredChange(update) {
+    if (!storedDataLoaded) {
+        pendingStoredChange = { ...pendingStoredChange, ...update };
+        return undefined;
+    }
+    return cleanStoredChange(update);
 }
 
-/** Apply sync changes buffered during the load; later ones apply directly. */
+/** Apply stored values buffered during the load; later ones arrive directly. */
 function flushStoredChanges() {
     storedDataLoaded = true;
-    if (pendingStoredChange) {
-        const update = pendingStoredChange;
-        pendingStoredChange = null;
-        applyStoredChange(update);
+    if (!pendingStoredChange) return;
+    const changes = cleanStoredChange(pendingStoredChange);
+    pendingStoredChange = null;
+    if (Object.keys(changes).length === 0) return;
+
+    // In-memory only: this is someone's write arriving, never one to repeat.
+    const result = safeUpdateState(changes, { validate: true, skipPersistence: true });
+    if (!result.success) {
+        console.error('[The Codex] Could not apply a storage change:', result.error);
     }
 }
 
 /**
- * Apply a sync change to links and/or categories (raw stored values). A key
- * removed from sync (e.g. cleared) resets to empty, matching what a reload
- * would show after the clear. A value that no longer parses leaves what is on
- * screen alone but empties the stored copy, so a later drop finds nothing to
- * move and writes nothing — never resurrecting the old list.
- * @param {{links?: *, categories?: *}} update - newValue per changed key
+ * Turn stored links/categories values into what this page may show
+ * (cleanStoredData), refreshing the raw stored copy that drops save onto. A key
+ * absent from storage (e.g. cleared) resets to empty, matching what a reload
+ * would show. A value that no longer parses leaves what is on screen alone but
+ * empties the stored copy, so a later drop finds nothing to move and writes
+ * nothing — never resurrecting the old list.
+ * @param {{links?: *, categories?: *}} update - stored value per key
+ * @returns {Object} cleaned state changes (empty if nothing to show changed)
  */
-function applyStoredChange(update) {
+function cleanStoredChange(update) {
     const changes = {};
     if ('links' in update) {
         const links = update.links === undefined ? [] : parseStoredArray(update.links);
@@ -518,13 +525,7 @@ function applyStoredChange(update) {
         storedCategories = categories ?? [];
         if (categories) changes.categories = sanitizeLoadedCategories(categories);
     }
-    if (Object.keys(changes).length === 0) return;
-
-    // In-memory only: this is someone's write arriving, never one to repeat.
-    const result = safeUpdateState(changes, { validate: true, skipPersistence: true });
-    if (!result.success) {
-        console.error('[The Codex] Could not apply a storage change:', result.error);
-    }
+    return changes;
 }
 
 /**
@@ -1198,7 +1199,6 @@ const init = safeAsync(async function init() {
     const startTime = performance.now();
     try {
         initializeDOMElements();
-        watchStoredData(); // before the load, so no sync change is missed
         await initializeState();
         flushStoredChanges();
         applyTheme();  // Apply theme from saved state

@@ -3,15 +3,15 @@
   "version": "1.0.0",
   "description": "Comprehensive test suite for The Codex Chrome extension",
   "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "test": "node --experimental-vm-modules node_modules/.bin/jest",
     "test:unit": "node --experimental-vm-modules node_modules/.bin/jest tests/unit",
     "test:integration": "node --experimental-vm-modules node_modules/.bin/jest tests/integration",
-    "test:e2e": "node --experimental-vm-modules node_modules/.bin/jest tests/e2e",
     "test:coverage": "node --experimental-vm-modules node_modules/.bin/jest --coverage",
     "test:watch": "node --experimental-vm-modules node_modules/.bin/jest --watch",
-    "test:critical-bugs": "node --experimental-vm-modules node_modules/.bin/jest --testNamePattern='Critical Bug'",
-    "test:regression": "node --experimental-vm-modules node_modules/.bin/jest --testNamePattern='Regression'",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix"
   },

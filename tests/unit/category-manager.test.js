@@ -73,7 +73,7 @@ describe('Category Manager', () => {
             storageModule.loadCategories.mockResolvedValue(['Default', 'Work']);
             storageModule.saveCategories.mockResolvedValue(['Default', 'Work', 'Personal']);
 
-            const result = await categoryModule.populateCategories(state);
+            await categoryModule.populateCategories(state);
 
             expect(storageModule.saveCategories).toHaveBeenCalled();
             expect(populateCategoryDropdowns).toHaveBeenCalled();

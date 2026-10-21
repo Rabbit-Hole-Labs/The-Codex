@@ -50,7 +50,7 @@ describe('SyncSettingsController', () => {
     beforeEach(async () => {
         jest.resetModules();
         setupDOM();
-        const mod = await import('../javascript/features/syncSettingsController.js');
+        const mod = await import('../../javascript/features/syncSettingsController.js');
         SyncSettingsController = mod.SyncSettingsController;
     });
 

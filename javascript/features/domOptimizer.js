@@ -4,10 +4,6 @@
  */
 
 import { sanitizeHTML, validateAndSanitizeUrl } from '../features/utils.js';
-import { getState } from '../core-systems/stateManager.js';
-
-// Current state reference
-let currentState = null;
 
 // Simple icon URL function for DOM optimization
 function getIconUrl(link) {
@@ -27,11 +23,6 @@ let performanceMetrics = {
     memoryUsage: 0,
     lastRenderTimestamp: 0
 };
-
-// DOM diffing and incremental updates
-let lastRenderedState = null;
-let updateQueue = [];
-let isUpdating = false;
 
 /**
  * Calculates the difference between two states for incremental updates
@@ -492,9 +483,6 @@ function optimizedRender(container, newState, oldState = null) {
         // Perform incremental update
         const success = performIncrementalUpdate(container, diff, newState);
 
-        // Update last rendered state
-        lastRenderedState = createStateSnapshot(newState);
-
         // Monitor memory usage
         monitorMemoryUsage();
 
@@ -506,15 +494,6 @@ function optimizedRender(container, newState, oldState = null) {
     } finally {
         performanceMetrics.renderTime = performance.now() - startTime;
     }
-}
-
-/**
- * Creates a state snapshot for comparison
- * @param {Object} state - The state to snapshot (optional, uses current state if not provided)
- * @returns {Object} - State snapshot
- */
-function createStateSnapshot(state = null) {
-    return JSON.parse(JSON.stringify(state || currentState));
 }
 
 /**

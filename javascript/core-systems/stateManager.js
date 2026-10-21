@@ -4,7 +4,7 @@
  */
 
 import { validateLink } from '../features/securityUtils.js';
-import { SETTING_ENUMS, MAX_CATEGORY_LENGTH } from './storageFormat.js';
+import { SETTING_ENUMS, MAX_CATEGORY_LENGTH, SYNC_RESOLVED_AT_KEY, STORED_SETTING_DEFAULTS } from './storageFormat.js';
 
 // State validation schemas
 const stateSchemas = {
@@ -549,23 +549,125 @@ const PERSISTENT_FIELDS = ['theme', 'colorTheme', 'links', 'categories', 'defaul
 // array, for values written by an older/other code path).
 const JSON_ENCODED_FIELDS = ['links', 'categories'];
 
+// Values the array fields reset to when another context removes them.
+const REMOVED_FIELD_RESETS = {
+    links: () => [],
+    categories: () => ['Default']
+};
+
 // Flag to prevent circular updates (our own write triggering onChanged)
 let isWritingToStorage = false;
 
-// Fields a page applies itself from chrome.storage changes instead of taking
-// the raw stored value here (see claimStorageFields).
-const claimedFields = new Set();
+// Fields a page applies itself instead of taking the raw stored value here,
+// mapped to that page's handler (see claimStorageFields).
+const claimedFields = new Map();
 
 /**
- * Opt this page out of the raw cross-tab update for the given fields, because
- * it applies them itself. The newtab claims links/categories so its load-time
- * salvage/quarantine also covers every later change to sync (including the
- * echo of its own saves); raw values there could re-show hidden links or
- * crash rendering. Pages that don't call this (e.g. manage) are unaffected.
+ * Opt this page out of the raw update for the given fields, because it
+ * applies them itself: applyStorageValues hands their stored values to
+ * `apply` instead — for every sync change (including the echo of this page's
+ * own saves) and every reloadFromStorage() after a manual sync or clear. The
+ * newtab claims links/categories so its load-time salvage/quarantine covers
+ * all of them; raw values could re-show hidden links or crash rendering.
+ * Pages that don't call this (e.g. manage) are unaffected.
  * @param {string[]} fields - persistent field names
+ * @param {(values: Object, source: 'sync'|'reload') => (Object|void)} [apply] -
+ *   gets { field: stored value } for the claimed fields present (undefined =
+ *   absent/removed); may return cleaned state changes, which are applied in
+ *   the same state update as the unclaimed fields (one re-render per change)
  */
-export function claimStorageFields(fields) {
-    fields.forEach(field => claimedFields.add(field));
+export function claimStorageFields(fields, apply = null) {
+    fields.forEach(field => claimedFields.set(field, apply));
+}
+
+const storageAppliedListeners = new Set();
+
+/**
+ * Be told when storage values have been applied to the state.
+ * @param {(updates: Object, source: 'sync'|'reload') => void} listener
+ * @returns {Function} unsubscribe
+ */
+export function addStorageAppliedListener(listener) {
+    storageAppliedListeners.add(listener);
+    return () => storageAppliedListeners.delete(listener);
+}
+
+/**
+ * The one place stored values enter the page state: chrome.storage.onChanged
+ * (sync area) and reloadFromStorage() both go through here. `values` maps keys
+ * to values as stored (links/categories as JSON strings); undefined means the
+ * key was removed, which resets links/categories rather than keeping the old
+ * value — or this page's next save would re-upload it. Non-persistent keys
+ * are ignored. Fields a page claimed (claimStorageFields) never enter the
+ * state raw: their stored values go, as stored, to that page's handler, and
+ * only the cleaned changes it returns are applied.
+ * @param {Object} values
+ * @param {{ source?: 'sync'|'reload' }} [options]
+ * @returns {Object} the updates applied
+ */
+export function applyStorageValues(values, { source = 'sync' } = {}) {
+    const updates = {};
+    const claimed = new Map(); // handler -> { key: stored value }
+    for (const [key, value] of Object.entries(values)) {
+        if (claimedFields.has(key)) {
+            const apply = claimedFields.get(key);
+            if (apply) claimed.set(apply, { ...claimed.get(apply), [key]: value });
+        } else if (value === undefined) {
+            if (Object.prototype.hasOwnProperty.call(REMOVED_FIELD_RESETS, key)) {
+                updates[key] = REMOVED_FIELD_RESETS[key]();
+            }
+        } else if (PERSISTENT_FIELDS.includes(key)) {
+            // Array fields (links, categories) may be stored as JSON strings.
+            if (JSON_ENCODED_FIELDS.includes(key) && typeof value === 'string') {
+                try { updates[key] = JSON.parse(value); } catch { /* skip corrupt */ }
+            } else {
+                updates[key] = value;
+            }
+        }
+    }
+
+    claimed.forEach((claimedValues, apply) => {
+        try {
+            const changes = apply(claimedValues, source);
+            if (changes && typeof changes === 'object') Object.assign(updates, changes);
+        } catch (error) {
+            console.error('Claimed storage handler failed:', error);
+        }
+    });
+
+    if (Object.keys(updates).length > 0) {
+        updateState(updates, { validate: false, skipPersistence: true });
+        storageAppliedListeners.forEach(listener => {
+            try {
+                listener(updates, source);
+            } catch (error) {
+                console.error('Storage-applied listener failed:', error);
+            }
+        });
+    }
+    return updates;
+}
+
+/**
+ * Re-read what the page should show and apply it. Runs in every open page
+ * after a manual sync or clear (SYNC_RESOLVED_AT_KEY): when the cloud won there
+ * was no sync write, so no sync-area onChanged reaches pages that still hold
+ * discarded data. Each key comes from sync, or from chrome.storage.local when
+ * sync doesn't hold it (e.g. lists kept by a Force pull from a cloud that holds
+ * only settings, or emptied by a sync that set them aside) — never from the
+ * page's own copy. A setting neither holds shows its default, as on a fresh
+ * load; a list neither holds is emptied.
+ */
+export async function reloadFromStorage() {
+    const [cloud, local] = await Promise.all([
+        chrome.storage.sync.get(PERSISTENT_FIELDS),
+        chrome.storage.local.get(PERSISTENT_FIELDS)
+    ]);
+    const values = {};
+    for (const key of PERSISTENT_FIELDS) {
+        values[key] = cloud[key] ?? local[key] ?? STORED_SETTING_DEFAULTS[key];
+    }
+    return applyStorageValues(values, { source: 'reload' });
 }
 
 /**
@@ -574,25 +676,18 @@ export function claimStorageFields(fields) {
  */
 if (typeof chrome !== 'undefined' && chrome.storage?.onChanged) {
     chrome.storage.onChanged.addListener((changes, areaName) => {
-        if (areaName !== 'sync' || isWritingToStorage) return;
-        // Leave fields a page claimed (claimStorageFields) to that page.
-        changes = Object.fromEntries(Object.entries(changes).filter(([key]) => !claimedFields.has(key)));
-
-        const updates = {};
-        for (const [key, { newValue }] of Object.entries(changes)) {
-            if (PERSISTENT_FIELDS.includes(key) && newValue !== undefined) {
-                // Array fields (links, categories) may be stored as JSON strings.
-                if (JSON_ENCODED_FIELDS.includes(key) && typeof newValue === 'string') {
-                    try { updates[key] = JSON.parse(newValue); } catch { /* skip corrupt */ }
-                } else {
-                    updates[key] = newValue;
-                }
+        if (areaName === 'local') {
+            if (changes[SYNC_RESOLVED_AT_KEY]?.newValue !== undefined) {
+                reloadFromStorage().catch(error => console.error('Failed to reload state after a sync:', error));
             }
+            return;
         }
-
-        if (Object.keys(updates).length > 0) {
-            updateState(updates, { validate: false, skipPersistence: true });
-        }
+        if (areaName !== 'sync') return;
+        let entries = Object.entries(changes);
+        // Skip the echo of this page's own persistToStorage write — except
+        // claimed fields: the page that claimed them tracks every change.
+        if (isWritingToStorage) entries = entries.filter(([key]) => claimedFields.has(key));
+        applyStorageValues(Object.fromEntries(entries.map(([key, change]) => [key, change.newValue])));
     });
 }
 

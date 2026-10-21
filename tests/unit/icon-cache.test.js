@@ -124,7 +124,7 @@ describe('Icon Cache', () => {
             };
 
             // Should try to load custom icon
-            const result1 = await iconCacheModule.loadIconWithCache(link, {
+            await iconCacheModule.loadIconWithCache(link, {
                 allowCustom: true,
                 allowFavicon: false,
                 allowSelfhst: false,

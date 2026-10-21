@@ -4,17 +4,15 @@
 
 This document provides comprehensive documentation of the test suite for The Codex Chrome Extension.
 
-## Test Statistics
+## Test Layout
 
-- **Total Test Suites**: 11
-- **Passing Test Suites**: 11 (100%)
-- **Total Tests**: 234
-- **Passing Tests**: 233 (99.5%)
-- **Skipped Tests**: 1 (known limitation in iconCache.js)
+Suites live in `tests/unit/` (`npm run test:unit`) and `tests/integration/` (`npm run test:integration`); together they are everything `npm test` runs. Counts change with every PR, so none are recorded here — `npm test` prints the current totals, and CI ([.github/workflows/ci.yml](.github/workflows/ci.yml)) runs the full suite plus `npm run lint` on every PR.
 
 ## Test Suite Breakdown
 
-### 1. category-manager.test.js (11/11 passing)
+Selected suites (not exhaustive — see `tests/unit/` and `tests/integration/` for the full list).
+
+### 1. category-manager.test.js
 Tests category CRUD operations and management:
 - `populateCategories` - Category population from storage
 - `createCategory` - Category creation with validation
@@ -22,14 +20,14 @@ Tests category CRUD operations and management:
 - `deleteCategory` - Category deletion
 - `reorderCategories` - Category reordering
 
-### 2. chrome-storage-fixes.test.js (all passing)
+### 2. chrome-storage-fixes.test.js
 Tests Chrome storage corruption fixes:
 - Object corruption handling
 - Array corruption handling
 - Type coercion corruption handling
 - Missing field corruption handling
 
-### 3. critical-bug-fixes.test.js (13/13 passing)
+### 3. critical-bug-fixes.test.js
 Tests general application functionality:
 - State management
 - Link operations (add, delete, validate)
@@ -38,7 +36,7 @@ Tests general application functionality:
 - Data validation
 - User input sanitization
 
-### 4. debug.test.js (23/23 passing)
+### 4. debug.test.js
 Tests debug logging utility:
 - Debug toggle (enable/disable)
 - `debug()` function
@@ -47,7 +45,7 @@ Tests debug logging utility:
 - State persistence
 - Error handling
 
-### 5. error-handler.test.js (32/32 passing)
+### 5. error-handler.test.js
 Tests error handling system:
 - CodexError class creation
 - Error normalization
@@ -58,7 +56,7 @@ Tests error handling system:
 - Error boundaries
 - Error handler registration
 
-### 6. icon-cache.test.js (24/27 passing, 1 skipped)
+### 6. icon-cache.test.js
 Tests icon loading and caching:
 - Exported function tests
 - Cache statistics
@@ -66,10 +64,7 @@ Tests icon loading and caching:
 - Batch operations
 - Edge cases (long names, special characters, Unicode, emoji)
 
-**Skipped Test**:
-- `should return null when no sources allowed` - Known bug in iconCache.js where `allowGenerated: false` doesn't prevent fallback generation
-
-### 7. link-management.test.js (7/7 passing)
+### 7. link-management.test.js
 Tests link CRUD operations:
 - Adding valid links
 - Invalid URL handling
@@ -78,7 +73,7 @@ Tests link CRUD operations:
 - Bulk operations (delete, move, resize)
 - Editing links
 
-### 8. security-utils.test.js (39/39 passing)
+### 8. security-utils.test.js
 Tests security utilities:
 - HTML purification (sanitizeHTML)
 - Schema validation (validateSchema)
@@ -87,7 +82,7 @@ Tests security utilities:
 - URL validation (validateAndSanitizeUrl, isValidUrlFormat)
 - XSS prevention
 
-### 9. sync-manager.test.js (29/29 passing)
+### 9. sync-manager.test.js
 Tests sync manager functionality:
 - Initialization
 - Device ID management
@@ -97,7 +92,7 @@ Tests sync manager functionality:
 - Sync status
 - Sync listeners
 
-### 10. state-management.test.js (all passing)
+### 10. state-management.test.js
 Tests state management system:
 - State initialization
 - State updates
@@ -106,7 +101,7 @@ Tests state management system:
 - Category management
 - Theme changes
 
-### 11. sync-manager.test.js (29/29 passing)
+### 11. sync-manager.test.js
 Tests sync manager functionality:
 - Initialization
 - Device ID management
@@ -116,7 +111,7 @@ Tests sync manager functionality:
 - Sync status
 - Sync listeners
 
-### 12. utils.test.js (30/30 passing)
+### 12. utils.test.js
 Tests utility functions:
 - `debounce()` - Function debouncing
 - `throttle()` - Function throttling
@@ -154,15 +149,11 @@ Tests utility functions:
    - Functions like `getElements()`, `renderLinks()`, `setupModalListeners()` depend on browser DOM
    - Would require extensive DOM setup or browser automation testing
 
-2. **iconCache.js** - One skipped test
-   - `allowGenerated: false` option doesn't prevent fallback generation
-   - This is a known limitation documented in the code
-
-3. **Entry points** (script.js, popup.js, manageScript.js)
+2. **Entry points** (script.js, popup.js, manageScript.js)
    - Not directly tested as they're integration points
    - Functionality covered through module-level tests
 
-4. **Developer tools** (consoleCommands.js, dataVerification.js)
+3. **Developer tools** (consoleCommands.js, dataVerification.js)
    - Designed for interactive debugging use
    - Would require storage API mocking for comprehensive testing
 
@@ -173,7 +164,7 @@ Tests utility functions:
 npm test
 
 # Run specific test suite
-npm test tests/category-manager.test.js
+npm test -- tests/unit/category-manager.test.js
 
 # Run tests with coverage
 npm run test:coverage
