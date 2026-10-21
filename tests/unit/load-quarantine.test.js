@@ -588,6 +588,199 @@ describe('sync changes are cleaned like a load, never applied raw', () => {
     });
 });
 
+// --- Reloads after a manual sync or clear are cleaned too -----------------
+// After Sync now / force pull / force push / clear, every open page re-reads
+// storage (stateManager.reloadFromStorage, signalled by syncResolvedAt in
+// chrome.storage.local) — with no sync write when the cloud won. Claimed
+// links/categories must still go through the new tab's cleanup, and refresh
+// the stored copy its drops save onto.
+
+/** What every open page sees after a manual sync or clear. */
+async function announceSyncResolved(chromeMock) {
+    await chromeMock.local.set({ syncResolvedAt: Date.now() });
+    await settle();
+}
+
+describe('a reload after a manual sync or clear is cleaned like a load', () => {
+    let warnSpy;
+
+    beforeEach(() => {
+        warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    });
+
+    afterEach(() => {
+        warnSpy.mockRestore();
+        delete global.chrome;
+    });
+
+    test('a quarantined link stays hidden after the reload, and the next drop saves it back unchanged', async () => {
+        const broken = link('Broken', 'Default', { icon: 'data:image/png;base64,' + 'A'.repeat(600) });
+        const { chromeMock, getState, container } = await bootNewTab({
+            links: [link('Alpha', 'Default'), broken, link('Gamma', 'Work')],
+            categories: ['Default', 'Work'],
+        });
+
+        await announceSyncResolved(chromeMock);
+        expect(tileNames(container)).toEqual(['Alpha', 'Gamma']);
+        expect(getState().links.map(l => l.name)).toEqual(['Alpha', 'Gamma']);
+
+        await dropOnGrid(container, 'Alpha', 'Work');
+        const writes = linkWrites(chromeMock.sync);
+        expect(writes).toHaveLength(1);
+        expect(writes[0]).toEqual([broken, link('Gamma', 'Work'), link('Alpha', 'Work')]);
+    });
+
+    test('two stored links sharing an id stay distinct after the reload', async () => {
+        const first = link('First', 'Default', { id: 'dup' });
+        const second = link('Second', 'Default', { id: 'dup' });
+        const { chromeMock, container } = await bootNewTab({
+            links: [first, second, link('Gamma', 'Work')],
+            categories: ['Default', 'Work'],
+        });
+
+        await announceSyncResolved(chromeMock);
+        await dropOnGrid(container, 'Second', 'Work');
+
+        const writes = linkWrites(chromeMock.sync);
+        expect(writes).toHaveLength(1);
+        expect(writes[0][0]).toEqual(first);
+        expect(writes[0][2]).toEqual({ ...second, category: 'Work', id: expect.any(String) });
+        expect(writes[0][2].id).not.toBe('dup');
+    });
+
+    test('a stored object icon never blanks the page on reload', async () => {
+        const objectIcon = {
+            id: 'id-Obj', name: 'Obj', url: 'https://obj.example.com/', category: 'Default',
+            icon: { url: 'https://cdn.jsdelivr.net/gh/selfhst/icons/png/obj.png' },
+        };
+        const { chromeMock, container } = await bootNewTab({
+            links: [link('Alpha', 'Default'), objectIcon, link('Gamma', 'Work')],
+            categories: ['Default', 'Work'],
+        });
+        expect(tileNames(container)).toEqual(['Alpha', 'Obj', 'Gamma']);
+
+        // Raw, this icon would throw in getIconUrl (link.icon.trim).
+        await announceSyncResolved(chromeMock);
+        expect(tileNames(container)).toEqual(['Alpha', 'Obj', 'Gamma']);
+    });
+
+    test('an over-long category stays one sanitized section after the reload', async () => {
+        const longName = 'C'.repeat(51);
+        const { chromeMock, getState, container } = await bootNewTab({
+            links: [link('Alpha', 'Default'), link('Long', longName)],
+            categories: ['Default', longName],
+        });
+
+        await announceSyncResolved(chromeMock);
+        expect(sectionNames(container)).toEqual(['Default', 'C'.repeat(50)]);
+        expect(getState().categories).toEqual(['Default', 'C'.repeat(50)]);
+    });
+
+    test("another device's write and a later reload both arrive cleaned", async () => {
+        const { chromeMock, getState, container } = await bootNewTab({
+            links: [link('Alpha', 'Default'), link('Gamma', 'Work')],
+            categories: ['Default', 'Work'],
+        });
+        const broken = link('Broken', 'Work', { icon: 'data:image/png;base64,' + 'A'.repeat(600) });
+
+        // Another device writes (store updated, onChanged fires), then a sync resolves.
+        await chromeMock.sync.set({ links: JSON.stringify([link('Alpha', 'Default'), null, broken, link('Gamma', 'Work')]) });
+        await settle();
+        expect(tileNames(container)).toEqual(['Alpha', 'Gamma']);
+
+        await announceSyncResolved(chromeMock);
+        expect(tileNames(container)).toEqual(['Alpha', 'Gamma']);
+        expect(getState().links.map(l => l.name)).toEqual(['Alpha', 'Gamma']);
+    });
+
+    test('after the reload, a drop starts from what storage holds, not an edit the sync discarded', async () => {
+        const { chromeMock, container } = await bootNewTab({
+            links: [link('Alpha', 'Default'), link('Gamma', 'Work')],
+            categories: ['Default', 'Work'],
+        });
+
+        // A drop whose sync write fails is kept locally (pending)...
+        chromeMock.sync.set.mockImplementationOnce(() => Promise.reject(new Error('MAX_WRITE_OPERATIONS_PER_MINUTE')));
+        await dropOnGrid(container, 'Alpha', 'Work');
+        // ...then a sync keeps the cloud's copy, and every page reloads it.
+        await announceSyncResolved(chromeMock);
+        expect(sectionNames(container)).toEqual(['Default', 'Work']);
+        expect(tileNames(container)).toEqual(['Alpha', 'Gamma']);
+
+        await dropOnGrid(container, 'Gamma', 'Default');
+        const writes = linkWrites(chromeMock.sync);
+        expect(writes.at(-1)).toEqual([link('Alpha', 'Default'), link('Gamma', 'Default')]);
+    });
+
+    test('a reload re-renders the new tab once, settings and lists together', async () => {
+        const { chromeMock, container } = await bootNewTab({
+            links: [link('Alpha', 'Default')],
+            categories: ['Default'],
+        });
+        const { addStateChangeListener } = await import('../../javascript/core-systems/stateManager.js');
+        const changes = [];
+        addStateChangeListener(info => changes.push(Object.keys(info.changes).sort()));
+
+        await announceSyncResolved(chromeMock);
+
+        expect(changes).toEqual([['categories', 'colorTheme', 'defaultTileSize', 'links', 'theme', 'view']]);
+        expect(tileNames(container)).toEqual(['Alpha']);
+    });
+});
+
+describe('rendering never blanks the page', () => {
+    let warnSpy;
+    let errorSpy;
+
+    beforeEach(() => {
+        warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+        errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    });
+
+    afterEach(() => {
+        warnSpy.mockRestore();
+        errorSpy.mockRestore();
+        delete global.chrome;
+    });
+
+    // Both push raw links into the state directly (validate:false), bypassing
+    // the cleanup — the shape of state a bug elsewhere could leave behind.
+
+    test('a link whose tile throws hides only itself', async () => {
+        const { getState, container } = await bootNewTab({
+            links: [link('Alpha', 'Default'), link('Gamma', 'Work')],
+            categories: ['Default', 'Work'],
+        });
+        const { safeUpdateState } = await import('../../javascript/core-systems/stateManager.js');
+
+        safeUpdateState({ links: [
+            link('Alpha', 'Default'),
+            link('Broken', 'Default', { icon: { url: 'https://cdn.jsdelivr.net/x.png' } }), // icon.trim throws
+            link('Gamma', 'Work'),
+        ] }, { validate: false, skipPersistence: true });
+        await settle();
+
+        expect(tileNames(container)).toEqual(['Alpha', 'Gamma']);
+        expect(getState().links).toHaveLength(3);
+        expect(errorSpy).toHaveBeenCalledWith('[The Codex] Skipping a tile that failed to render:', 'Broken', expect.any(TypeError));
+    });
+
+    test('a failure part-way through rendering keeps the previous view', async () => {
+        const { container } = await bootNewTab({
+            links: [link('Alpha', 'Default'), link('Gamma', 'Work')],
+            categories: ['Default', 'Work'],
+        });
+        const { safeUpdateState } = await import('../../javascript/core-systems/stateManager.js');
+
+        safeUpdateState({ links: [link('Alpha', 'Default'), { id: 'n', name: 42, url: 'https://n.example.com/', category: 'Default' }] },
+            { validate: false, skipPersistence: true });
+        await settle();
+
+        expect(tileNames(container)).toEqual(['Alpha', 'Gamma']);
+        expect(errorSpy).toHaveBeenCalledWith('[The Codex] Rendering links failed; keeping the previous view:', expect.any(TypeError));
+    });
+});
+
 describe('stateManager.claimStorageFields', () => {
     async function loadStateManager() {
         jest.resetModules();
@@ -616,6 +809,32 @@ describe('stateManager.claimStorageFields', () => {
         });
         expect(getState().links).toEqual([]);
         expect(getState().categories).toEqual(['Default']);
+        expect(getState().theme).toBe('light');
+    });
+
+    test("claimed fields reach the page's handler exactly as stored, from sync changes and reloads; only what it returns enters the state", async () => {
+        jest.resetModules();
+        const stored = JSON.stringify([link('Alpha', 'Default')]);
+        const { fireChange } = installChromeMock({ links: stored, theme: 'light' });
+        const { getState, claimStorageFields, reloadFromStorage } = await import('../../javascript/core-systems/stateManager.js');
+        const seen = [];
+        claimStorageFields(['links', 'categories'], (values, source) => {
+            seen.push([source, values]);
+            return { links: [link('Cleaned', 'Default')] };
+        });
+
+        fireChange({ links: { newValue: stored } });
+        // A reload passes every persistent key; categories isn't stored, so it
+        // arrives as an own key holding undefined (absent → reset).
+        await reloadFromStorage();
+
+        expect(seen).toHaveLength(2);
+        expect(seen[0][0]).toBe('sync');
+        expect(seen[0][1]).toStrictEqual({ links: stored });
+        expect(seen[1][0]).toBe('reload');
+        expect(Object.keys(seen[1][1]).sort()).toEqual(['categories', 'links']);
+        expect(seen[1][1]).toStrictEqual({ links: stored, categories: undefined });
+        expect(getState().links.map(l => l.name)).toEqual(['Cleaned']);
         expect(getState().theme).toBe('light');
     });
 });

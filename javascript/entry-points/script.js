@@ -634,38 +634,47 @@ function sanitizeLoadedCategories(stored) {
 
 async function renderLinksTraditional() {
     const currentState = getState();
-    const filteredLinks = currentState.links.filter(link =>
-        link.name.toLowerCase().includes(currentState.searchTerm.toLowerCase()) ||
-        link.url.toLowerCase().includes(currentState.searchTerm.toLowerCase())
-    );
-    const groupedLinks = groupBy(filteredLinks, 'category');
+    // Build the whole view off-DOM and swap it in only once it is complete:
+    // a throw part-way must leave the last good view, not a cleared page.
+    const fragment = document.createDocumentFragment();
+    let filteredLinks;
+    try {
+        filteredLinks = currentState.links.filter(link =>
+            link.name.toLowerCase().includes(currentState.searchTerm.toLowerCase()) ||
+            link.url.toLowerCase().includes(currentState.searchTerm.toLowerCase())
+        );
+        const groupedLinks = groupBy(filteredLinks, 'category');
 
-    linksContainer.innerHTML = '';
-
-    // Sort categories by stored order, with any new categories at the end
-    const sortedCategories = Object.keys(groupedLinks).sort((a, b) => {
-        const indexA = currentState.categories.indexOf(a);
-        const indexB = currentState.categories.indexOf(b);
-        // Categories not in the order array go to the end
-        if (indexA === -1 && indexB === -1) return 0;
-        if (indexA === -1) return 1;
-        if (indexB === -1) return -1;
-        return indexA - indexB;
-    });
-
-    sortedCategories.forEach(category => {
-        const links = groupedLinks[category];
-        const section = createCategorySection(category, links, {
-            defaultTileSize: currentState.defaultTileSize,
-            view: currentState.view,
-            lazyIcons: true
+        // Sort categories by stored order, with any new categories at the end
+        const sortedCategories = Object.keys(groupedLinks).sort((a, b) => {
+            const indexA = currentState.categories.indexOf(a);
+            const indexB = currentState.categories.indexOf(b);
+            // Categories not in the order array go to the end
+            if (indexA === -1 && indexB === -1) return 0;
+            if (indexA === -1) return 1;
+            if (indexB === -1) return -1;
+            return indexA - indexB;
         });
-        linksContainer.appendChild(section);
-    });
 
-    if (filteredLinks.length === 0) {
-        renderNoResults(linksContainer);
+        sortedCategories.forEach(category => {
+            const links = groupedLinks[category];
+            const section = createCategorySection(category, links, {
+                defaultTileSize: currentState.defaultTileSize,
+                view: currentState.view,
+                lazyIcons: true
+            });
+            fragment.appendChild(section);
+        });
+
+        if (filteredLinks.length === 0) {
+            renderNoResults(fragment);
+        }
+    } catch (error) {
+        console.error('[The Codex] Rendering links failed; keeping the previous view:', error);
+        return;
     }
+
+    linksContainer.replaceChildren(fragment);
 
     // Load icons asynchronously with caching
     loadIconsWithCaching(filteredLinks);
@@ -880,7 +889,9 @@ function handleDragEnd(e) {
 
 // Render links function that calls the traditional rendering
 function renderLinks() {
-    renderLinksTraditional();
+    // Not awaited by callers (state listeners, drops): never let a failure
+    // become an unhandled rejection.
+    renderLinksTraditional().catch(error => console.error('[The Codex] Rendering links failed:', error));
 }
 
 // Grid drop handlers for category-level drops
