@@ -673,7 +673,7 @@ function isLocalIP(hostname) {
     const match = hostname.match(ipv4Regex);
 
     if (match) {
-        const [, a, b, c, d] = match.map(Number);
+        const [, a, b] = match.map(Number);
 
         // Check for private IP ranges
         if (a === 10) return true; // 10.0.0.0/8

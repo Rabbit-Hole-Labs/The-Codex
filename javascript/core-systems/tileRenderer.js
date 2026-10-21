@@ -73,7 +73,6 @@ export function isHorizontalLayout(link, defaultTileSize = 'medium') {
  */
 export function createTile(link, options = {}) {
     const { index = 0, category = '', defaultTileSize = 'medium', lazyIcons = true } = options;
-    const size = link.size || defaultTileSize || 'medium';
     const horizontal = isHorizontalLayout(link, defaultTileSize);
     const iconUrl = getIconUrl(link);
 

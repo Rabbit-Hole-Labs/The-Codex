@@ -1,6 +1,6 @@
 import * as LinkManager from './linkManager.js';
 import { escapeHtml, validateAndSanitizeUrl } from '../features/utils.js';
-import { debug, debugError } from './debug.js';
+import { debug } from './debug.js';
 
 export function getElements() {
     return {
