@@ -177,6 +177,19 @@ describe('Icon Cache', () => {
             expect(result).toBeNull();
         });
 
+        test("treats the stored 'default' icon as no custom icon, without an invalid-URL warning", async () => {
+            const iconCacheModule = await import('../../javascript/features/iconCache.js');
+            const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+            try {
+                const result = await iconCacheModule.loadIconWithCache({ name: 'Test', url: 'https://example.com', icon: 'default' },
+                    { allowFavicon: false, allowSelfhst: false, allowGenerated: true });
+                expect(result).toContain('data:image/svg+xml');
+                expect(warn.mock.calls.map((call) => String(call[0]))).not.toContain('Invalid custom icon URL:');
+            } finally {
+                warn.mockRestore();
+            }
+        });
+
         test('should handle data URL icons', async () => {
             const iconCacheModule = await import('../../javascript/features/iconCache.js');
 

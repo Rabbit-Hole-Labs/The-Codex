@@ -54,7 +54,7 @@
 ```
 script-src 'self'; 
 object-src 'self'; 
-style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdnjs.cloudflare.com; 
+style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; 
 font-src 'self' https://fonts.gstatic.com; 
 img-src 'self' https://cdn.jsdelivr.net https://clearbit.com https://www.google.com data: http: https:; 
 connect-src 'self' https://clearbit.com;

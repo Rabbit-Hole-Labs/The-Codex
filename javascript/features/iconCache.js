@@ -99,8 +99,10 @@ export async function loadIconWithCache(link, options = {}) {
         // Try to load icon from various sources
         let iconUrl = null;
 
-        // 1. Try custom icon if available (data: URI or selfh.st/jsDelivr URL)
-        if (preferCustom && link.icon) {
+        // 1. Try custom icon if available (data: URI or selfh.st/jsDelivr URL).
+        //    'default' (what saves store when there is none) means resolve automatically.
+        const customIcon = String(link.icon ?? '').trim();
+        if (preferCustom && customIcon && customIcon !== 'default') {
             iconUrl = await loadCustomIcon(link.icon, compliantOptions.timeout);
             if (iconUrl) {
                 await cacheIcon(cacheKey, iconUrl, ICON_SOURCES.CUSTOM);
@@ -432,20 +434,18 @@ function hashString(str) {
  * @returns {string} - Domain name
  */
 function extractDomain(url) {
+    const raw = String(url ?? '').trim();
+    if (!raw) return ''; // e.g. the icon picker opened before a URL was typed
     try {
         // Add default protocol if missing (for local IPs and hostnames without protocol)
-        let urlWithProtocol = url.trim();
-        if (!urlWithProtocol.match(/^https?:\/\//)) {
-            urlWithProtocol = 'http://' + urlWithProtocol;
-        }
-        
+        const urlWithProtocol = /^https?:\/\//i.test(raw) ? raw : 'http://' + raw;
         const urlObj = new URL(urlWithProtocol);
-        return urlObj.hostname.replace('www.', '');
-    } catch (error) {
-        // Fallback: try to extract hostname from various formats
-        console.warn('Failed to parse URL, using fallback extraction:', url, error);
-        const cleaned = url.replace(/^https?:\/\/(www\.)?/, '').split('/')[0];
-        return cleaned.split(':')[0].replace('www.', '');
+        return urlObj.hostname.replace(/^www\./, '');
+    } catch {
+        // Partial or free-form input (still being typed): take the host-looking part.
+        debug('URL did not parse, using fallback domain extraction:', raw);
+        const cleaned = raw.replace(/^https?:\/\/(www\.)?/i, '').split('/')[0];
+        return cleaned.split(':')[0].replace(/^www\./, '');
     }
 }
 
