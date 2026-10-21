@@ -4,10 +4,11 @@ import * as LinkManager from '../core-systems/linkManager.js';
 import * as CategoryManager from '../core-systems/categoryManager.js';
 import * as UIManager from '../core-systems/uiManager.js';
 import * as StorageManager from '../core-systems/storageManager.js';
-import { getState, safeUpdateState } from '../core-systems/stateManager.js';
+import { getState, safeUpdateState, addStorageAppliedListener } from '../core-systems/stateManager.js';
 import { escapeHtml } from '../features/utils.js';
 import { syncStatusIndicator } from '../features/syncStatusIndicator.js';
 import { syncSettingsController } from '../features/syncSettingsController.js';
+import { syncManager } from '../core-systems/syncManager.js';
 import * as IconPicker from '../features/iconPicker.js';
 import '../features/consoleCommands.js';
 
@@ -95,6 +96,17 @@ async function init() {
 
         // Initialize sync status indicator
         syncStatusIndicator.init('sync-status-container');
+        // Keep the list in step when a manual sync, a clear or a remote clear
+        // changes the links (stateManager applies them; this re-derives the
+        // rendered list).
+        addStorageAppliedListener((updates, source) => {
+            if (source === 'reload' && ('links' in updates || 'categories' in updates)) {
+                refreshLinkList({ keepPage: true });
+            }
+        });
+        syncManager.addSyncListener((event, data) => {
+            if (event === 'syncCleared' && data?.remote) handleSyncCleared();
+        });
 
         // Load and apply current theme settings to management page
         loadCurrentSettings();
@@ -704,4 +716,30 @@ function setupCategoryReorder() {
 }
 
 // Start the application
+// After a remote Clear sync data, refresh the list: it renders from
+// filteredLinks, which nothing else recomputes here. stateManager has already
+// applied the cleared cloud (with any newer edit from the same batch).
+// (The manage page's state handling is reworked in Phase 0.3.)
+export function handleSyncCleared() {
+    refreshLinkList();
+}
+
+// Re-derive the rendered list (filteredLinks) from state.links under the
+// current category filter and re-render it. With keepPage the current page is
+// kept (clamped), and nothing is re-rendered when the list didn't change, so a
+// routine Sync now doesn't jump back to page 1 or drop the selection.
+export function refreshLinkList({ keepPage = false } = {}) {
+    const state = getState();
+    const category = document.getElementById('filterCategory')?.value ?? 'all';
+    const filteredLinks = category === 'all' ? [...state.links] : state.links.filter(link => link.category === category);
+    const lastPage = Math.max(1, Math.ceil(filteredLinks.length / state.linksPerPage));
+    const currentPage = keepPage ? Math.min(state.currentPage, lastPage) : 1;
+    if (keepPage && currentPage === state.currentPage
+        && JSON.stringify(filteredLinks) === JSON.stringify(state.filteredLinks)) {
+        return;
+    }
+    safeUpdateState({ filteredLinks, currentPage }, { validate: false, skipPersistence: true });
+    UIManager.renderLinks(getState());
+}
+
 document.addEventListener('DOMContentLoaded', init);

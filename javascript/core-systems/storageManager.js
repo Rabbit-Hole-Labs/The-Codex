@@ -5,7 +5,74 @@ import { validateAndSanitizeUrl } from '../features/utils.js';
 import { sanitizeUserInput } from '../features/securityUtils.js';
 import { validateIconValue } from '../features/iconCache.js';
 import { debug, debugWarn, debugError } from './debug.js';
+import { pendingSyncKey, cloudValueFingerprint, SYNC_CLEARED_AT_KEY } from './storageFormat.js';
+import { withPendingSyncLock } from './storageLock.js';
 const { ERROR_TYPES, ERROR_SEVERITY } = errorHandler;
+
+// The cloud values a save is based on, read BEFORE its sync write: if that
+// write fails, the pending-sync marker must certify the local edit against
+// this value, not against whatever another device wrote in the meantime.
+// Null when unreadable: SyncManager then can't confirm the save is still
+// newest, keeps the cloud and sets the local copy aside.
+async function cloudBeforeSave(fields) {
+    try {
+        return await chrome.storage.sync.get([...fields, SYNC_CLEARED_AT_KEY]);
+    } catch {
+        return null;
+    }
+}
+
+// Ids of the pending-sync markers this page wrote (field -> id). Each page
+// (module instance) knows only its own: a later successful save from this page
+// supersedes them, but must not discard another page's pending edit.
+const knownMarkerIds = new Map();
+
+// Pending-sync markers for fields a save could only write to local storage
+// (see storageFormat.js); SyncManager pushes them on the next Sync now. Each
+// gets a random id: two pages can fall back in the same millisecond.
+function pendingSyncMarkers(fields, cloud) {
+    const markers = {};
+    for (const field of fields) {
+        const id = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+        markers[pendingSyncKey(field)] = cloud
+            ? { id, since: Date.now(), cloud: cloudValueFingerprint(cloud[field]), clearedAt: cloud[SYNC_CLEARED_AT_KEY] ?? null }
+            : { id, since: Date.now() };
+    }
+    return markers;
+}
+
+// Write a save's fallback (its value plus markers) under the pending-sync
+// lock, and remember the markers as this page's own.
+async function writeFallback(values, fields, cloudBefore) {
+    const markers = pendingSyncMarkers(fields, cloudBefore);
+    await withPendingSyncLock(() => chrome.storage.local.set({ ...values, ...markers }));
+    for (const field of fields) knownMarkerIds.set(field, markers[pendingSyncKey(field)].id);
+}
+
+// A field that reached sync is no longer pending — as far as this page's own
+// fallback saves go. A marker another page wrote (or one from before this page
+// loaded) stays: this save didn't include that edit, and the next Sync now
+// finds the marker superseded and sets the edit aside instead of losing it.
+// For settings, a local copy left by a failed save is dropped with its marker
+// (or when unmarked: stale), so a later Force push can't upload it over this
+// newer value. Read, compare and remove happen under the pending-sync lock.
+async function clearPendingSync(fields, { localCopies = false } = {}) {
+    try {
+        await withPendingSyncLock(async () => {
+            const markers = await chrome.storage.local.get(fields.map(pendingSyncKey));
+            const settled = fields.filter(field => {
+                const marker = markers[pendingSyncKey(field)];
+                return !marker || (marker.id !== undefined && marker.id === knownMarkerIds.get(field));
+            });
+            settled.forEach(field => knownMarkerIds.delete(field));
+            if (settled.length > 0) {
+                await chrome.storage.local.remove([...settled.map(pendingSyncKey), ...(localCopies ? settled : [])]);
+            }
+        });
+    } catch (error) {
+        debugWarn('Failed to clear pending-sync markers', { errorMessage: error.message });
+    }
+}
 
 export async function loadLinks() {
     try {
@@ -215,8 +282,10 @@ export async function saveLinks(links) {
         }
 
         // Try sync storage first (primary storage)
+        const cloudBefore = await cloudBeforeSave(['links']);
         try {
             await chrome.storage.sync.set({ links: linksString });
+            await clearPendingSync(['links']);
         } catch (syncError) {
             debugWarn('Sync storage failed, falling back to local storage', {
                 errorMessage: syncError.message,
@@ -225,7 +294,7 @@ export async function saveLinks(links) {
             
             // Fallback to local storage
             try {
-                await chrome.storage.local.set({ links: linksString });
+                await writeFallback({ links: linksString }, ['links'], cloudBefore);
                 debug('Successfully saved to local storage as fallback');
             } catch (localError) {
                 const storageError = new CodexError(
@@ -284,8 +353,10 @@ export async function saveSettings(settings) {
         }
 
         // Try sync storage first, fallback to local
+        const cloudBefore = await cloudBeforeSave(Object.keys(dataToSave));
         try {
             await chrome.storage.sync.set(dataToSave);
+            await clearPendingSync(Object.keys(dataToSave), { localCopies: true });
         } catch (syncError) {
             debugWarn('Sync storage failed for settings, falling back to local storage', {
                 errorMessage: syncError.message,
@@ -293,7 +364,7 @@ export async function saveSettings(settings) {
             });
             
             try {
-                await chrome.storage.local.set(dataToSave);
+                await writeFallback(dataToSave, Object.keys(dataToSave), cloudBefore);
                 debug('Successfully saved settings to local storage as fallback');
             } catch (localError) {
                 const storageError = new CodexError(
@@ -494,8 +565,10 @@ export async function saveCategories(categories) {
         }
 
         // Try sync storage first (primary storage)
+        const cloudBefore = await cloudBeforeSave(['categories']);
         try {
             await chrome.storage.sync.set({ categories: categoriesString });
+            await clearPendingSync(['categories']);
         } catch (syncError) {
             debugWarn('Sync storage failed, falling back to local storage', {
                 errorMessage: syncError.message,
@@ -504,7 +577,7 @@ export async function saveCategories(categories) {
             
             // Fallback to local storage
             try {
-                await chrome.storage.local.set({ categories: categoriesString });
+                await writeFallback({ categories: categoriesString }, ['categories'], cloudBefore);
                 debug('Successfully saved to local storage as fallback');
             } catch (localError) {
                 const storageError = new CodexError(
