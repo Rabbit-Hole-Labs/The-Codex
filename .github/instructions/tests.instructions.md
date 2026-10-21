@@ -40,6 +40,7 @@ tests/
 │   ├── link-mutations.test.js
 │   ├── load-no-clobber.test.js
 │   ├── load-quarantine.test.js           # New tab: bad stored values are coerced/hidden, never blank the page or get saved back
+│   ├── package-extension.test.js         # scripts/package-extension.js (store zip build + reference check)
 │   ├── security-fixes.test.js
 │   ├── security-utils.test.js
 │   ├── service-worker-migration.test.js  # One-time legacy colorTheme rewrite on extension update
