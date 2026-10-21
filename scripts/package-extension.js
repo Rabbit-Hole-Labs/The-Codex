@@ -546,7 +546,7 @@ export function cssScan(input, { declarations = false } = {}) {
             while (j < css.length && (css[j] === '\\' || /[\w\-\u0080-￿]/.test(css[j]))) j = css[j] === '\\' ? cssEscapeEnd(css, j) : j + 1;
             const rawName = cssUnescape(css.slice(i, j));
             const name = rawName.toLowerCase();
-            if (property && depth === propertyDepth && name === 'syntax') expectSyntax = true;
+            if (property && depth === propertyDepth && name === 'syntax' && declarationStart && /^[ \t\n]*:/.test(css.slice(j, j + 64))) expectSyntax = true;
             if (rawName.startsWith('--') && functions[functions.length - 1] === 'var') {
                 if (customDepth === -1) uses.add(rawName);
                 else chains.push([customName, rawName]);
@@ -719,6 +719,23 @@ export function srcsetUrls(value) {
     return urls;
 }
 
+/**
+ * A srcdoc's <base href> resolved against the base it inherits from its page (HTML's
+ * fallback base URL): a relative path joins the inherited one; absolute URLs stand.
+ */
+function joinBase(inherited, href) {
+    if (!inherited || !href || /^([a-z][a-z0-9+.-]*:|\/\/)/i.test(href)) return href;
+    if (/^([a-z][a-z0-9+.-]*:|\/\/)/i.test(inherited)) {
+        try {
+            return new URL(href, inherited.startsWith('//') ? `chrome-extension:${inherited}` : inherited).href;
+        } catch {
+            return href;
+        }
+    }
+    if (href.startsWith('#') || href.startsWith('?') || href.startsWith('/')) return href.startsWith('/') ? href : inherited;
+    return posix.join(inherited.endsWith('/') ? inherited : `${posix.dirname(inherited)}/`, href);
+}
+
 /** Classic-script MIME types; Chrome strips whitespace (vertical tab included) around the type first. */
 const CLASSIC_JS_TYPES = /^(|(text|application)\/(x-)?(java|ecma)script|text\/(j|live)script|text\/javascript1\.[0-5])$/i;
 
@@ -801,8 +818,8 @@ function htmlRefs(html, inheritedBase = null, scripting = true, inheritedPolicie
     const add = (url, directive, extra = {}) => {
         if (url && urlTrim(url)) urls.push({ url, directive, base: currentBase(), policies: [...policies], fragments: true, order: urls.length, ...extra });
     };
-    // A script file: classic ones compile as classic scripts; inert ones (never run here) are
-    // still checked, under this page's policies.
+    // A script file: classic ones compile as classic scripts. Inert ones (never run here) are
+    // recorded apart: Chrome never fetches or compiles them.
     const markScript = (src, { classic = true, inert = false } = {}) => {
         if (src === undefined || !urlTrim(src)) return;
         if (classic) classicScripts.push({ url: src, base: currentBase() });
@@ -845,7 +862,7 @@ function htmlRefs(html, inheritedBase = null, scripting = true, inheritedPolicie
             const svgModule = /^module$/i.test(svgType);
             if (svg && name === 'script' && !svgModule && !CLASSIC_JS_TYPES.test(svgType.replace(/^[\t\n\v\f\r ]+|[\t\n\v\f\r ]+$/g, ''))) continue;
             if (svg && name === 'script') {
-                markScript(target, { classic: !svgModule, inert: !scripting });
+                markScript(target, { classic: !svgModule && scripting, inert: !scripting });
                 if (!scripting) continue;
                 if (svgModule && firstModule === null) firstModule = line;
                 if (target === undefined && text.trim()) {
@@ -894,7 +911,7 @@ function htmlRefs(html, inheritedBase = null, scripting = true, inheritedPolicie
                 if (!scripting || (!module && attrs.has('nomodule'))) {
                     // Never run: scripting is off (a sandbox without allow-scripts), or it is a nomodule
                     // script, which Chrome skips because it runs modules. A classic file stays classic.
-                    markScript(src, { classic: !module, inert: true });
+                    markScript(src, { classic: false, inert: true });
                     break;
                 }
                 if (src !== undefined) {
@@ -979,7 +996,8 @@ function htmlRefs(html, inheritedBase = null, scripting = true, inheritedPolicie
                     const srcdoc = `${line}:${urls.length}`; // the srcdoc document's loads, for custom properties (see checkReferences)
                     urls.push(...nested.urls.flatMap((item) => (item.custom === undefined ? [{ srcdoc, ...item, ...opaque }]
                         : nested.registeredUrls.has(item.custom) || nestedRead(item.custom) ? [{ srcdoc, ...item, custom: undefined, ...opaque }] : [])));
-                    srcdocs.push({ id: srcdoc, varUses: [...nested.varUses], varChains: nested.varChains, registeredUrls: [...nested.registeredUrls] }, ...nested.srcdocs);
+                    srcdocs.push({ id: srcdoc, varUses: [...nested.varUses], varChains: nested.varChains, registeredUrls: [...nested.registeredUrls],
+                        policies: [...nested.policies], opaque: Boolean(opaque.sandboxed) }, ...nested.srcdocs);
                     problems.push(...nested.problems.map((item) => `line ${line} srcdoc ${item}`));
                     inlineScripts.push(...nested.inlineScripts.map((script) => ({ ...script, ...opaque, line: `${line} srcdoc line ${script.line}` })));
                     importMaps.push(...nested.importMaps.map((map) => ({ ...map, line: `${line} srcdoc line ${map.line}` })));
@@ -1001,7 +1019,7 @@ function htmlRefs(html, inheritedBase = null, scripting = true, inheritedPolicie
                 if (asciiTrim(attrs.get('type') ?? '').toLowerCase() === 'image') add(src, 'img-src');
                 break;
             case 'base':
-                if (!base && href !== undefined && !tag.inTemplate) base = { href: urlTrim(href), line, policies: here, position };
+                if (!base && href !== undefined && !tag.inTemplate) base = { href: joinBase(inheritedBase, urlTrim(href)), line, policies: here, position };
                 break;
             case 'form':
                 add(attrs.get('action'), 'form-action');
@@ -1126,8 +1144,9 @@ const normalizeSource = (source) => {
 export function parseCsp(policy) {
     const directives = new Map();
     for (const part of String(policy).split(';')) {
-        const [name, ...sources] = part.trim().split(/\s+/).filter(Boolean);
-        if (name && !directives.has(name.toLowerCase())) directives.set(name.toLowerCase(), sources.map(normalizeSource));
+        // CSP splits on ASCII whitespace only; a name that isn't [A-Za-z0-9-]+ is ignored, as in Chrome.
+        const [name, ...sources] = part.split(/[\t\n\f\r ]+/).filter(Boolean);
+        if (name && /^[A-Za-z0-9-]+$/.test(name) && !directives.has(name.toLowerCase())) directives.set(name.toLowerCase(), sources.map(normalizeSource));
     }
     return directives;
 }
@@ -1235,8 +1254,11 @@ function inlineAllowed(csp, directive, { text, nonce = null, attribute = false }
     if (!attribute && nonce && sources.includes(`'nonce-${nonce}'`)) return true;
     if (attribute && !sources.includes("'unsafe-hashes'")) return false;
     return typeof text === 'string' && sources.some((source) => {
-        const m = /^'(sha256|sha384|sha512)-(.+)'$/.exec(source);
-        return Boolean(m) && createHash(m[1]).update(text, 'utf8').digest('base64') === m[2];
+        // Chrome decodes base64 or base64url, padded or not, and compares the bytes.
+        const m = /^'(sha256|sha384|sha512)-([A-Za-z0-9+/_=-]+)'$/.exec(source);
+        if (!m) return false;
+        const expected = Buffer.from(m[2].replace(/-/g, '+').replace(/_/g, '/').replace(/=+$/, ''), 'base64');
+        return expected.length > 0 && expected.equals(createHash(m[1]).update(text, 'utf8').digest());
     });
 }
 
@@ -1743,8 +1765,13 @@ export function checkReferences(root, files, manifest) {
             errors.push(`manifest.json sandbox page pattern "${entry}" matches no packaged file`);
         }
     });
-    for (const file of files) {
-        if (!/\.(html?|m?js|css)$/i.test(file)) continue;
+    // Files only never-run scripts name (nomodule, or scripting off): Chrome never fetches or
+    // compiles them, so neither does this, unless something that runs imports them.
+    const liveScripts = new Set([...classic, ...refs.map((ref) => posix.normalize(ref.replace(/^\//, ''))),
+        ...[...results.values()].flatMap((page) => page.uses.filter((load) => load.directive === 'script-src' && !load.hint).map((load) => load.path))]);
+    const inertNamed = new Set([...results.values()].flatMap((page) => page.inertScripts));
+    const inertOnly = new Set([...inertNamed].filter((file) => !liveScripts.has(file)));
+    const processFile = (file) => {
         edges.set(file, []);
         let result = results.get(file);
         if (!result) {
@@ -1752,7 +1779,7 @@ export function checkReferences(root, files, manifest) {
                 result = extractRefs(file, read(file), { classic: classic.has(file), extensionId });
             } catch (error) {
                 errors.push(error.message);
-                continue;
+                return;
             }
         }
         errors.push(...result.errors);
@@ -1765,7 +1792,7 @@ export function checkReferences(root, files, manifest) {
             if (problem) errors.push(`${file} line ${line}: integrity="${integrity}" for ${path} ${problem}`);
         }
         results.set(file, result);
-        if (!isPage(file)) continue;
+        if (!isPage(file)) return;
         for (const item of result.inline) {
             // A javascript: navigation is checked like a script element that needs 'unsafe-hashes' for a hash.
             const blocked = policiesAt(file, item.policies).find(([pagePolicy]) => !(item.kind === 'script'
@@ -1782,6 +1809,15 @@ export function checkReferences(root, files, manifest) {
         if (blockedStyle) {
             errors.push(`${file} uses inline styles (style= or <style>), which the ${blockedStyle[1]} blocks: style-src has no 'unsafe-inline'`);
         }
+    };
+    for (const file of files) {
+        if (/\.(html?|m?js|css)$/i.test(file) && !inertOnly.has(file)) processFile(file);
+    }
+    for (let pending = [...inertOnly].filter((file) => files.includes(file) && /\.m?js$/i.test(file)); ;) {
+        const imported = pending.filter((file) => [...edges.values()].some((targets) => targets.includes(file)));
+        if (!imported.length) break;
+        imported.forEach(processFile);
+        pending = pending.filter((file) => !imported.includes(file));
     }
     // What each page's document loads: the files reachable from it without navigating to another
     // page. Files reached only through an opaque sandboxed srcdoc load in that sandbox; files
@@ -1990,6 +2026,14 @@ export function checkReferences(root, files, manifest) {
         normal.forEach((file) => set(file, { policies, nonces: [...(nonces.get(file) ?? [])], sandbox: isSandboxPage(page) }));
         opaque.forEach((file) => set(file, { policies, nonces: [], sandbox: true }));
         inert.forEach((file) => set(file, { policies: [], nonces: [], sandbox: true }));
+        // What a srcdoc links loads in that document, under its own policies (the page's at the
+        // iframe plus the srcdoc's <meta> CSPs).
+        for (const srcdoc of result.srcdocs) {
+            const roots = result.srcdocRefs.filter((ref) => ref.id === srcdoc.id && packaged.has(ref.path)).map((ref) => ref.path);
+            for (const file of reachFrom(roots)) {
+                contexts.get(file)?.set(`${page}#${srcdoc.id}`, { policies: policiesAt(page, srcdoc.policies), nonces: [], sandbox: isSandboxPage(page) || srcdoc.opaque });
+            }
+        }
     }
     const extensionContext = { policies: [[csp, 'manifest CSP'], ...minimum], nonces: [], sandbox: false };
     for (const [file, result] of results) {
@@ -2128,7 +2172,7 @@ export function checkReferences(root, files, manifest) {
             }
         }
     }
-    const warnings = files.filter((file) => !reached.has(file)).map((file) => `${file} is packaged but nothing references it`);
+    const warnings = files.filter((file) => !reached.has(file) && !inertNamed.has(file)).map((file) => `${file} is packaged but nothing references it`);
     return { errors: [...new Set(errors)], warnings };
 }
 
@@ -2270,7 +2314,9 @@ export function buildPackage({ root, outDir = join(root, 'dist'), stripKey = fal
     }
     const files = collectFiles(root);
     const problems = validateManifest(manifest);
-    const { errors, warnings } = checkReferences(root, files, manifest);
+    // Without the key the extension gets another ID, so check the manifest that ships.
+    const shipped = stripKey && 'key' in manifest ? Object.fromEntries(Object.entries(manifest).filter(([key]) => key !== 'key')) : manifest;
+    const { errors, warnings } = checkReferences(root, files, shipped);
     problems.push(...errors);
     if (problems.length) {
         throw new Error(`Package validation failed:\n  - ${problems.join('\n  - ')}`);

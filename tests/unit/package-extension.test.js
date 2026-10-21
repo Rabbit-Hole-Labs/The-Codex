@@ -18,6 +18,7 @@ import {
     createZip,
     cspAllows,
     cssRefs,
+    cssScan,
     cssUnescape,
     extensionIdFromKey,
     parseCsp,
@@ -1046,6 +1047,47 @@ describe('package-extension', () => {
         expect(buildError({ 'manifest.json': JSON.stringify({ ...MANIFEST, content_security_policy: { extension_pages: "script-src 'self'; script-src-elem 'self' https://evil.example; object-src 'self'" } }),
             'popup.html': `<script src="https://evil.example/x.js"></script>${entry}` }))
             .toContain("popup.html loads https://evil.example/x.js, which the MV3 minimum CSP (script-src 'self') blocks (script-src)");
+    });
+
+    test('round 16: inert scripts, @property syntax, --strip-key, CSP whitespace and hashes, srcdoc bases and policies', () => {
+        const entry = '<script type="module" src="javascript/entry-points/popup.js"></script>';
+        // A file only a never-run script names isn't compiled: module syntax in a nomodule file is fine.
+        writeFixture(root, fixtureFiles({ 'assets/legacy.js': 'export {};\n', 'popup.html': `<script nomodule src="assets/legacy.js"></script>${entry}` }));
+        const built = buildPackage({ root, outDir: out });
+        expect(built.warnings.join('\n')).not.toContain('assets/legacy.js');
+        // ...unless something that runs imports it.
+        expect(buildError({ 'assets/legacy2.js': 'export { x };\n', 'assets/m.js': "import './legacy2.js';\n",
+            'popup.html': `<script nomodule src="assets/legacy2.js"></script><script type="module" src="assets/m.js"></script>${entry}` }))
+            .toContain('assets/legacy2.js');
+        writeFixture(root, fixtureFiles({ 'assets/legacy2.js': 'export {};\n', 'assets/m.js': 'export {};\n' }));
+        // "syntax" counts only as the @property descriptor.
+        expect(cssScan('@property --bg { syntax: "*"; inherits: false; initial-value: syntax "<url>"; }').registeredUrls).toEqual(new Set());
+        expect(cssScan('@property --bg { syntax: "<url>"; inherits: false; }').registeredUrls).toEqual(new Set(['--bg']));
+        // --strip-key checks the manifest that ships: its own chrome-extension:// URLs can't be pinned.
+        const id = extensionIdFromKey(MANIFEST.key);
+        writeFixture(root, fixtureFiles({ 'popup.html': `<img src="chrome-extension://${id}/assets/icons/icon128.png">${entry}` }));
+        expect(() => buildPackage({ root, outDir: out })).not.toThrow();
+        expect(() => buildPackage({ root, outDir: out, stripKey: true })).toThrow(`popup.html: chrome-extension://${id}/assets/icons/icon128.png can't be checked without a manifest key`);
+        // CSP whitespace is ASCII: "img-src 'none'" is a malformed directive name, ignored.
+        writeFixture(root, fixtureFiles({ 'manifest.json': JSON.stringify({ ...MANIFEST, content_security_policy: { extension_pages: "script-src 'self'; object-src 'self'; img-src https://ok.example data:" } }),
+            'popup.html': `<head><meta http-equiv="Content-Security-Policy" content="img-src 'none'"></head><img src="https://ok.example/x.png">${entry}` }));
+        expect(() => buildPackage({ root, outDir: out })).not.toThrow();
+        // Hash sources may be base64url (and unpadded).
+        const css = '.a { color: red }';
+        const url = createHash('sha256').update(css).digest('base64url');
+        writeFixture(root, fixtureFiles({ 'manifest.json': JSON.stringify({ ...MANIFEST, content_security_policy: { extension_pages: `script-src 'self'; object-src 'self'; style-src 'self' https://fonts.example.com 'sha256-${url}'` } }),
+            'popup.html': `<style>${css}</style>${entry}` }));
+        expect(() => buildPackage({ root, outDir: out })).not.toThrow();
+    });
+
+    test('round 16: a srcdoc resolves its <base> against the inherited one and keeps its own policies', () => {
+        const entry = '<script type="module" src="javascript/entry-points/popup.js"></script>';
+        writeFixture(root, fixtureFiles({ 'popup.html': `${entry}<base href="assets/"><iframe srcdoc="<base href=icons/><img src=icon128.png>"></iframe>` }));
+        expect(() => buildPackage({ root, outDir: out })).not.toThrow();
+        expect(buildError({ 'manifest.json': JSON.stringify({ ...MANIFEST, content_security_policy: { extension_pages: "script-src 'self'; object-src 'self'; img-src 'self' https://a.cdn.example; style-src 'self'" } }),
+            'stylesheets/s.css': '.a { background: url(https://a.cdn.example/x.png) }\n',
+            'popup.html': `${entry}<iframe srcdoc="<head><meta http-equiv=Content-Security-Policy content=&quot;img-src 'none'&quot;></head><link rel=stylesheet href=stylesheets/s.css>"></iframe>` }))
+            .toContain("stylesheets/s.css loads https://a.cdn.example/x.png, which the <meta> CSP in popup.html blocks (img-src)");
     });
 
     test('an MV3 background needs a service worker', () => {
