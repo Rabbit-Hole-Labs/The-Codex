@@ -942,6 +942,50 @@ describe('package-extension', () => {
         expect(validateManifest({ ...MANIFEST, chrome_url_overrides: { newtab: '' } })).toContain('chrome_url_overrides.newtab must be the path of the override page');
     });
 
+    test('round 13: bare imports resolve through the page import map', () => {
+        const sandboxed = JSON.stringify({ ...MANIFEST, sandbox: { pages: ['assets/s.html'] } });
+        const page = (map, body) => `<script type="importmap">${JSON.stringify(map)}</script>${body}`;
+        const files = { 'manifest.json': sandboxed, 'assets/x.js': 'export const x = 1;\n', 'assets/lib/a.js': 'export const a = 1;\n',
+            'assets/m.js': "import { x } from 'x';\nimport { a } from 'lib/a.js';\nexport const m = x + a;\n" };
+        // Exact keys and "/" prefixes, from inline modules and from module files the page loads.
+        writeFixture(root, fixtureFiles({ ...files, 'assets/s.html': page({ imports: { x: './x.js', 'lib/': './lib/' } }, '<script type="module">import "x";</script><script type="module" src="m.js"></script>') }));
+        expect(() => buildPackage({ root, outDir: out })).not.toThrow();
+        // Scopes apply to modules under their prefix.
+        writeFixture(root, fixtureFiles({ ...files, 'assets/s.html': page({ imports: { 'lib/': './lib/' }, scopes: { './': { x: './x.js' } } }, '<script type="module" src="m.js"></script>') }));
+        expect(() => buildPackage({ root, outDir: out })).not.toThrow();
+        const message = buildError({ ...files, 'assets/s.html': page({ imports: { x: './gone.js', 'lib/': './lib/', y: './d.json' } },
+            '<script type="module" src="m.js"></script><script type="module">import "z"; import "y";</script>'), 'assets/d.json': '{}' });
+        expect(message).toContain('"x" maps to assets/gone.js in assets/s.html, which is not in the package');
+        expect(message).toContain('bare module specifier "z" cannot be loaded by an unbundled extension (the import map of assets/s.html doesn\'t map it)');
+        expect(message).toContain('"y" maps to assets/d.json in assets/s.html, which Chrome\'s module loader rejects (not JavaScript)');
+        // A page without a map can't resolve them.
+        expect(buildError({ ...files, 'assets/s.html': '<script type="module" src="m.js"></script>' }))
+            .toContain('assets/m.js: bare module specifier "x" cannot be loaded by an unbundled extension (assets/s.html has no import map)');
+    });
+
+    test('round 13: CSS whitespace in url(), poster, event handlers, IPv6 sources, imagesrcset, prefetch', () => {
+        const entry = '<script type="module" src="javascript/entry-points/popup.js"></script>';
+        // CSS whitespace is ASCII: U+00A0 stays in an unquoted url().
+        expect(cssRefs('.a { background: url(assets/a b.png) }')).toEqual([{ url: 'assets/a b.png', directive: 'img-src' }]);
+        // poster loads only on <video>.
+        writeFixture(root, fixtureFiles({ 'popup.html': `<audio poster="missing.png"></audio><track poster="missing.png">${entry}` }));
+        expect(() => buildPackage({ root, outDir: out })).not.toThrow();
+        expect(buildError({ 'popup.html': `<video poster="missing.png"></video>${entry}` })).toContain('popup.html references missing.png');
+        // Only real event-handler attributes are inline script.
+        writeFixture(root, fixtureFiles({ 'popup.html': `<div only="x" once="y" onfoo="z"></div>${entry}` }));
+        expect(() => buildPackage({ root, outDir: out })).not.toThrow();
+        expect(buildError({ 'popup.html': `<div onpointerdown="x()"></div>${entry}` })).toContain('inline event handler onpointerdown= on <div>');
+        // Bracketed IPv6 hosts in CSP sources.
+        expect(cspAllows(parseCsp('img-src https://[::1]'), 'img-src', 'https://[::1]/a.png')).toBe(true);
+        expect(cspAllows(parseCsp('img-src https://[::1]:8443'), 'img-src', 'https://[::1]/a.png')).toBe(false);
+        // An image preload's imagesrcset candidates are loads; a prefetch falls under default-src.
+        const preload = buildError({ 'manifest.json': JSON.stringify({ ...MANIFEST, content_security_policy: { extension_pages: "script-src 'self'; object-src 'self'; img-src 'self'; default-src 'self'" } }),
+            'popup.html': `<link rel="preload" as="image" imagesrcset="gone.png 1x, https://evil.example/x.png 2x"><link rel="prefetch" href="https://blocked.example/page">${entry}` });
+        expect(preload).toContain('popup.html references gone.png');
+        expect(preload).toContain('popup.html loads https://evil.example/x.png, which the manifest CSP blocks (img-src)');
+        expect(preload).toContain('popup.html loads https://blocked.example/page, which the manifest CSP blocks (default-src)');
+    });
+
     test('an MV3 background needs a service worker', () => {
         expect(validateManifest({ ...MANIFEST, background: { type: 'module' } })).toContain('background.service_worker is required in MV3');
     });

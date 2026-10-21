@@ -531,7 +531,7 @@ export function cssScan(input, { declarations = false } = {}) {
             } else {
                 // url( "quoted" ) or url(unquoted-token)
                 let k = j + 1;
-                while (k < css.length && /\s/.test(css[k])) k++;
+                while (k < css.length && /[ \t\n]/.test(css[k])) k++;
                 if (css[k] === '"' || css[k] === "'") {
                     const [value, end] = readString(k);
                     push(value);
@@ -547,8 +547,9 @@ export function cssScan(input, { declarations = false } = {}) {
                             const end = cssEscapeEnd(css, k);
                             raw += css.slice(k, end);
                             k = end;
-                        } else if (/\s/.test(css[k])) {
-                            while (k < css.length && /\s/.test(css[k])) k++;
+                        } else if (/[ \t\n]/.test(css[k])) {
+                            // CSS whitespace is ASCII only: U+00A0 stays part of the URL.
+                            while (k < css.length && /[ \t\n]/.test(css[k])) k++;
                             if (css[k] !== ')') bad = true;
                         } else {
                             if (/["'(]/.test(css[k])) bad = true;
@@ -706,6 +707,31 @@ export function srcsetUrls(value) {
 /** Classic-script MIME types; Chrome strips whitespace (vertical tab included) around the type first. */
 const CLASSIC_JS_TYPES = /^(|(text|application)\/(x-)?(java|ecma)script|text\/(j|live)script|text\/javascript1\.[0-5])$/i;
 
+/**
+ * Event-handler content attributes (on + name) that Chrome compiles as inline script: the
+ * names in Blink's attribute-to-event maps (HTML, body/frameset, SVG, SMIL) and the
+ * GlobalEventHandlers IDL. Other on* attributes (only, once) are ordinary attributes.
+ */
+const EVENT_HANDLER_ATTRIBUTES = new Set((
+    'abort afterprint animationcancel animationend animationiteration animationstart auxclick beforecopy ' +
+    'beforecut beforefilter beforeinput beforematch beforepaste beforeprint beforetoggle beforeunload ' +
+    'begin blur cancel canplay canplaythrough change click close command complete ' +
+    'contentvisibilityautostatechange contextlost contextmenu contextrestored copy cuechange cut dblclick ' +
+    'drag dragend dragenter dragexit dragleave dragover dragstart drop durationchange emptied end ended ' +
+    'error focus focusin focusout formdata gotpointercapture hashchange input installresult invalid ' +
+    'keydown keypress keyup languagechange load loadeddata loadedmetadata loadstart location ' +
+    'lostpointercapture message messageerror mousedown mouseenter mouseleave mousemove mouseout mouseover ' +
+    'mouseup mousewheel offline online orientationchange overscrollcancel overscrollchanging ' +
+    'overscrollend overscrollstart pagehide pageshow paste pause play playing pointercancel pointerdown ' +
+    'pointerenter pointerleave pointermove pointerout pointerover pointerrawupdate pointerup popstate ' +
+    'progress promptaction promptdismiss ratechange repeat reset resize scroll scrollend scrollsnapchange ' +
+    'scrollsnapchanging securitypolicyviolation seeked seeking select selectionchange selectstart ' +
+    'slotchange sort stalled storage stream submit suspend timeupdate timezonechange toggle touchcancel ' +
+    'touchend touchmove touchstart transitioncancel transitionend transitionrun transitionstart unload ' +
+    'validationstatuschange volumechange waiting webkitanimationend webkitanimationiteration ' +
+    'webkitanimationstart webkitfullscreenchange webkitfullscreenerror webkittransitionend wheel'
+).split(' ').map((name) => `on${name}`));
+
 /** Elements whose legacy background attribute is a background image (HTML's rendering rules; Chrome adds col and colgroup). */
 const BACKGROUND_ELEMENTS = new Set(['body', 'table', 'thead', 'tbody', 'tfoot', 'tr', 'td', 'th', 'col', 'colgroup']);
 
@@ -773,7 +799,7 @@ function htmlRefs(html, inheritedBase = null, scripting = true, inheritedPolicie
         const nonce = attrs.get('nonce') ?? null;
         if (scripting) {
             for (const attr of attrs.keys()) {
-                if (/^on./.test(attr)) inline.push({ kind: 'handler', desc: `line ${line}: inline event handler ${attr}= on <${name}>`, text: attrs.get(attr), policies: here });
+                if (EVENT_HANDLER_ATTRIBUTES.has(attr)) inline.push({ kind: 'handler', desc: `line ${line}: inline event handler ${attr}= on <${name}>`, text: attrs.get(attr), policies: here });
             }
         }
         if (attrs.has('style')) {
@@ -875,8 +901,12 @@ function htmlRefs(html, inheritedBase = null, scripting = true, inheritedPolicie
                     const preload = ['script', 'style', 'font'].includes(as) && attrs.has('integrity')
                         ? { as, cors: attrs.has('crossorigin'), integrity: attrs.get('integrity'), line } : undefined;
                     add(href, Object.hasOwn(PRELOAD_DIRECTIVES, as) ? PRELOAD_DIRECTIVES[as] : null, { nonce, preload, hint: true });
+                    // An image preload may name its candidates in imagesrcset (href is then optional).
+                    if (as === 'image') srcsetUrls(attrs.get('imagesrcset') || '').forEach((url) => add(url, 'img-src', { hint: true }));
                 } else if (rel.includes('manifest')) {
                     add(href, 'manifest-src');
+                } else if (rel.includes('prefetch')) {
+                    add(href, 'default-src'); // CSP3 has no prefetch-src: prefetches fall under default-src
                 } else if (!rel.includes('preconnect') && !rel.includes('dns-prefetch')) {
                     add(href, null);
                 }
@@ -896,7 +926,7 @@ function htmlRefs(html, inheritedBase = null, scripting = true, inheritedPolicie
             case 'audio':
             case 'track':
                 add(src, 'media-src');
-                add(attrs.get('poster'), 'img-src');
+                if (name === 'video') add(attrs.get('poster'), 'img-src'); // poster means nothing on audio or track
                 break;
             case 'iframe':
             case 'frame':
@@ -1082,7 +1112,7 @@ function sourceMatches(source, parsed, directive = null) {
     if (/^[a-z][a-z0-9+.-]*:$/.test(source)) {
         return source === scheme || (source === 'http:' && scheme === 'https:') || (source === 'ws:' && scheme === 'wss:');
     }
-    const m = /^(?:([a-z][a-z0-9+.-]*):\/\/)?(\*|(?:\*\.)?[^/:]+)(?::(\d+|\*))?(\/.*)?$/.exec(source);
+    const m = /^(?:([a-z][a-z0-9+.-]*):\/\/)?(\*|(?:\*\.)?[^/:[\]]+|\[[0-9a-f:.]+\])(?::(\d+|\*))?(\/.*)?$/.exec(source); // [IPv6] hosts too
     if (!m) return false;
     const [, sourceScheme, host, port, path] = m;
     // A source without a scheme matches only the protected page's scheme, chrome-extension: here.
@@ -1257,6 +1287,41 @@ function dynamicImports(file, source) {
     return { specifiers, errors };
 }
 
+/** The extension's origin as a URL prefix (a placeholder ID when the manifest has no key). */
+const extensionOrigin = (extensionId) => `chrome-extension://${extensionId ?? 'extension'}/`;
+
+/**
+ * Resolves a bare module specifier through a page's import map, as HTML's
+ * "resolve a module specifier" does: scopes matching the referrer first, then
+ * the top-level imports; exact keys and "/"-ending prefix keys, longest first.
+ * @returns {{ url: string } | { blocked: true } | null} null when nothing maps it
+ */
+function resolveThroughImportMap(map, specifier, referrer) {
+    const match = (entries) => {
+        for (const key of Object.keys(entries).sort().reverse()) {
+            const address = entries[key];
+            if (key === specifier) return address === null ? { blocked: true } : { url: address };
+            if (key.endsWith('/') && specifier.startsWith(key)) {
+                if (address === null) return { blocked: true };
+                try {
+                    const url = new URL(specifier.slice(key.length), address).href;
+                    return url.startsWith(address) ? { url } : { blocked: true }; // no backtracking above the prefix
+                } catch {
+                    return { blocked: true };
+                }
+            }
+        }
+        return null;
+    };
+    for (const scope of Object.keys(map.scopes).sort().reverse()) {
+        if (scope === referrer || (scope.endsWith('/') && referrer.startsWith(scope))) {
+            const found = match(map.scopes[scope]);
+            if (found) return found;
+        }
+    }
+    return match(map.imports);
+}
+
 /**
  * Resolves URLs as one packaged file sees them: against the file itself or a
  * <base href> (a local directory or an external base URL), to a local path or
@@ -1326,11 +1391,20 @@ function locator(file, extensionId) {
 export function extractRefs(file, text, { classic = false, csp = null, scripting = true, extensionId = null } = {}) {
     const result = {
         refs: [], uses: [], external: [], errors: [], dynamicImports: 0, classicScripts: [], inertScripts: [], inline: [], inlineStyles: [],
-        integrity: [], mapIntegrity: [], preloads: [], opaqueRefs: [], srcdocRefs: [], srcdocs: [], policies: [], customRefs: [], varUses: [], varChains: [], registeredUrls: [], documentBase: null
+        integrity: [], mapIntegrity: [], preloads: [], opaqueRefs: [], srcdocRefs: [], srcdocs: [], bareImports: [], importMap: null, policies: [], customRefs: [], varUses: [], varChains: [], registeredUrls: [], documentBase: null
     };
     const kind = (/\.(html?|m?js|css)$/i.exec(file)?.[1] || '').toLowerCase();
     const { ownPrefix, ownPath, baseInfo, locate } = locator(file, extensionId);
     let baseUsable = true;
+    // This file's URL and a document base URL, for import maps and bare specifiers.
+    const origin = extensionOrigin(extensionId);
+    const fileUrl = origin + file.split('/').map(encodeURIComponent).join('/');
+    const baseUrl = (base) => {
+        if (!base || !baseUsable) return fileUrl;
+        const info = baseInfo(base);
+        if (info.externalBase) return info.externalBase;
+        return info.localDir === '.' ? origin : `${origin}${info.localDir.split('/').map(encodeURIComponent).join('/')}/`;
+    };
     const add = ({ url, directive, base = null, policies = [], nonce = null, parserInserted = false, integrity, line, ping = false, fragments = false, custom, cors = false, module = false, preload, hint = false, mapAddress = false, sandboxed = false, order = null, srcdoc = null }) => {
         if (custom && !/^([a-z][a-z0-9+.-]*:|\/|#)/i.test(urlTrim(url))) {
             // Resolved where var() substitutes the property: see checkReferences.
@@ -1387,7 +1461,8 @@ export function extractRefs(file, text, { classic = false, csp = null, scripting
                 const directive = type === 'json' ? 'connect-src' : type === 'css' ? 'style-src' : 'script-src';
                 add({ url: specifier, directive, base, policies, nonce, cors: true, module: true, sandboxed });
             } else {
-                result.errors.push(`${label}: bare module specifier "${specifier}" cannot be loaded by an unbundled extension`);
+                // Only the import map of the page that loads the module can resolve it: see checkReferences.
+                result.bareImports.push({ label, specifier, type, referrer: base ? baseUrl(base) : fileUrl, policies, nonce, sandboxed });
             }
         }
     }
@@ -1441,6 +1516,35 @@ export function extractRefs(file, text, { classic = false, csp = null, scripting
             if (fatal) {
                 result.errors.push(`${label}: ${fatal}, so Chrome rejects the map`);
                 continue;
+            }
+            // The map as Chrome merges it into the page's (the first entry for a key wins): keys and
+            // addresses resolved against the document base, bad addresses as null (blocking).
+            const mapBase = baseUrl(map.base);
+            const asUrl = (value) => {
+                if (!urlLike(value)) return null;
+                try {
+                    return new URL(value, mapBase).href;
+                } catch {
+                    return null;
+                }
+            };
+            const merge = (entries, target) => {
+                for (const [key, address] of Object.entries(entries)) {
+                    const normalized = asUrl(key) ?? key;
+                    if (key === '' || Object.hasOwn(target, normalized)) continue;
+                    const url = typeof address === 'string' ? asUrl(address) : null;
+                    target[normalized] = url && !(key.endsWith('/') && !url.endsWith('/')) ? url : null;
+                }
+            };
+            result.importMap ??= { imports: {}, scopes: {} };
+            merge(parsed.imports ?? {}, result.importMap.imports);
+            for (const [scope, entries] of Object.entries(parsed.scopes ?? {})) {
+                try {
+                    const prefix = new URL(scope, mapBase).href;
+                    merge(entries, result.importMap.scopes[prefix] ??= {});
+                } catch {
+                    // a scope that isn't a URL is ignored
+                }
             }
             const specifierMaps = [['imports', parsed.imports ?? {}], ...Object.entries(parsed.scopes ?? {}).map(([scope, entries]) => [`scopes["${scope}"]`, entries])];
             for (const [where, entries] of specifierMaps) {
@@ -1636,6 +1740,71 @@ export function checkReferences(root, files, manifest) {
         }
         return seen;
     };
+    // Bare module specifiers resolve through the import map of each page whose module graph
+    // includes the importing file; every such page must map them. New targets can import more,
+    // so this repeats until nothing changes. Nothing else (the service worker, content scripts,
+    // modules no page loads) can resolve them.
+    const pages = files.filter((f) => isPage(f) && results.has(f));
+    const origin = extensionOrigin(extensionId);
+    const urlToPath = (url) => {
+        if (!url.startsWith(origin)) return null;
+        try {
+            return posix.normalize(decodeURIComponent(new URL(url).pathname).replace(/^\//, ''));
+        } catch {
+            return null;
+        }
+    };
+    const workerFile = typeof manifest.background?.service_worker === 'string' ? posix.normalize(manifest.background.service_worker.replace(/^\//, '')) : null;
+    const resolvedBare = new Set();
+    for (let changed = true; changed;) {
+        changed = false;
+        for (const page of pages) {
+            const map = results.get(page).importMap;
+            for (const file of reachFrom([page])) {
+                const fileResult = results.get(file);
+                for (const bare of fileResult?.bareImports ?? []) {
+                    const key = `${page}\n${file}\n${bare.specifier}`;
+                    if (resolvedBare.has(key)) continue;
+                    resolvedBare.add(key);
+                    const found = map ? resolveThroughImportMap(map, bare.specifier, bare.referrer) : null;
+                    if (!found || found.blocked) {
+                        errors.push(`${bare.label}: bare module specifier "${bare.specifier}" cannot be loaded by an unbundled extension (${!map ? `${page} has no import map`
+                            : found ? `the import map of ${page} blocks it` : `the import map of ${page} doesn't map it`})`);
+                        continue;
+                    }
+                    const directive = bare.type === 'json' ? 'connect-src' : bare.type === 'css' ? 'style-src' : 'script-src';
+                    const load = { directive, policies: bare.policies, nonce: bare.nonce, parserInserted: false, cors: true, module: true, sandboxed: bare.sandboxed };
+                    const local = urlToPath(found.url);
+                    if (!local) {
+                        if (/^(https?|data|blob):/i.test(found.url)) fileResult.external.push({ url: found.url, ...load });
+                        else errors.push(`${bare.label}: "${bare.specifier}" maps to ${found.url} in ${page}, which Chrome can't import`);
+                        continue;
+                    }
+                    const expected = bare.type === 'json' ? /\.json$/i : bare.type === 'css' ? /\.css$/i : /\.m?js$/i;
+                    if (!expected.test(local)) {
+                        errors.push(`${bare.label}: "${bare.specifier}" maps to ${local} in ${page}, which Chrome's module loader rejects (not ${bare.type ? `a ${bare.type} module` : 'JavaScript'})`);
+                    } else if (!packaged.has(local)) {
+                        errors.push(`${bare.label}: "${bare.specifier}" maps to ${local} in ${page}, which is not in the package`);
+                    } else {
+                        fileResult.uses.push({ path: local, ...load });
+                        if (!(edges.get(file) || []).includes(local)) {
+                            edges.get(file)?.push(local);
+                            changed = true;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    const pageReached = new Set(pages.flatMap((page) => [...reachFrom([page])]));
+    const workerGraph = workerFile && edges.has(workerFile) ? reachFrom([workerFile]) : new Set();
+    for (const [file, fileResult] of results) {
+        if (!fileResult.bareImports?.length) continue;
+        const where = workerGraph.has(file) ? 'the service worker has no import map' : !pageReached.has(file) ? 'no page loads this module' : null;
+        if (where) {
+            for (const bare of fileResult.bareImports) errors.push(`${bare.label}: bare module specifier "${bare.specifier}" cannot be loaded by an unbundled extension (${where})`);
+        }
+    }
     const documents = new Map(); // page -> { normal, opaque, inert, all }
     const documentOf = (page) => {
         if (!documents.has(page)) {
@@ -1651,7 +1820,6 @@ export function checkReferences(root, files, manifest) {
         }
         return documents.get(page);
     };
-    const pages = files.filter((f) => isPage(f) && results.has(f));
     for (const page of pages) {
         const result = results.get(page);
         const { normal } = documentOf(page);
