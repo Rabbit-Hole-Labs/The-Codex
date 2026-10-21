@@ -913,14 +913,25 @@ describe('package-extension', () => {
             { id: 2, action: { type: 'modifyHeaders', requestHeaders: [] }, condition: {} },
             { id: 3, action: { type: 'modifyHeaders', responseHeaders: [{ header: 'x', operation: 'remove', value: 'v' }, { header: 'y', operation: 'set' }] }, condition: {} },
             { id: 4, action: { type: 'allowAllRequests' }, condition: { resourceTypes: ['script'] } },
-            { id: 5, action: { type: 'redirect', redirect: { regexSubstitution: '\\1' } }, condition: {} }
+            { id: 5, action: { type: 'redirect', redirect: { regexSubstitution: '\\1' } }, condition: {} },
+            { id: 6, action: { type: 'redirect', redirect: { url: 'javascript:alert(1)' } }, condition: {} },
+            { id: 7, action: { type: 'modifyHeaders', requestHeaders: [{ header: 'bad header', operation: 'remove' }] }, condition: {} },
+            // Valid: url wins over a later field; transform alone; extensionPath; frames for allowAllRequests.
+            { id: 8, action: { type: 'redirect', redirect: { url: 'https://example.com/', regexSubstitution: '' } }, condition: {} },
+            { id: 9, action: { type: 'redirect', redirect: { transform: { scheme: 'https' } } }, condition: {} },
+            { id: 10, action: { type: 'redirect', redirect: { extensionPath: '/index.html' } }, condition: {} },
+            { id: 11, action: { type: 'allowAllRequests' }, condition: { resourceTypes: ['main_frame', 'sub_frame'] } },
+            { id: 12, action: { type: 'modifyHeaders', responseHeaders: [{ header: 'Access-Control-Allow-Origin', operation: 'set', value: '*' }] }, condition: {} }
         ]);
+        expect(message).not.toMatch(/rule (7|8|9|10|11):/);
         expect(message).toContain('assets/rules.json rule 0: a redirect action needs action.redirect with url, extensionPath, transform or regexSubstitution');
         expect(message).toContain('assets/rules.json rule 1: action.requestHeaders must be a non-empty list');
         expect(message).toContain("assets/rules.json rule 2: action.responseHeaders[0] can't have a value with remove");
         expect(message).toContain('assets/rules.json rule 2: action.responseHeaders[1] needs a string value with set');
         expect(message).toContain('assets/rules.json rule 3: an allowAllRequests action needs condition.resourceTypes of main_frame and/or sub_frame only');
         expect(message).toContain('assets/rules.json rule 4: action.redirect.regexSubstitution needs condition.regexFilter');
+        expect(message).toContain('assets/rules.json rule 5: action.redirect.url must be a valid URL other than javascript:');
+        expect(message).toContain('assets/rules.json rule 6: action.requestHeaders[0] needs a valid header name and an operation of append, set or remove');
         // CSS: CR and FF end an unterminated string like LF, so later declarations are scanned.
         expect(cssRefs('.x{content:"oops\r; background:url(a.png)} .y{content:"b\f; background:url(b.png)}')).toEqual([
             { url: 'a.png', directive: 'img-src' }, { url: 'b.png', directive: 'img-src' }]);

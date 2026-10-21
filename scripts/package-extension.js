@@ -1818,16 +1818,24 @@ export function checkReferences(root, files, manifest) {
             // The fields each action type needs (Chrome drops a static rule without them).
             const action = rule.action && typeof rule.action === 'object' ? rule.action : {};
             if (action.type === 'redirect') {
-                const redirect = action.redirect;
-                if (!redirect || typeof redirect !== 'object' || !['url', 'extensionPath', 'transform', 'regexSubstitution'].some((key) => key in redirect)) {
+                // Chrome uses the first of url, extensionPath, transform and regexSubstitution present.
+                const redirect = action.redirect && typeof action.redirect === 'object' ? action.redirect : null;
+                const field = redirect && ['url', 'extensionPath', 'transform', 'regexSubstitution'].find((key) => key in redirect);
+                if (!field) {
                     errors.push(`${where}: a redirect action needs action.redirect with url, extensionPath, transform or regexSubstitution`);
-                } else {
-                    if ('extensionPath' in redirect && !(typeof redirect.extensionPath === 'string' && redirect.extensionPath.startsWith('/'))) {
-                        errors.push(`${where}: action.redirect.extensionPath must be a path starting with "/"`);
+                } else if (field === 'url') {
+                    let scheme = null;
+                    try {
+                        scheme = new URL(redirect.url).protocol;
+                    } catch {
+                        // reported below
                     }
-                    if ('regexSubstitution' in redirect && typeof rule.condition?.regexFilter !== 'string') {
-                        errors.push(`${where}: action.redirect.regexSubstitution needs condition.regexFilter`);
-                    }
+                    if (!scheme || scheme === 'javascript:') errors.push(`${where}: action.redirect.url must be a valid URL other than javascript:`);
+                } else if (field === 'extensionPath' && !(typeof redirect.extensionPath === 'string' && redirect.extensionPath.startsWith('/'))) {
+                    errors.push(`${where}: action.redirect.extensionPath must be a path starting with "/"`);
+                } else if (field === 'regexSubstitution') {
+                    if (typeof redirect.regexSubstitution !== 'string' || !redirect.regexSubstitution) errors.push(`${where}: action.redirect.regexSubstitution must be a non-empty string`);
+                    else if (typeof rule.condition?.regexFilter !== 'string') errors.push(`${where}: action.redirect.regexSubstitution needs condition.regexFilter`);
                 }
             } else if (action.type === 'modifyHeaders') {
                 const lists = ['requestHeaders', 'responseHeaders'].filter((key) => key in action);
@@ -1839,10 +1847,13 @@ export function checkReferences(root, files, manifest) {
                     }
                     action[key].forEach((info, n) => {
                         const operation = info?.operation;
-                        if (!info || typeof info.header !== 'string' || !info.header || !['append', 'set', 'remove'].includes(operation)) {
-                            errors.push(`${where}: action.${key}[${n}] needs a header and an operation of append, set or remove`);
+                        // An HTTP token for the name; no CR, LF or NUL in a value (as Chrome checks them).
+                        if (!info || typeof info.header !== 'string' || !/^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/.test(info.header) || !['append', 'set', 'remove'].includes(operation)) {
+                            errors.push(`${where}: action.${key}[${n}] needs a valid header name and an operation of append, set or remove`);
                         } else if (operation === 'remove' ? 'value' in info : typeof info.value !== 'string') {
                             errors.push(`${where}: action.${key}[${n}] ${operation === 'remove' ? "can't have a value with remove" : `needs a string value with ${operation}`}`);
+                        } else if (typeof info.value === 'string' && /[\r\n\0]/.test(info.value)) {
+                            errors.push(`${where}: action.${key}[${n}] has a value with CR, LF or NUL`);
                         }
                     });
                 }
