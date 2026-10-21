@@ -59,6 +59,7 @@ The extension follows a modular architecture with clearly defined components:
 - Integration tests: `npm run test:integration`
 - Watch mode: `npm run test:watch`
 - Linting: `npm run lint` or `npm run lint:fix`
+- Package: `npm run package` builds `dist/the-codex-<version>.zip` (manifest at the root, every file reference validated, reproducible; compare builds by the printed content SHA-256, which needs LF checkouts); CI uploads it as an artifact on every PR and push to main
 
 ### Code Style
 - ES6 modules with import/export

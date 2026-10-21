@@ -3,6 +3,7 @@
 node_modules/
 context/
 coverage/
+dist/
 .ds-sync/
 ds-bundle/
 .design-sync/.cache/

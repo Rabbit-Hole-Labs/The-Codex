@@ -13,7 +13,8 @@
     "test:coverage": "node --experimental-vm-modules node_modules/.bin/jest --coverage",
     "test:watch": "node --experimental-vm-modules node_modules/.bin/jest --watch",
     "lint": "eslint .",
-    "lint:fix": "eslint . --fix"
+    "lint:fix": "eslint . --fix",
+    "package": "node --experimental-vm-modules --disable-warning=ExperimentalWarning scripts/package-extension.js"
   },
   "devDependencies": {
     "@eslint/css": "^0.14.1",
@@ -26,6 +27,7 @@
     "globals": "^16.5.0",
     "jest": "^29.7.0",
     "jest-environment-jsdom": "^29.7.0",
+    "parse5": "^8.0.1",
     "sinon": "^17.0.1"
   },
   "jest": {
