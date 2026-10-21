@@ -137,9 +137,17 @@ const iconPaths = (icon) => {
  */
 const validMatchPattern = (pattern) => {
     if (pattern === '<all_urls>' || /^file:\/\/./s.test(pattern) || /^uuid-in-package:(?!\/\/)./s.test(pattern)) return true;
-    const m = /^(?<scheme>\*|https?|ftp):\/\/(\*|(\*\.)?[^/*:[\]]+|\[[0-9A-Fa-f:.]+\])(?::(?<port>\*|\d+))?\/.*$/s.exec(pattern);
+    const m = /^(?<scheme>\*|https?|ftp):\/\/(?<host>\*|(\*\.)?[^/*:[\]]+|\[[0-9A-Fa-f:.]+\])(?::(?<port>\*|\d+))?\/.*$/s.exec(pattern);
     if (!m) return false;
-    const { scheme, port } = m.groups;
+    const { scheme, host, port } = m.groups;
+    // The host must be a real host name (the URL parser rejects spaces and other forbidden characters).
+    if (host !== '*' && !host.startsWith('[')) {
+        try {
+            if (!new URL(`http://${host.replace(/^\*\./, '')}/`).hostname) return false;
+        } catch {
+            return false;
+        }
+    }
     return port === undefined || port === '*' || (scheme !== '*' && Number(port) <= 65535);
 };
 
@@ -402,13 +410,20 @@ export function cssRefs(css, options) {
 /**
  * cssRefs plus the custom properties the CSS reads with var(): `uses` outside
  * custom properties, and `chains` ([holder, read] pairs) where one custom
- * property's value reads another, so its url()s resolve where the holder is used.
+ * property's value reads another, so its url()s resolve where the holder is used;
+ * `registeredUrls` are properties an @property rule registers with a <url> syntax
+ * (their url()s resolve where they are declared).
  */
 export function cssScan(input, { declarations = false } = {}) {
     const css = input.replace(/\r\n?|\f/g, '\n'); // CSS preprocessing: CR, CRLF and FF are newlines
     const refs = [];
     const uses = new Set();
     const chains = [];
+    const registeredUrls = new Set(); // @property rules whose syntax includes <url>
+    let pendingProperty = null; // @property --name, before its block
+    let property = null; // the @property block being read, at propertyDepth
+    let propertyDepth = -1;
+    let expectSyntax = false; // after "syntax" in that block: the next string is the syntax
     const functions = []; // open function names, innermost last ('' for a bare parenthesis)
     let depth = 0;
     let fontFaceDepth = -1;
@@ -449,6 +464,10 @@ export function cssScan(input, { declarations = false } = {}) {
         } else if (c === '"' || c === "'") {
             declarationStart = false;
             const [value, end] = readString(i);
+            if (expectSyntax) {
+                if (/<url>/i.test(value)) registeredUrls.add(property);
+                expectSyntax = false;
+            }
             const fn = functions[functions.length - 1];
             if (fn === 'image-set' || fn === '-webkit-image-set') refs.push({ url: value, directive: 'img-src', ...custom() });
             else if (pendingImport && functions.length === 0) push(value);
@@ -461,17 +480,28 @@ export function cssScan(input, { declarations = false } = {}) {
                 fontFaceDepth = depth;
                 pendingFontFace = false;
             }
+            if (pendingProperty) {
+                property = pendingProperty;
+                propertyDepth = depth;
+                pendingProperty = null;
+            }
             pendingImport = false;
             declarationStart = true;
             i++;
         } else if (c === '}') {
             if (depth === fontFaceDepth) fontFaceDepth = -1;
+            if (depth === propertyDepth) {
+                property = null;
+                propertyDepth = -1;
+            }
             depth = Math.max(0, depth - 1);
             if (depth < customDepth) customDepth = -1;
             declarationStart = true;
             i++;
         } else if (c === ';') {
             if (depth === customDepth && functions.length === 0) customDepth = -1;
+            expectSyntax = false;
+            pendingProperty = null;
             declarationStart = true;
             pendingImport = false;
             pendingFontFace = false;
@@ -494,6 +524,14 @@ export function cssScan(input, { declarations = false } = {}) {
                 importsAllowed = false;
             }
             if (keyword === 'font-face') pendingFontFace = true;
+            if (keyword === 'property') {
+                let k = j;
+                while (k < css.length && /[ \t\n]/.test(css[k])) k++;
+                let e = k;
+                while (e < css.length && (css[e] === '\\' || /[\w\-\u0080-\uFFFF]/.test(css[e]))) e = css[e] === '\\' ? cssEscapeEnd(css, e) : e + 1;
+                const name = cssUnescape(css.slice(k, e));
+                if (name.startsWith('--')) pendingProperty = name;
+            }
             i = Math.max(j, i + 1);
         } else if (c === '(') {
             declarationStart = false;
@@ -508,6 +546,7 @@ export function cssScan(input, { declarations = false } = {}) {
             while (j < css.length && (css[j] === '\\' || /[\w\-\u0080-￿]/.test(css[j]))) j = css[j] === '\\' ? cssEscapeEnd(css, j) : j + 1;
             const rawName = cssUnescape(css.slice(i, j));
             const name = rawName.toLowerCase();
+            if (property && depth === propertyDepth && name === 'syntax') expectSyntax = true;
             if (rawName.startsWith('--') && functions[functions.length - 1] === 'var') {
                 if (customDepth === -1) uses.add(rawName);
                 else chains.push([customName, rawName]);
@@ -570,35 +609,7 @@ export function cssScan(input, { declarations = false } = {}) {
             i++;
         }
     }
-    return { refs, uses, chains };
-}
-
-/**
- * Custom properties registered with @property and a syntax that includes
- * <url>: their url()s resolve where they are declared, not where var() reads them.
- */
-export function cssRegisteredUrls(input) {
-    const css = input.replace(/\r\n?|\f/g, '\n'); // CSS preprocessing: CR, CRLF and FF are newlines
-    let code = ''; // the CSS without comments (strings kept, so '/*' inside one is text)
-    for (let i = 0; i < css.length;) {
-        if (css.startsWith('/*', i)) {
-            const end = css.indexOf('*/', i + 2);
-            i = end === -1 ? css.length : end + 2;
-            code += ' ';
-        } else if (css[i] === '"' || css[i] === "'") {
-            const quote = css[i];
-            let j = i + 1;
-            while (j < css.length && css[j] !== quote && css[j] !== '\n') j += css[j] === '\\' ? 2 : 1;
-            code += css.slice(i, j + 1);
-            i = j + 1;
-        } else {
-            code += css[i++];
-        }
-    }
-    const name = String.raw`--(?:[\w-]|\\[0-9a-fA-F]{1,6}\s?|\\[\s\S]|[^\x00-\x7f])+`;
-    return new Set([...code.matchAll(new RegExp(String.raw`@property\s+(${name})\s*\{([^}]*)\}`, 'gi'))]
-        .filter((m) => /syntax\s*:\s*(["'])[^"']*<url>[^"']*\1/i.test(m[2]))
-        .map((m) => cssUnescape(m[1]).trim()));
+    return { refs, uses, chains, registeredUrls };
 }
 
 // HTML --------------------------------------------------------------------------
@@ -968,7 +979,7 @@ function htmlRefs(html, inheritedBase = null, scripting = true, inheritedPolicie
                     const srcdoc = `${line}:${urls.length}`; // the srcdoc document's loads, for custom properties (see checkReferences)
                     urls.push(...nested.urls.flatMap((item) => (item.custom === undefined ? [{ srcdoc, ...item, ...opaque }]
                         : nested.registeredUrls.has(item.custom) || nestedRead(item.custom) ? [{ srcdoc, ...item, custom: undefined, ...opaque }] : [])));
-                    srcdocs.push({ id: srcdoc, varUses: [...nested.varUses], varChains: nested.varChains }, ...nested.srcdocs);
+                    srcdocs.push({ id: srcdoc, varUses: [...nested.varUses], varChains: nested.varChains, registeredUrls: [...nested.registeredUrls] }, ...nested.srcdocs);
                     problems.push(...nested.problems.map((item) => `line ${line} srcdoc ${item}`));
                     inlineScripts.push(...nested.inlineScripts.map((script) => ({ ...script, ...opaque, line: `${line} srcdoc line ${script.line}` })));
                     importMaps.push(...nested.importMaps.map((map) => ({ ...map, line: `${line} srcdoc line ${map.line}` })));
@@ -1039,7 +1050,7 @@ function htmlRefs(html, inheritedBase = null, scripting = true, inheritedPolicie
         urls.push(...scan.refs.map((ref) => ({ ...ref, base: finalBase, policies: [...policies] })));
         scan.uses.forEach((property) => varUses.add(property));
         varChains.push(...scan.chains);
-        cssRegisteredUrls(text).forEach((property) => registeredUrls.add(property));
+        scan.registeredUrls.forEach((property) => registeredUrls.add(property));
     }
     for (const script of inlineScripts) script.policies = [...policies];
     for (const map of importMaps) map.policies = [...policies];
@@ -1062,6 +1073,13 @@ function withMinimumCsp(directives) {
     }
     return directives;
 }
+
+/**
+ * The minimum CSP Chrome appends as a separate policy to every MV3 extension page
+ * and the service worker of a packed extension (csp_info.cc kMinimumMV3CSP), so a
+ * looser manifest policy (say script-src-elem) can't let remote scripts in.
+ */
+const MINIMUM_MV3_CSP = "script-src 'self' 'wasm-unsafe-eval' 'inline-speculation-rules'; object-src 'self';";
 
 /** Chrome's default CSP for manifest sandbox pages. */
 const DEFAULT_SANDBOX_CSP = "sandbox allow-scripts allow-forms allow-popups allow-modals; script-src 'self' 'unsafe-inline' 'unsafe-eval'; child-src 'self';";
@@ -1639,7 +1657,7 @@ export function extractRefs(file, text, { classic = false, csp = null, scripting
         scan.refs.forEach(add);
         result.varUses = [...scan.uses];
         result.varChains = scan.chains;
-        result.registeredUrls = [...cssRegisteredUrls(text)];
+        result.registeredUrls = [...scan.registeredUrls];
     }
     return result;
 }
@@ -1669,7 +1687,9 @@ export function checkReferences(root, files, manifest) {
     const cspFor = (file) => (isSandboxPage(file) ? sandboxCsp : csp);
     const policyNameFor = (file) => (isSandboxPage(file) ? 'sandbox CSP' : 'manifest CSP');
     // A page's policies at one point: its own CSP plus the <meta> CSPs in effect there.
-    const policiesAt = (page, metas) => [[cspFor(page), policyNameFor(page)], ...metas.map((meta) => [parseMetaCsp(meta), `<meta> CSP in ${page}`])];
+    const minimum = manifest.manifest_version === 3 ? [[parseCsp(MINIMUM_MV3_CSP), "MV3 minimum CSP (script-src 'self')"]] : [];
+    const policiesAt = (page, metas) => [[cspFor(page), policyNameFor(page)], ...(isSandboxPage(page) ? [] : minimum),
+        ...metas.map((meta) => [parseMetaCsp(meta), `<meta> CSP in ${page}`])];
     // Scripting is on in sandbox pages unless their CSP's sandbox directive omits allow-scripts.
     const scriptingFor = (file) => !isSandboxPage(file) || !sandboxCsp.has('sandbox') || sandboxCsp.get('sandbox').includes('allow-scripts');
     const isPage = (file) => /\.html?$/i.test(file);
@@ -1893,7 +1913,6 @@ export function checkReferences(root, files, manifest) {
     // chains (--b: var(--a)), within one document: a page with the stylesheets it loads, or a
     // stylesheet no page loads on its own. A property registered with @property and a <url> syntax
     // resolves where it is declared (also when it holds a chain).
-    const registeredUrls = new Set([...results.values()].flatMap((result) => result.registeredUrls));
     const reachedSheets = new Set(pages.flatMap((page) => [...documentOf(page).all]));
     // Each document's members: files with their var() readers, chains and custom url()s. A srcdoc
     // is its own document: the stylesheets it links plus its inline styles (resolved at the page).
@@ -1908,7 +1927,7 @@ export function checkReferences(root, files, manifest) {
             return [
                 [member(page), ...cssSheets(pageRoots).map(member)],
                 ...result.srcdocs.map((srcdoc) => [
-                    { file: page, varUses: srcdoc.varUses, varChains: srcdoc.varChains, customRefs: [] },
+                    { file: page, varUses: srcdoc.varUses, varChains: srcdoc.varChains, registeredUrls: srcdoc.registeredUrls, customRefs: [] },
                     ...cssSheets(result.srcdocRefs.filter((ref) => ref.id === srcdoc.id).map((ref) => ref.path)).map(member)
                 ])
             ];
@@ -1916,6 +1935,8 @@ export function checkReferences(root, files, manifest) {
         ...files.filter((file) => /\.css$/i.test(file) && results.has(file) && !reachedSheets.has(file)).map((file) => [member(file)])
     ];
     for (const members of cssDocuments) {
+        // @property registrations count only within their own document.
+        const registeredUrls = new Set(members.flatMap((entry) => entry.registeredUrls ?? []));
         const readersOf = (property, seen = new Set()) => {
             if (seen.has(property)) return [];
             seen.add(property);
@@ -1970,7 +1991,7 @@ export function checkReferences(root, files, manifest) {
         opaque.forEach((file) => set(file, { policies, nonces: [], sandbox: true }));
         inert.forEach((file) => set(file, { policies: [], nonces: [], sandbox: true }));
     }
-    const extensionContext = { policies: [[csp, 'manifest CSP']], nonces: [], sandbox: false };
+    const extensionContext = { policies: [[csp, 'manifest CSP'], ...minimum], nonces: [], sandbox: false };
     for (const [file, result] of results) {
         for (const load of [...result.external, ...result.uses]) {
             if (load.url && !/^(https?|wss?|data|blob|chrome-extension):/i.test(load.url)) continue;
@@ -2038,8 +2059,13 @@ export function checkReferences(root, files, manifest) {
                         // reported below
                     }
                     if (!scheme || scheme === 'javascript:') errors.push(`${where}: action.redirect.url must be a valid URL other than javascript:`);
-                } else if (field === 'extensionPath' && !(typeof redirect.extensionPath === 'string' && redirect.extensionPath.startsWith('/'))) {
-                    errors.push(`${where}: action.redirect.extensionPath must be a path starting with "/"`);
+                } else if (field === 'extensionPath') {
+                    if (!(typeof redirect.extensionPath === 'string' && redirect.extensionPath.startsWith('/'))) {
+                        errors.push(`${where}: action.redirect.extensionPath must be a path starting with "/"`);
+                    } else {
+                        const target = resolveRef('manifest.json', redirect.extensionPath);
+                        if (target && !packaged.has(target)) errors.push(`${where}: action.redirect.extensionPath ${redirect.extensionPath} is not in the package`);
+                    }
                 } else if (field === 'regexSubstitution') {
                     if (typeof redirect.regexSubstitution !== 'string' || !redirect.regexSubstitution) errors.push(`${where}: action.redirect.regexSubstitution must be a non-empty string`);
                     else if (typeof rule.condition?.regexFilter !== 'string') errors.push(`${where}: action.redirect.regexSubstitution needs condition.regexFilter`);

@@ -1022,6 +1022,32 @@ describe('package-extension', () => {
         expect(svg).not.toContain('local');
     });
 
+    test('round 15: per-document @property, host checks, DNR targets, MIME parameters, the MV3 minimum CSP', () => {
+        const entry = '<script type="module" src="javascript/entry-points/popup.js"></script>';
+        const sheets = (list) => `${list.map((sheet) => `<link rel="stylesheet" href="${sheet}">`).join('')}${entry}`;
+        // Another page's @property registration doesn't apply here, and one inside a string registers nothing.
+        for (const register of ['@property --bg { syntax: "<url>"; inherits: true; initial-value: url(data:,); }\n', '.n::after { content: "@property --bg { syntax: \'<url>\'; }"; }\n']) {
+            expect(buildError({ 'stylesheets/reg.css': register, 'stylesheets/b.css': ':root { --bg: url(i.png); }\n', 'stylesheets/i.png': 'png',
+                'stylesheets/sub/c.css': '.c { background: var(--bg); }\n',
+                'manage.html': sheets(['stylesheets/reg.css']), 'popup.html': sheets(['stylesheets/reg.css', 'stylesheets/b.css', 'stylesheets/sub/c.css'].slice(register.startsWith('@') ? 1 : 0)) }))
+                .toContain('stylesheets/sub/c.css uses --bg from stylesheets/b.css: url(i.png) resolves to stylesheets/sub/i.png, which is not in the package');
+        }
+        // Match-pattern hosts must be real hosts.
+        expect(validateManifest({ ...MANIFEST, content_scripts: [{ matches: ['https://bad host/*'], js: ['javascript/content.js'] }] })).toHaveLength(1);
+        // A DNR redirect to an extension path needs that file.
+        expect(buildError({ 'manifest.json': JSON.stringify({ ...MANIFEST, declarative_net_request: { rule_resources: [{ id: 'r', enabled: true, path: 'assets/rules.json' }] } }),
+            'assets/rules.json': JSON.stringify([{ id: 1, action: { type: 'redirect', redirect: { extensionPath: '/missing.html' } }, condition: {} },
+                { id: 2, action: { type: 'redirect', redirect: { extensionPath: '/index.html?x#y' } }, condition: {} }]) }))
+            .toEqual(expect.stringMatching(/rule 0: action\.redirect\.extensionPath \/missing\.html is not in the package(?![\s\S]*rule 1:)/));
+        // A script type with MIME parameters is a data block in Chrome (checked in Chromium 147): nothing loads.
+        writeFixture(root, fixtureFiles({ 'popup.html': `<script type="text/javascript; charset=utf-8" src="missing.js"></script>${entry}` }));
+        expect(() => buildPackage({ root, outDir: out })).not.toThrow();
+        // Chrome appends its minimum MV3 policy separately, so script-src-elem can't allow remote scripts.
+        expect(buildError({ 'manifest.json': JSON.stringify({ ...MANIFEST, content_security_policy: { extension_pages: "script-src 'self'; script-src-elem 'self' https://evil.example; object-src 'self'" } }),
+            'popup.html': `<script src="https://evil.example/x.js"></script>${entry}` }))
+            .toContain("popup.html loads https://evil.example/x.js, which the MV3 minimum CSP (script-src 'self') blocks (script-src)");
+    });
+
     test('an MV3 background needs a service worker', () => {
         expect(validateManifest({ ...MANIFEST, background: { type: 'module' } })).toContain('background.service_worker is required in MV3 (a non-empty path)');
     });
