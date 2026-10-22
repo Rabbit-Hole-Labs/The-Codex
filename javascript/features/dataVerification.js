@@ -1,7 +1,7 @@
 // Data Verification and Inspection Utility
 import { escapeHtml } from './utils.js';
 import { syncGetChecked } from '../core-systems/syncStorage.js';
-import { PENDING_SYNC_PREFIX, parseStoredArray } from '../core-systems/storageFormat.js';
+import { PENDING_SYNC_FIELDS, pendingSyncKey, markerStillPending, parseStoredArray } from '../core-systems/storageFormat.js';
 
 // What chrome.storage.sync carries between devices. Everything else in
 // chrome.storage.local — the icon cache, remembered icon matches, the error
@@ -300,7 +300,13 @@ export class DataVerification {
         if (localVersion !== cloudVersion) {
             reasons.push('The sync versions differ: another device has synced since this one (or this one never has).');
         }
-        const pending = Object.keys(localData.raw).filter(key => key.startsWith(PENDING_SYNC_PREFIX)).length;
+        // Only changes Sync now would upload, by the sync manager's rule: one
+        // the cloud has superseded since (another device saved that field, or
+        // sync was cleared) is set aside by Sync now, not waiting for it.
+        const pending = PENDING_SYNC_FIELDS.filter(field => {
+            const marker = localData.raw[pendingSyncKey(field)];
+            return marker && markerStillPending(marker, cloudData.raw, field);
+        }).length;
         if (pending > 0) {
             reasons.push(`${pending} change${pending === 1 ? '' : 's'} saved only on this device, waiting for Sync now.`);
         }

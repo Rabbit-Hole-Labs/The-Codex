@@ -5,7 +5,8 @@ import { debug, debugWarn, debugError } from './debug.js';
 import { withPendingSyncLock } from './storageLock.js';
 import {
     parseStoredArray, pendingSyncKey, cloudValueFingerprint, PENDING_SYNC_FIELDS,
-    SYNC_CLEARED_AT_KEY, SYNC_RESOLVED_AT_KEY, STORED_SETTING_DEFAULTS
+    SYNC_CLEARED_AT_KEY, SYNC_RESOLVED_AT_KEY, STORED_SETTING_DEFAULTS,
+    sameStoredValue, markerMatchesCloud, markerStillPending
 } from './storageFormat.js';
 import { syncGet, syncGetChecked, syncSet, readSyncLinks, isLinkStorageKey, linksChanged } from './syncStorage.js';
 
@@ -71,40 +72,9 @@ function newDeviceId() {
     return `device_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 }
 
-// A stored value in a canonical form for comparing content: JSON-encoded
-// lists are parsed and object keys sorted, so a re-serialization with a
-// different key order still counts as the same value.
-function canonical(value) {
-    if (typeof value === 'string') {
-        const list = parseStoredArray(value);
-        if (list) return canonical(list);
-        return value;
-    }
-    if (Array.isArray(value)) return value.map(canonical);
-    if (value && typeof value === 'object') {
-        return Object.fromEntries(Object.keys(value).sort().map(key => [key, canonical(value[key])]));
-    }
-    return value ?? null;
-}
-
-function sameStoredValue(a, b) {
-    return JSON.stringify(canonical(a)) === JSON.stringify(canonical(b));
-}
-
 // A backup's data, without when/why/whether-downloaded, for comparing copies.
 function backupContent({ exportDate, reason, downloaded, ...content }) {
     return content;
-}
-
-// Whether the cloud still holds the value a pending-sync marker recorded.
-// A marker without a readable recorded value can't tell, so it never matches.
-function markerMatchesCloud(marker, cloudValue) {
-    if (typeof marker?.cloud !== 'string') return false;
-    try {
-        return sameStoredValue(JSON.parse(marker.cloud), cloudValue);
-    } catch {
-        return false;
-    }
 }
 
 const isLinkEntry = (link) => link !== null && typeof link === 'object';
@@ -746,8 +716,7 @@ export class SyncManager {
         for (const field of PENDING_SYNC_FIELDS) {
             const marker = local[pendingSyncKey(field)];
             if (!marker) continue;
-            const stillPending = markerMatchesCloud(marker, cloud[field]) && (marker.clearedAt ?? null) === clearedAt;
-            (stillPending ? pendingFields : staleFields).push(field);
+            (markerStillPending(marker, cloud, field) ? pendingFields : staleFields).push(field);
         }
 
         const setAside = new Set();

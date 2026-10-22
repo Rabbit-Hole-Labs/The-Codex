@@ -104,7 +104,8 @@ describe('Compare data', () => {
 
     test('another device having synced since, or a change waiting for Sync now, is reported', async () => {
         fake.seed('sync', { syncMetadata: { ...METADATA, version: METADATA.version + 1 } });
-        fake.seed('local', { 'pendingSyncSince.theme': { id: 'x', since: 1 }, theme: 'light' });
+        // The save fell back while the cloud held 'dark', and still does.
+        fake.seed('local', { 'pendingSyncSince.theme': { id: 'x', since: 1, cloud: '"dark"', clearedAt: null }, theme: 'light' });
 
         const { summary } = await dataVerification.compareData();
 
@@ -113,6 +114,24 @@ describe('Compare data', () => {
             expect.stringMatching(/^The sync versions differ/),
             '1 change saved only on this device, waiting for Sync now.'
         ]);
+    });
+
+    test('a change the cloud has superseded is not counted as waiting for Sync now', async () => {
+        fake.seed('sync', { syncClearedAt: 1792704000000 });
+        fake.seed('local', {
+            theme: 'light',
+            // Another device saved the theme since this save fell back.
+            'pendingSyncSince.theme': { id: 'a', since: 1, cloud: '"light"', clearedAt: 1792704000000 },
+            // Sync was cleared since.
+            'pendingSyncSince.view': { id: 'b', since: 1, cloud: 'null', clearedAt: null },
+            // An older marker with no recorded cloud value.
+            'pendingSyncSince.defaultTileSize': { id: 'c', since: 1 }
+        });
+
+        const { summary } = await dataVerification.compareData();
+
+        expect(summary.differences).toEqual([]);
+        expect(summary.isInSync).toBe(true);
     });
 
     test('lists stored as raw arrays (older builds) are read, not compared as empty', async () => {
