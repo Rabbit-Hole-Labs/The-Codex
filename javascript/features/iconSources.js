@@ -11,6 +11,7 @@
  */
 
 import { debug } from '../core-systems/debug.js';
+import { withStorageLock } from '../core-systems/storageLock.js';
 import { loadStoredIcon, readStoredIcons } from './iconStore.js';
 import { validateDataUrl } from './iconPolicy.js';
 
@@ -21,6 +22,10 @@ const GENERATED_FRESH_FOR = 24 * 60 * 60 * 1000;       // initials (e.g. matched
 const SOURCE_FORGET_AFTER = 60 * 24 * 60 * 60 * 1000;  // links not seen for two months
 const GOOGLE_FAVICON_PREFIX = 'https://www.google.com/s2/favicons?';
 const FLUSH_DELAY_MS = 500;
+// Every new tab merges into the one stored map: its read-modify-write runs
+// under this lock, so two tabs flushing at once can't drop each other's
+// matches (or slip initials past the guard below).
+const SOURCES_LOCK = 'codex-icon-sources';
 
 let pendingSources = null;
 let sourcesFlushTimer = null;
@@ -60,18 +65,20 @@ async function flushIconSources() {
     pendingSources = null;
     if (!updates) return;
     try {
-        const { [ICON_SOURCES_KEY]: stored } = await chrome.storage.local.get(ICON_SOURCES_KEY);
-        const now = Date.now();
-        const sources = {};
-        for (const [key, value] of Object.entries(stored ?? {})) {
-            if (now - (value?.at ?? 0) < SOURCE_FORGET_AFTER) sources[key] = value;
-        }
-        for (const [key, value] of Object.entries(updates)) {
-            const previous = sources[key];
-            if (value.src === GENERATED_SOURCE && previous && previous.src !== GENERATED_SOURCE) continue;
-            sources[key] = value;
-        }
-        await chrome.storage.local.set({ [ICON_SOURCES_KEY]: sources });
+        await withStorageLock(SOURCES_LOCK, async () => {
+            const { [ICON_SOURCES_KEY]: stored } = await chrome.storage.local.get(ICON_SOURCES_KEY);
+            const now = Date.now();
+            const sources = {};
+            for (const [key, value] of Object.entries(stored ?? {})) {
+                if (now - (value?.at ?? 0) < SOURCE_FORGET_AFTER) sources[key] = value;
+            }
+            for (const [key, value] of Object.entries(updates)) {
+                const previous = sources[key];
+                if (value.src === GENERATED_SOURCE && previous && previous.src !== GENERATED_SOURCE) continue;
+                sources[key] = value;
+            }
+            await chrome.storage.local.set({ [ICON_SOURCES_KEY]: sources });
+        });
     } catch (error) {
         debug('Could not remember icon sources:', error);
     }

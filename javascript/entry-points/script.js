@@ -637,9 +637,6 @@ function sanitizeLoadedCategories(stored) {
 const CACHED_ICON_WAIT_MS = 300;
 // Icons resolved at once after the first paint (network politeness).
 const ICON_LOAD_CONCURRENCY = 6;
-// How long a first-paint icon that is a network URL may take to load before
-// the tile falls back as a fresh match would.
-const NETWORK_ICON_WAIT_MS = 3000;
 
 // Bumped by every render. A render waits for the stored-icon lookup, so it
 // checks this afterwards and gives way to a newer one: an older view must
@@ -1394,22 +1391,20 @@ function showIconPlaceholder(iconElement, link) {
 }
 
 /**
- * Whether an <img> loaded its src (false on error, or past `timeout`).
- * @param {HTMLImageElement} img
- * @param {number} timeout - ms
- * @returns {Promise<boolean>}
+ * A first-paint icon that is a network URL (a remembered favicon) may fail
+ * to load — offline, or not in the HTTP cache. Watch it outside the load
+ * queue (a lazy <img> below the fold may not load until scrolled to) and, if
+ * it fails, match the tile afresh, down to initials.
+ * @param {Object} link
+ * @param {HTMLImageElement} iconElement
  */
-function imageLoaded(img, timeout) {
-    if (img.complete) return Promise.resolve(img.naturalWidth > 0);
-    return new Promise(resolve => {
-        const timer = setTimeout(() => resolve(false), timeout);
-        const settle = (loaded) => () => {
-            clearTimeout(timer);
-            resolve(loaded);
-        };
-        img.addEventListener('load', settle(true), { once: true });
-        img.addEventListener('error', settle(false), { once: true });
-    });
+function watchNetworkIcon(link, iconElement) {
+    const fallBack = () => loadTileIcon(link, iconElement, undefined);
+    if (iconElement.complete) {
+        if (iconElement.naturalWidth === 0) fallBack();
+        return;
+    }
+    iconElement.addEventListener('error', fallBack, { once: true });
 }
 
 /**
@@ -1420,10 +1415,9 @@ function imageLoaded(img, timeout) {
  */
 async function loadTileIcon(link, iconElement, cached) {
     try {
-        // A remembered favicon is a network URL: when it doesn't load
-        // (offline, not in the HTTP cache), match afresh, down to initials.
-        if (cached?.fresh && (!cached.network || await imageLoaded(iconElement, NETWORK_ICON_WAIT_MS))) {
-            await refreshCachedIcon(cached);
+        if (cached?.fresh) {
+            if (cached.network) watchNetworkIcon(link, iconElement);
+            else await refreshCachedIcon(cached);
             return;
         }
 

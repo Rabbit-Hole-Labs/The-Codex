@@ -146,6 +146,41 @@ describe('resolveCachedIcons: what the first paint can show without the network'
         expect(fake.dump('local').iconSourcesV1[sourceKey(jellyfin)]).toEqual(before);
     });
 
+    test('two tabs remembering sources at once keep both (the merge runs under a shared lock)', async () => {
+        // A stand-in for the Web Locks API every extension context shares.
+        const tails = new Map();
+        globalThis.navigator.locks = {
+            request: (name, task) => {
+                const run = (tails.get(name) ?? Promise.resolve()).then(() => task());
+                tails.set(name, run.catch(() => {}));
+                return run;
+            }
+        };
+        // Reads whose results take a moment to arrive, so both tabs read the
+        // stored map before either writes.
+        const realGet = chrome.storage.local.get;
+        chrome.storage.local.get = (...args) => realGet(...args)
+            .then((value) => new Promise((resolve) => setTimeout(() => resolve(value), 30)));
+        try {
+            const tabA = await import('../../javascript/features/iconSources.js');
+            jest.resetModules();
+            const tabB = await import('../../javascript/features/iconSources.js');
+            const plex = link('Plex');
+            const sonarr = link('Sonarr');
+
+            tabA.rememberIconSource(plex, iconUrl('plex'));
+            tabB.rememberIconSource(sonarr, iconUrl('sonarr'));
+            await flushSources();
+
+            await new Promise((resolve) => setTimeout(resolve, 200)); // both merges done
+
+            expect(Object.keys(fake.dump('local').iconSourcesV1).sort()).toEqual([sourceKey(plex), sourceKey(sonarr)].sort());
+        } finally {
+            chrome.storage.local.get = realGet;
+            delete globalThis.navigator.locks;
+        }
+    });
+
     test('sources of links not seen for two months are forgotten', async () => {
         const gone = link('Deleted Long Ago');
         const kept = link('Jellyfin');
@@ -257,6 +292,45 @@ describe('the new tab', () => {
         // The moment tiles appear, every icon is already set.
         expect(firstPaint).toEqual([PNG, PNG]);
         expect(globalThis.fetch).not.toHaveBeenCalled();
+    });
+
+    test('remembered favicons still loading (lazy, below the fold) do not hold up other tiles', async () => {
+        // Seven remembered favicons, more than the six loaders, then a picked
+        // icon this device hasn't stored yet.
+        const favicons = Array.from({ length: 7 }, (_, i) => link(`Site${i}`));
+        const picked = link('Plex', { icon: iconUrl('plex') });
+        fake.seed('sync', { links: JSON.stringify([...favicons, picked]), categories: '["Default"]' });
+        fake.seed('local', {
+            iconSourcesV1: Object.fromEntries(favicons.map((l) => [sourceKey(l),
+                { src: `https://www.google.com/s2/favicons?domain=${encodeURIComponent(l.url)}&sz=128`, at: Date.now() }]))
+        });
+        globalThis.fetch = mockFetch([iconUrl('plex')]);
+        jest.spyOn(console, 'log').mockImplementation(() => {});
+        // A lazy <img> below the fold hasn't started loading.
+        const complete = jest.spyOn(HTMLImageElement.prototype, 'complete', 'get').mockReturnValue(false);
+        try {
+            const container = document.getElementById('linksContainer');
+            let firstPaint;
+            new MutationObserver(() => {
+                const icons = container.querySelectorAll('.tile-icon');
+                if (icons.length && !firstPaint) firstPaint = [...icons].map((img) => img.getAttribute('src'));
+            }).observe(container, { childList: true, subtree: true });
+
+            await import('../../javascript/entry-points/script.js');
+            const start = Date.now();
+            const pickedSrc = () => [...container.querySelectorAll('.tile-icon')].find((img) => img.dataset.linkId === 'id-Plex')?.getAttribute('src');
+            while (!/^data:image\/png/.test(pickedSrc() ?? '') && Date.now() - start < 2000) {
+                await new Promise((resolve) => setTimeout(resolve, 5));
+            }
+
+            // The favicons were painted from memory, and the picked icon still
+            // resolved without waiting behind them.
+            expect(firstPaint.slice(0, 7).every((src) => src.startsWith('https://www.google.com/s2/favicons?'))).toBe(true);
+            expect(pickedSrc()).toMatch(/^data:image\/png;base64,/);
+            expect(Date.now() - start).toBeLessThan(1500); // not behind 3 s favicon waits
+        } finally {
+            complete.mockRestore();
+        }
     });
 
     test('a remembered favicon that fails to load (offline, not in the HTTP cache) falls back to initials', async () => {
