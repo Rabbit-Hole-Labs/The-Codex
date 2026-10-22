@@ -637,13 +637,20 @@ function sanitizeLoadedCategories(stored) {
 const CACHED_ICON_WAIT_MS = 300;
 // Icons resolved at once after the first paint (network politeness).
 const ICON_LOAD_CONCURRENCY = 6;
+// How long a first-paint icon that is a network URL may take to load before
+// the tile falls back as a fresh match would.
+const NETWORK_ICON_WAIT_MS = 3000;
 
 // Bumped by every render. A render waits for the stored-icon lookup, so it
 // checks this afterwards and gives way to a newer one: an older view must
 // never replace a newer one.
 let renderSequence = 0;
 
-/** This device's icons for `links` (resolveCachedIcons), within CACHED_ICON_WAIT_MS. */
+/**
+ * This device's icons for `links` (resolveCachedIcons), within CACHED_ICON_WAIT_MS.
+ * @param {Object[]} links
+ * @returns {Promise<Map<Object, {src: string, fresh: boolean}>>} empty past the wait
+ */
 function cachedIconsForFirstPaint(links) {
     const lookup = resolveCachedIcons(links).catch(error => {
         debug('Stored icon lookup failed; icons will load after the first paint:', error);
@@ -1372,7 +1379,11 @@ async function loadIconsWithCaching(links, cachedIcons = new Map()) {
     }
 }
 
-/** Show a tile's initials placeholder instead of its icon. */
+/**
+ * Show a tile's initials placeholder instead of its icon.
+ * @param {HTMLImageElement} iconElement
+ * @param {Object} link
+ */
 function showIconPlaceholder(iconElement, link) {
     iconElement.style.display = 'none';
     const placeholder = iconElement.nextElementSibling;
@@ -1383,14 +1394,35 @@ function showIconPlaceholder(iconElement, link) {
 }
 
 /**
+ * Whether an <img> loaded its src (false on error, or past `timeout`).
+ * @param {HTMLImageElement} img
+ * @param {number} timeout - ms
+ * @returns {Promise<boolean>}
+ */
+function imageLoaded(img, timeout) {
+    if (img.complete) return Promise.resolve(img.naturalWidth > 0);
+    return new Promise(resolve => {
+        const timer = setTimeout(() => resolve(false), timeout);
+        const settle = (loaded) => () => {
+            clearTimeout(timer);
+            resolve(loaded);
+        };
+        img.addEventListener('load', settle(true), { once: true });
+        img.addEventListener('error', settle(false), { once: true });
+    });
+}
+
+/**
  * Resolve one tile's icon (see loadIconsWithCaching).
  * @param {Object} link
  * @param {HTMLImageElement} iconElement
- * @param {{src: string, fresh: boolean}|undefined} cached - shown by the first paint
+ * @param {{src: string, fresh: boolean, network: boolean}|undefined} cached - shown by the first paint
  */
 async function loadTileIcon(link, iconElement, cached) {
     try {
-        if (cached?.fresh) {
+        // A remembered favicon is a network URL: when it doesn't load
+        // (offline, not in the HTTP cache), match afresh, down to initials.
+        if (cached?.fresh && (!cached.network || await imageLoaded(iconElement, NETWORK_ICON_WAIT_MS))) {
             await refreshCachedIcon(cached);
             return;
         }

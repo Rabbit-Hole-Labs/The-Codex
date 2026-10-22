@@ -123,15 +123,22 @@ export class SyncSettingsController {
         window.addEventListener('offline', () => this.updateNetworkStatus());
     }
 
-    // Show this device's saved conflict strategy in the select.
+    /**
+     * Show this device's saved conflict strategy in the select.
+     * @returns {Promise<void>}
+     */
     async showSavedStrategy() {
         const select = this.elements.syncStrategySelect;
         if (!select) return;
         select.value = await syncManager.getConflictResolutionStrategy();
     }
 
-    // Apply and save the conflict-strategy select. "This device's last sync
-    // wins" can overwrite the cloud on every device, so it needs a confirmation.
+    /**
+     * Apply and save the conflict-strategy select. "This device's last sync
+     * wins" can overwrite the cloud on every device, so it needs a confirmation.
+     * @param {HTMLSelectElement} select
+     * @returns {Promise<void>}
+     */
     async handleStrategyChange(select) {
         const previous = syncManager.conflictResolutionStrategy;
         if (select.value === 'local' && !confirm(SYNC_CONFIRMATIONS.localWins)) {

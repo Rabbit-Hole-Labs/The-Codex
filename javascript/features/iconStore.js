@@ -24,12 +24,14 @@ const REVALIDATE_AFTER = 7 * 24 * 60 * 60 * 1000;
 const LAST_USED_WRITE_THROTTLE = 24 * 60 * 60 * 1000;
 const PRUNE_EVERY_N_WRITES = 25;
 
-// Hosts we attempt to byte-fetch from (kept in lockstep with the manifest
-// CSP connect-src). Everything else renders via plain <img> only. Google's
-// favicon service is deliberately NOT here: it sends no CORS headers, so
-// every fetch attempt fails AND the browser prints an uncatchable CORS
-// error to the console — favicons stay on the probe/img path instead.
-const FETCHABLE_HOSTS = ['cdn.jsdelivr.net', 'selfh.st'];
+// Hosts we attempt to byte-fetch from, matched as the manifest CSP
+// connect-src lists them: an exact host, or '*.' for subdomains only (a CSP
+// wildcard doesn't cover the bare domain, so a selfh.st URL would be blocked).
+// Everything else renders via plain <img> only. Google's favicon service is
+// deliberately NOT here: it sends no CORS headers, so every fetch attempt
+// fails AND the browser prints an uncatchable CORS error to the console —
+// favicons stay on the probe/img path instead.
+const FETCHABLE_HOSTS = ['cdn.jsdelivr.net', '*.selfh.st'];
 
 let writesSincePrune = 0;
 const inFlightRefreshes = new Set();
@@ -44,7 +46,7 @@ export function isCacheableIconUrl(url) {
         const parsed = new URL(String(url));
         if (parsed.protocol !== 'https:') return false;
         const host = parsed.hostname.toLowerCase();
-        return FETCHABLE_HOSTS.some(h => host === h || host.endsWith('.' + h));
+        return FETCHABLE_HOSTS.some(h => (h.startsWith('*.') ? host.endsWith(h.slice(1)) : host === h));
     } catch {
         return false;
     }

@@ -109,9 +109,13 @@ function markerMatchesCloud(marker, cloudValue) {
 
 const isLinkEntry = (link) => link !== null && typeof link === 'object';
 const sameLink = (a, b) => (a.id != null && a.id === b.id) || a.url === b.url;
-// A link's content apart from its id. A link stored without an id gets a new
-// random one on every load (backfillLinkIds) until a save keeps it, so two
-// copies of an untouched link can differ in id alone — that loses nothing.
+/**
+ * A link's content apart from its id. A link stored without an id gets a new
+ * random one on every load (backfillLinkIds) until a save keeps it, so two
+ * copies of an untouched link can differ in id alone — that loses nothing.
+ * @param {Object} link
+ * @returns {Object}
+ */
 const withoutId = ({ id, ...content }) => content;
 
 // How many of this device's entries for `field` the cloud lacks: links with
@@ -120,11 +124,20 @@ const withoutId = ({ id, ...content }) => content;
 // value differs.
 function entriesCloudLacks(local, cloud, field, { countReorder = false } = {}) {
     if (field === 'links') {
-        const cloudLinks = (parseStoredArray(cloud.links) ?? []).filter(isLinkEntry);
-        return (parseStoredArray(local.links) ?? []).filter(isLinkEntry).filter(link => {
-            const counterpart = cloudLinks.find(other => sameLink(link, other));
-            return !counterpart || !sameStoredValue(withoutId(link), withoutId(counterpart));
-        }).length;
+        // Each cloud link answers for one local link — same id first, then
+        // same URL — so a duplicate the cloud holds once still counts.
+        const unmatched = (parseStoredArray(cloud.links) ?? []).filter(isLinkEntry);
+        const take = (matches) => {
+            const index = unmatched.findIndex(matches);
+            return index === -1 ? null : unmatched.splice(index, 1)[0];
+        };
+        const localLinks = (parseStoredArray(local.links) ?? []).filter(isLinkEntry);
+        const counterparts = localLinks.map(link => (link.id != null ? take(other => other.id === link.id) : null));
+        localLinks.forEach((link, i) => {
+            counterparts[i] ??= take(other => other.url === link.url);
+        });
+        return localLinks.filter((link, i) =>
+            !counterparts[i] || !sameStoredValue(withoutId(link), withoutId(counterparts[i]))).length;
     }
     if (field === 'categories') {
         const { missing, reordered } = categoryChanges(local, cloud);
@@ -399,9 +412,12 @@ export class SyncManager {
         this.notifyListeners('syncCleared', { time: Date.now(), remote: true });
     }
 
-    // This device's conflict strategy: the saved choice, else the current
-    // one ('remote' by default). Read at each sync, so a choice made on any
-    // page of this device applies.
+    /**
+     * This device's conflict strategy: the saved choice, else the current
+     * one ('remote' by default). Read at each sync, so a choice made on any
+     * page of this device applies.
+     * @returns {Promise<'remote'|'merge'|'local'>}
+     */
     async getConflictResolutionStrategy() {
         try {
             const { [SYNC_STRATEGY_KEY]: saved } = await chrome.storage.local.get(SYNC_STRATEGY_KEY);
@@ -412,8 +428,12 @@ export class SyncManager {
         return this.conflictResolutionStrategy;
     }
 
-    // Save this device's conflict strategy. Throws if it can't be saved, so
-    // the caller doesn't show a choice that won't stick.
+    /**
+     * Save this device's conflict strategy. Throws if it can't be saved, so
+     * the caller doesn't show a choice that won't stick.
+     * @param {'remote'|'merge'|'local'} strategy
+     * @returns {Promise<void>}
+     */
     async setConflictResolutionStrategy(strategy) {
         if (!SYNC_STRATEGIES.includes(strategy)) throw new Error(`Unknown conflict strategy: ${strategy}`);
         await chrome.storage.local.set({ [SYNC_STRATEGY_KEY]: strategy });

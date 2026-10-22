@@ -16,7 +16,7 @@ const PNG = 'data:image/png;base64,iVBORw0KGgo=';
 const DAY = 24 * 60 * 60 * 1000;
 const iconUrl = (slug) => `https://cdn.jsdelivr.net/gh/selfhst/icons/webp/${slug}.webp`;
 const storedIcon = (url, data = PNG) => ({ [`iconV1:${url}`]: { url, data, size: data.length, fetchedAt: Date.now(), lastUsed: Date.now() } });
-const sourceKey = (link) => `${link.url}:${link.name}:${link.icon || ''}`;
+const sourceKey = (link) => `${link.url}:${link.name}:${link.icon && link.icon !== 'default' ? link.icon : ''}`;
 
 const link = (name, extra = {}) => ({
     id: `id-${name}`,
@@ -63,7 +63,7 @@ describe('resolveCachedIcons: what the first paint can show without the network'
 
         const found = await icons.resolveCachedIcons([picked, unstored, inline]);
 
-        expect(found.get(picked)).toEqual({ src: 'data:image/png;base64,UExFWA==', fresh: true, storedUrl: iconUrl('plex') });
+        expect(found.get(picked)).toEqual({ src: 'data:image/png;base64,UExFWA==', fresh: true, storedUrl: iconUrl('plex'), network: false });
         expect(found.has(unstored)).toBe(false);
         expect(found.get(inline)).toMatchObject({ src: PNG, fresh: true });
     });
@@ -85,8 +85,8 @@ describe('resolveCachedIcons: what the first paint can show without the network'
 
         const found = await icons.resolveCachedIcons([selfhst, google, initials, unknown]);
 
-        expect(found.get(selfhst)).toEqual({ src: PNG, fresh: true, storedUrl: iconUrl('jellyfin') });
-        expect(found.get(google)).toEqual({ src: googleUrl, fresh: true, storedUrl: null });
+        expect(found.get(selfhst)).toEqual({ src: PNG, fresh: true, storedUrl: iconUrl('jellyfin'), network: false });
+        expect(found.get(google)).toEqual({ src: googleUrl, fresh: true, storedUrl: null, network: true });
         expect(found.get(initials).src).toMatch(/^data:image\/svg\+xml;base64,/);
         expect(found.has(unknown)).toBe(false);
     });
@@ -241,16 +241,53 @@ describe('the new tab', () => {
         globalThis.fetch = jest.fn(() => { throw new Error('offline'); });
         jest.spyOn(console, 'log').mockImplementation(() => {});
 
-        await import('../../javascript/entry-points/script.js');
         const container = document.getElementById('linksContainer');
+        let firstPaint;
+        new MutationObserver(() => {
+            const icons = container.querySelectorAll('.tile-icon');
+            if (icons.length && !firstPaint) firstPaint = [...icons].map((img) => img.getAttribute('src'));
+        }).observe(container, { childList: true, subtree: true });
+
+        await import('../../javascript/entry-points/script.js');
         const start = Date.now();
-        while (!container.querySelector('.link-tile') && Date.now() - start < 3000) {
+        while (!firstPaint && Date.now() - start < 3000) {
             await new Promise((resolve) => setTimeout(resolve, 5));
         }
 
         // The moment tiles appear, every icon is already set.
-        const srcs = [...container.querySelectorAll('.tile-icon')].map((img) => img.getAttribute('src'));
-        expect(srcs).toEqual([PNG, PNG]);
+        expect(firstPaint).toEqual([PNG, PNG]);
         expect(globalThis.fetch).not.toHaveBeenCalled();
     });
+
+    test('a remembered favicon that fails to load (offline, not in the HTTP cache) falls back to initials', async () => {
+        const wiki = link('Wiki', { url: 'http://192.168.1.5/' });
+        const googleUrl = 'https://www.google.com/s2/favicons?domain=wiki.example.net&sz=128';
+        fake.seed('sync', { links: JSON.stringify([wiki]), categories: '["Default"]' });
+        fake.seed('local', { iconSourcesV1: { [sourceKey(wiki)]: { src: googleUrl, at: Date.now() } } });
+        globalThis.fetch = mockFetch([]); // selfh.st has no match
+        jest.spyOn(console, 'log').mockImplementation(() => {});
+
+        const container = document.getElementById('linksContainer');
+        let firstPaintSrc;
+        new MutationObserver(() => {
+            firstPaintSrc ??= container.querySelector('.tile-icon')?.getAttribute('src');
+        }).observe(container, { childList: true, subtree: true });
+
+        await import('../../javascript/entry-points/script.js');
+        const start = Date.now();
+        let img;
+        while (!(img = container.querySelector('.tile-icon')) && Date.now() - start < 5000) {
+            await new Promise((resolve) => setTimeout(resolve, 5));
+        }
+        // jsdom loads no images: fail the favicon as the browser would.
+        img.dispatchEvent(new Event('error'));
+        const failedAt = Date.now();
+        while (!/^data:image\/svg/.test(img.getAttribute('src')) && Date.now() - failedAt < 5000) {
+            await new Promise((resolve) => setTimeout(resolve, 5));
+        }
+
+        expect(firstPaintSrc).toBe(googleUrl); // painted from memory
+        expect(img.getAttribute('src')).toMatch(/^data:image\/svg\+xml;base64,/);
+        expect(img.style.display).toBe('block');
+    }, 15000);
 });

@@ -40,13 +40,17 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
 const ICON_WARM_UP_DELAY_MS = 2000; // one run for a burst of changes
 let iconWarmUpTimer = null;
 
+/** Run warmPickedIcons once a burst of triggers has settled. */
 function scheduleIconWarmUp() {
     clearTimeout(iconWarmUpTimer);
     iconWarmUpTimer = setTimeout(warmPickedIcons, ICON_WARM_UP_DELAY_MS);
 }
 
-// Download the icons picked for the synced links that this device doesn't
-// have yet (automatic matches are made per device, on its first new tab).
+/**
+ * Download the icons picked for the synced links that this device doesn't
+ * have yet (automatic matches are made per device, on its first new tab).
+ * @returns {Promise<void>}
+ */
 async function warmPickedIcons() {
     try {
         const { value, consistent } = await readSyncLinks();
