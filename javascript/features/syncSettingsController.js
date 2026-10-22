@@ -23,6 +23,7 @@ export class SyncSettingsController {
             this.startPeriodicUpdates();
             this.addLogEntry('info', 'Sync settings page loaded');
         }
+        this.showSavedStrategy();
         this.updateSyncStatus();
         this.updateErrorDisplay();
     }
@@ -122,15 +123,35 @@ export class SyncSettingsController {
         window.addEventListener('offline', () => this.updateNetworkStatus());
     }
 
-    // Apply the conflict-strategy select. "This device's last sync wins" can
-    // overwrite the cloud on every device, so it needs a confirmation.
-    handleStrategyChange(select) {
+    /**
+     * Show this device's saved conflict strategy in the select.
+     * @returns {Promise<void>}
+     */
+    async showSavedStrategy() {
+        const select = this.elements.syncStrategySelect;
+        if (!select) return;
+        select.value = await syncManager.getConflictResolutionStrategy();
+    }
+
+    /**
+     * Apply and save the conflict-strategy select. "This device's last sync
+     * wins" can overwrite the cloud on every device, so it needs a confirmation.
+     * @param {HTMLSelectElement} select
+     * @returns {Promise<void>}
+     */
+    async handleStrategyChange(select) {
+        const previous = syncManager.conflictResolutionStrategy;
         if (select.value === 'local' && !confirm(SYNC_CONFIRMATIONS.localWins)) {
-            select.value = syncManager.conflictResolutionStrategy;
+            select.value = previous;
             return;
         }
-        syncManager.conflictResolutionStrategy = select.value;
-        this.addLogEntry('info', `Conflict resolution strategy changed to: ${select.value}`);
+        try {
+            await syncManager.setConflictResolutionStrategy(select.value);
+            this.addLogEntry('info', `Conflict resolution strategy changed to: ${select.value}`);
+        } catch (error) {
+            select.value = previous;
+            this.addLogEntry('error', `Could not save the conflict strategy: ${error.message}`);
+        }
     }
 
     // Start periodic status updates

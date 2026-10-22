@@ -74,7 +74,9 @@ document.addEventListener('DOMContentLoaded', function() {
                 const categories = await loadCategories();
 
                 // Add the new link
-                links.links.push({ name, url, category });
+                // A stable id, as the manage page gives new links (one
+                // without is given a new random id on every load).
+                links.links.push({ id: `link_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`, name, url, category });
 
                 // Update categories if needed
                 if (!categories.includes(category)) {

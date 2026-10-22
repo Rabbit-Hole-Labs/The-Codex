@@ -48,6 +48,13 @@ describe('isCacheableIconUrl', () => {
         expect(isCacheableIconUrl('https://cdn.selfh.st/icons/webp/plex.webp')).toBe(true);
     });
 
+    // The manifest's connect-src lists https://*.selfh.st, which doesn't cover
+    // the bare domain: fetching it is blocked (a CSP violation per attempt).
+    it('matches hosts as connect-src does: not the bare selfh.st, not jsDelivr subdomains', () => {
+        expect(isCacheableIconUrl('https://selfh.st/icons/plex.webp')).toBe(false);
+        expect(isCacheableIconUrl('https://x.cdn.jsdelivr.net/gh/a.webp')).toBe(false);
+    });
+
     // Regression: Google's favicon service sends no CORS headers, so every
     // byte-fetch attempt failed AND spammed an uncatchable CORS error to the
     // console on each new tab. Favicons must stay on the <img>-probe path.

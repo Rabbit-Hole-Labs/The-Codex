@@ -497,6 +497,59 @@ describe('Regression: SyncManager must not revert cloud data', () => {
             expect(fake.dump('local')['pendingSyncSince.links']).toBeUndefined();
         });
 
+        // Links stored without an id get a new random one on every load until
+        // a save keeps it: a save that fell back (e.g. under 7.0.0.42's 8 KB
+        // limit) and a later save to the cloud carry different ids for the
+        // same, unchanged links. That alone must not read as lost changes.
+        const withId = (links, prefix) => links.map((l, i) => ({ ...l, id: `link_${prefix}_${i}` }));
+
+        test('that differ from the newer cloud only in generated ids are not set aside', async () => {
+            await withSyncWritesFailing(() => saveLinks(withId([link(1), link(2)], 'local')));
+            const cloud = withId([link(1), link(2)], 'cloud');
+            await chrome.storage.sync.set({ links: JSON.stringify(cloud) });
+
+            const result = await syncManager.syncData();
+
+            expect(result.success).toBe(true);
+            expect(result.warning).toBeUndefined();
+            expect(downloadClicks).not.toHaveBeenCalled();
+            expect(stored(fake, 'sync', 'links')).toEqual(cloud);
+            expect(fake.dump('local')['pendingSyncSince.links']).toBeUndefined();
+        });
+
+        test('a duplicate the newer cloud holds only once still counts', async () => {
+            await withSyncWritesFailing(() => saveLinks(withId([link(1), link(1)], 'local')));
+            await chrome.storage.sync.set({ links: JSON.stringify(withId([link(1)], 'cloud')) });
+
+            const result = await syncManager.syncData();
+
+            expect(result.success).toBe(true);
+            expect(result.warning).toMatch(/^1 link saved only on this device was replaced by newer changes in the cloud\./);
+        });
+
+        test('same-URL links listed in another order are not counted', async () => {
+            const a = { ...link(1), name: 'Admin' };
+            const b = { ...link(1), name: 'Dashboard' }; // same URL
+            await withSyncWritesFailing(() => saveLinks(withId([a, b], 'local')));
+            await chrome.storage.sync.set({ links: JSON.stringify(withId([b, a], 'cloud')) });
+
+            const result = await syncManager.syncData();
+
+            expect(result.success).toBe(true);
+            expect(result.warning).toBeUndefined();
+        });
+
+        test('count only real changes when ids also differ', async () => {
+            const local = withId([link(1), { ...link(2), icon: 'https://cdn.jsdelivr.net/gh/selfhst/icons/webp/plex.webp' }], 'local');
+            await withSyncWritesFailing(() => saveLinks(local));
+            await chrome.storage.sync.set({ links: JSON.stringify(withId([link(1), link(2)], 'cloud')) });
+
+            const result = await syncManager.syncData();
+
+            expect(result.success).toBe(true);
+            expect(result.warning).toMatch(/^1 link saved only on this device was replaced by newer changes in the cloud\./);
+        });
+
         test('are still pushed when the cloud value was only re-serialized', async () => {
             await withSyncWritesFailing(() => saveLinks([link(1), link(2)]));
             // Same links, different key order.
@@ -1678,20 +1731,46 @@ describe('Regression: sync pill reflects manual sync failures', () => {
 
         confirmSpy.mockReturnValue(false);
         select.value = 'local';
-        controller.handleStrategyChange(select);
+        await controller.handleStrategyChange(select);
         expect(confirmSpy).toHaveBeenCalledTimes(1);
         expect(select.value).toBe('remote');
         expect(syncManager.conflictResolutionStrategy).toBe('remote');
+        expect(fake.dump('local').syncConflictStrategy).toBeUndefined();
 
         confirmSpy.mockReturnValue(true);
         select.value = 'local';
-        controller.handleStrategyChange(select);
+        await controller.handleStrategyChange(select);
         expect(syncManager.conflictResolutionStrategy).toBe('local');
+        expect(fake.dump('local').syncConflictStrategy).toBe('local');
 
         select.value = 'merge';
-        controller.handleStrategyChange(select);
+        await controller.handleStrategyChange(select);
         expect(confirmSpy).toHaveBeenCalledTimes(2); // no confirm for merge
         expect(syncManager.conflictResolutionStrategy).toBe('merge');
+        expect(fake.dump('local').syncConflictStrategy).toBe('merge');
+    });
+
+    test('the chosen conflict strategy survives a reload: shown on the Sync tab and used by Sync now', async () => {
+        fake.seed('local', { syncConflictStrategy: 'merge' });
+        jest.resetModules();
+        const { SyncManager } = await import('../../javascript/core-systems/syncManager.js');
+        const fresh = new SyncManager(); // a page loaded after the choice
+        await expect(fresh.getConflictResolutionStrategy()).resolves.toBe('merge');
+
+        const { SyncSettingsController } = await import('../../javascript/features/syncSettingsController.js');
+        const controller = new SyncSettingsController();
+        const select = document.createElement('select');
+        for (const value of ['remote', 'merge', 'local']) select.add(new Option(value, value));
+        controller.elements = { syncStrategySelect: select };
+        await controller.showSavedStrategy();
+        expect(select.value).toBe('merge');
+
+        // Unequal versions: with the default ("Cloud wins") a local-only link
+        // would be dropped; the saved "Merge" keeps it.
+        fake.seed('sync', { links: JSON.stringify([link(1)]), categories: '["Default"]', syncMetadata: { version: 20, lastModified: 20 } });
+        fake.seed('local', { links: JSON.stringify([link(1), link(2)]), categories: '["Default"]', syncMetadata: { version: 10, lastModified: 10 } });
+        expect((await fresh.syncData()).success).toBe(true);
+        expect(stored(fake, 'sync', 'links').map((l) => l.id)).toEqual(['link_1', 'link_2']);
     });
 
     test('Clear Sync Data warns that it affects every device', async () => {

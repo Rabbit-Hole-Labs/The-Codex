@@ -109,6 +109,14 @@ function markerMatchesCloud(marker, cloudValue) {
 
 const isLinkEntry = (link) => link !== null && typeof link === 'object';
 const sameLink = (a, b) => (a.id != null && a.id === b.id) || a.url === b.url;
+/**
+ * A link's content apart from its id. A link stored without an id gets a new
+ * random one on every load (backfillLinkIds) until a save keeps it, so two
+ * copies of an untouched link can differ in id alone — that loses nothing.
+ * @param {Object} link
+ * @returns {Object}
+ */
+const withoutId = ({ id, ...content }) => content;
 
 // How many of this device's entries for `field` the cloud lacks: links with
 // no cloud link of the same id or URL, or whose cloud counterpart differs
@@ -116,11 +124,22 @@ const sameLink = (a, b) => (a.id != null && a.id === b.id) || a.url === b.url;
 // value differs.
 function entriesCloudLacks(local, cloud, field, { countReorder = false } = {}) {
     if (field === 'links') {
-        const cloudLinks = (parseStoredArray(cloud.links) ?? []).filter(isLinkEntry);
-        return (parseStoredArray(local.links) ?? []).filter(isLinkEntry).filter(link => {
-            const counterpart = cloudLinks.find(other => sameLink(link, other));
-            return !counterpart || !sameStoredValue(link, counterpart);
-        }).length;
+        // Each cloud link answers for one local link: the one with its id,
+        // else one with the same content (ids aside). A local link left
+        // without an equal counterpart is lost — so a duplicate the cloud
+        // holds once still counts, and duplicates in another order don't.
+        const unmatched = (parseStoredArray(cloud.links) ?? []).filter(isLinkEntry);
+        const take = (matches) => {
+            const index = unmatched.findIndex(matches);
+            return index === -1 ? null : unmatched.splice(index, 1)[0];
+        };
+        const localLinks = (parseStoredArray(local.links) ?? []).filter(isLinkEntry);
+        const counterparts = localLinks.map(link => (link.id != null ? take(other => other.id === link.id) : null));
+        localLinks.forEach((link, i) => {
+            counterparts[i] ??= take(other => sameStoredValue(withoutId(other), withoutId(link)));
+        });
+        return localLinks.filter((link, i) =>
+            !counterparts[i] || !sameStoredValue(withoutId(link), withoutId(counterparts[i]))).length;
     }
     if (field === 'categories') {
         const { missing, reordered } = categoryChanges(local, cloud);
@@ -276,6 +295,11 @@ export const SYNC_PREVIOUS_SET_ASIDE_KEY = 'syncSetAsidePrevious';
 const SYNC_SET_ASIDE_PARKED_KEY = 'syncSetAsideInProgress';
 // chrome.storage.sync key stamped by clearSyncData(); compared for equality only.
 export { SYNC_CLEARED_AT_KEY };
+// chrome.storage.local key holding this device's conflict strategy (the Sync
+// tab's select): how Sync now resolves a conflict here. Per device, since
+// "This device's last sync wins" names one.
+export const SYNC_STRATEGY_KEY = 'syncConflictStrategy';
+export const SYNC_STRATEGIES = Object.freeze(['remote', 'merge', 'local']);
 
 export class SyncManager {
     constructor() {
@@ -390,6 +414,34 @@ export class SyncManager {
         this.notifyListeners('syncCleared', { time: Date.now(), remote: true });
     }
 
+    /**
+     * This device's conflict strategy: the saved choice, else the current
+     * one ('remote' by default). Read at each sync, so a choice made on any
+     * page of this device applies.
+     * @returns {Promise<'remote'|'merge'|'local'>}
+     */
+    async getConflictResolutionStrategy() {
+        try {
+            const { [SYNC_STRATEGY_KEY]: saved } = await chrome.storage.local.get(SYNC_STRATEGY_KEY);
+            if (SYNC_STRATEGIES.includes(saved)) this.conflictResolutionStrategy = saved;
+        } catch (error) {
+            debugWarn('Could not read the saved conflict strategy:', error);
+        }
+        return this.conflictResolutionStrategy;
+    }
+
+    /**
+     * Save this device's conflict strategy. Throws if it can't be saved, so
+     * the caller doesn't show a choice that won't stick.
+     * @param {'remote'|'merge'|'local'} strategy
+     * @returns {Promise<void>}
+     */
+    async setConflictResolutionStrategy(strategy) {
+        if (!SYNC_STRATEGIES.includes(strategy)) throw new Error(`Unknown conflict strategy: ${strategy}`);
+        await chrome.storage.local.set({ [SYNC_STRATEGY_KEY]: strategy });
+        this.conflictResolutionStrategy = strategy;
+    }
+
     // Register a listener for sync events
     addSyncListener(callback) {
         this.syncListeners.push(callback);
@@ -488,8 +540,8 @@ export class SyncManager {
             }
             const { metadata } = inputs;
 
-            // Determine sync strategy
-            const strategy = forceStrategy || this.conflictResolutionStrategy;
+            // Determine sync strategy (this device's saved choice)
+            const strategy = forceStrategy || await this.getConflictResolutionStrategy();
             const resolution = this.resolveSyncData(inputs, { forceStrategy, strategy });
             const resolvedData = resolution.data;
 

@@ -24,12 +24,14 @@ const REVALIDATE_AFTER = 7 * 24 * 60 * 60 * 1000;
 const LAST_USED_WRITE_THROTTLE = 24 * 60 * 60 * 1000;
 const PRUNE_EVERY_N_WRITES = 25;
 
-// Hosts we attempt to byte-fetch from (kept in lockstep with the manifest
-// CSP connect-src). Everything else renders via plain <img> only. Google's
-// favicon service is deliberately NOT here: it sends no CORS headers, so
-// every fetch attempt fails AND the browser prints an uncatchable CORS
-// error to the console — favicons stay on the probe/img path instead.
-const FETCHABLE_HOSTS = ['cdn.jsdelivr.net', 'selfh.st'];
+// Hosts we attempt to byte-fetch from, matched as the manifest CSP
+// connect-src lists them: an exact host, or '*.' for subdomains only (a CSP
+// wildcard doesn't cover the bare domain, so a selfh.st URL would be blocked).
+// Everything else renders via plain <img> only. Google's favicon service is
+// deliberately NOT here: it sends no CORS headers, so every fetch attempt
+// fails AND the browser prints an uncatchable CORS error to the console —
+// favicons stay on the probe/img path instead.
+const FETCHABLE_HOSTS = ['cdn.jsdelivr.net', '*.selfh.st'];
 
 let writesSincePrune = 0;
 const inFlightRefreshes = new Set();
@@ -44,7 +46,7 @@ export function isCacheableIconUrl(url) {
         const parsed = new URL(String(url));
         if (parsed.protocol !== 'https:') return false;
         const host = parsed.hostname.toLowerCase();
-        return FETCHABLE_HOSTS.some(h => host === h || host.endsWith('.' + h));
+        return FETCHABLE_HOSTS.some(h => (h.startsWith('*.') ? host.endsWith(h.slice(1)) : host === h));
     } catch {
         return false;
     }
@@ -123,6 +125,12 @@ async function readEntry(url) {
     }
 }
 
+/**
+ * Store an icon's bytes, pruning and retrying once if the write fails.
+ * @param {string} url
+ * @param {string} data - data: URI
+ * @returns {Promise<boolean>} whether it was stored
+ */
 async function writeEntry(url, data) {
     const entry = {
         url,
@@ -140,13 +148,14 @@ async function writeEntry(url, data) {
         try {
             await chrome.storage.local.set({ [storageKey(url)]: entry });
         } catch {
-            return; // give up quietly; rendering still has the in-memory data
+            return false; // give up quietly; rendering still has the in-memory data
         }
     }
     if (++writesSincePrune >= PRUNE_EVERY_N_WRITES) {
         writesSincePrune = 0;
         pruneIconStore().catch(() => {});
     }
+    return true;
 }
 
 /** Evicts least-recently-used entries until the store fits its byte budget. */
@@ -191,6 +200,56 @@ function bumpLastUsed(url, entry) {
     } catch {
         // lastUsed is best-effort bookkeeping — never let it break a render.
     }
+}
+
+/**
+ * Reads already-stored icons in one storage call, without touching the
+ * network: what the new tab can show in its first paint.
+ * @param {string[]} urls - Remote icon URLs
+ * @returns {Promise<Map<string, string>>} url -> data: URI, for those stored
+ */
+export async function readStoredIcons(urls) {
+    const found = new Map();
+    const cacheable = [...new Set(urls)].filter(isCacheableIconUrl);
+    if (cacheable.length === 0) return found;
+    try {
+        const result = await chrome.storage.local.get(cacheable.map(storageKey));
+        for (const url of cacheable) {
+            const entry = result?.[storageKey(url)];
+            if (entry && typeof entry.data === 'string') found.set(url, entry.data);
+        }
+    } catch {
+        // Nothing stored to show yet; the full load still resolves each icon.
+    }
+    return found;
+}
+
+/**
+ * Downloads the given icons into the store if they aren't there yet, so a new
+ * tab finds them locally. Icon bytes can't travel through chrome.storage.sync
+ * (100 KB for everything), so each device fetches the icons picked for its
+ * synced links itself, ahead of the next new tab (see the service worker).
+ * @param {Array<string>} urls - Icon URLs (non-cacheable values are skipped)
+ * @param {number} [concurrency]
+ * @returns {Promise<number>} how many icons were fetched and stored
+ */
+export async function warmIconStore(urls, concurrency = 4) {
+    const wanted = [...new Set((urls ?? []).filter(url => typeof url === 'string'))].filter(isCacheableIconUrl);
+    if (wanted.length === 0) return 0;
+    const stored = await readStoredIcons(wanted);
+    const missing = wanted.filter(url => !stored.has(url));
+    let fetched = 0;
+    // Each write is awaited (and counted only once stored): the service
+    // worker running this may be suspended soon after it returns.
+    const worker = async () => {
+        while (missing.length > 0) {
+            const url = missing.shift();
+            const { data } = await fetchIconAsDataUri(url);
+            if (data && data.length <= MAX_ENTRY_BYTES && await writeEntry(url, data)) fetched++;
+        }
+    };
+    await Promise.all(Array.from({ length: Math.min(concurrency, missing.length) }, worker));
+    return fetched;
 }
 
 /**

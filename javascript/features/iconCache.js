@@ -6,10 +6,15 @@
 import { debug } from '../core-systems/debug.js';
 import { loadStoredIcon } from './iconStore.js';
 import { ALLOWED_ICON_HOSTS, validateDataUrl, validateIconValue } from './iconPolicy.js';
+import {
+    GENERATED_SOURCE, iconCacheKey, rememberIconSource,
+    resolveCachedIcons as resolveRememberedIcons
+} from './iconSources.js';
 
 // validateIconValue lives in iconPolicy.js (dependency-free so the design kit
 // can share it); re-exported here for existing importers.
 export { validateIconValue };
+export { refreshCachedIcon } from './iconSources.js';
 
 // Icon cache storage
 let iconCache = new Map();
@@ -114,10 +119,11 @@ export async function loadIconWithCache(link, options = {}) {
         //    This is the primary source and works for internal/homelab apps
         //    without ever contacting the internal host.
         if (compliantOptions.allowSelfhst !== false) {
-            iconUrl = await loadSelfhstIcon(link, compliantOptions.timeout);
-            if (iconUrl) {
-                await cacheIcon(cacheKey, iconUrl, ICON_SOURCES.SELFHST);
-                return iconUrl;
+            const match = await loadSelfhstIcon(link, compliantOptions.timeout);
+            if (match) {
+                rememberIconSource(link, match.url);
+                await cacheIcon(cacheKey, match.src, ICON_SOURCES.SELFHST);
+                return match.src;
             }
         }
 
@@ -126,6 +132,7 @@ export async function loadIconWithCache(link, options = {}) {
         if (compliantOptions.allowFavicon) {
             iconUrl = await loadGoogleFaviconIcon(link.url, compliantOptions.timeout);
             if (iconUrl) {
+                rememberIconSource(link, iconUrl);
                 await cacheIcon(cacheKey, iconUrl, ICON_SOURCES.GOOGLE);
                 return iconUrl;
             }
@@ -135,6 +142,7 @@ export async function loadIconWithCache(link, options = {}) {
         if (compliantOptions.allowGenerated) {
             iconUrl = generateFallbackIcon(link);
             if (iconUrl) {
+                rememberIconSource(link, GENERATED_SOURCE);
                 await cacheIcon(cacheKey, iconUrl, ICON_SOURCES.GENERATED);
                 return iconUrl;
             }
@@ -260,7 +268,8 @@ export function selfhstIconUrl(slug) {
  * apps by name without ever contacting the internal host.
  * @param {Object} link - Link object
  * @param {number} timeout - Timeout in milliseconds
- * @returns {Promise<string|null>} - Icon URL or null
+ * @returns {Promise<{src: string, url: string}|null>} - what to render (the
+ *   stored data: URI, or the URL) and the icon's URL; null when none matched
  */
 async function loadSelfhstIcon(link, timeout) {
     if (!link) return null;
@@ -271,10 +280,10 @@ async function loadSelfhstIcon(link, timeout) {
         // 404 skips the probe (it would just repeat the miss); indeterminate
         // failures (CORS/offline-but-HTTP-cached) still get the probe.
         const stored = await loadStoredIcon(url, timeout);
-        if (stored.data) return stored.data;
+        if (stored.data) return { src: stored.data, url };
         if (stored.notFound) continue;
         const result = await testImageLoad(url, timeout);
-        if (result) return result;
+        if (result) return { src: result, url };
     }
     return null;
 }
@@ -455,7 +464,7 @@ function extractDomain(url) {
  * @returns {string} - Cache key
  */
 function generateCacheKey(link) {
-    return `${link.url}:${link.name}:${link.icon || ''}`;
+    return iconCacheKey(link);
 }
 
 /**
@@ -507,6 +516,20 @@ async function cacheIcon(cacheKey, iconUrl, source) {
     } catch (error) {
         console.warn('Failed to cache icon:', error);
     }
+}
+
+/**
+ * The icons this device can show in the new tab's first paint, without the
+ * network (see iconSources.js): stored bytes of picked icons, remembered
+ * automatic matches and generated initials, plus this page's in-memory hits.
+ * @param {Object[]} links
+ * @returns {Promise<Map<Object, {src: string, fresh: boolean, storedUrl: string|null, network: boolean}>>}
+ */
+export function resolveCachedIcons(links) {
+    return resolveRememberedIcons(links, {
+        inMemory: (link) => getCachedIcon(generateCacheKey(link))?.url ?? null,
+        initialsFor: generateFallbackIcon
+    });
 }
 
 /**
