@@ -30,8 +30,19 @@ function storedGet(store) {
 
 function installChromeMock(syncStore) {
     const changeListeners = [];
-    // Simulate chrome.storage.onChanged for a write made elsewhere.
-    const fireChange = (changes, areaName = 'sync') => changeListeners.forEach(fn => fn(changes, areaName));
+    const localStore = {};
+    const stores = { sync: syncStore, local: localStore };
+    // Simulate chrome.storage.onChanged for a write made elsewhere. As in
+    // Chrome, the store already holds the change when listeners run (links
+    // listeners re-read every chunk from storage).
+    const fireChange = (changes, areaName = 'sync') => {
+        const store = stores[areaName];
+        for (const [key, change] of Object.entries(changes)) {
+            if ('newValue' in change) store[key] = change.newValue;
+            else delete store[key];
+        }
+        changeListeners.forEach(fn => fn(changes, areaName));
+    };
     // Like Chrome: a write updates the store, then onChanged fires
     // asynchronously in every context — the writing page included.
     const write = (store, areaName) => jest.fn((items) => {
@@ -52,7 +63,6 @@ function installChromeMock(syncStore) {
         setTimeout(() => fireChange(changes, areaName), 0);
         return Promise.resolve();
     });
-    const localStore = {};
     const sync = {
         get: storedGet(syncStore),
         set: write(syncStore, 'sync'),
@@ -796,6 +806,7 @@ describe('stateManager.claimStorageFields', () => {
     test('unclaimed (e.g. the manage page): a sync change applies the raw stored links', async () => {
         const { getState, fireChange } = await loadStateManager();
         fireChange({ links: { newValue: JSON.stringify([link('Alpha', 'Default')]) } });
+        await new Promise(r => setTimeout(r, 0)); // a links change re-reads every chunk first
         expect(getState().links.map(l => l.name)).toEqual(['Alpha']);
     });
 
@@ -807,6 +818,7 @@ describe('stateManager.claimStorageFields', () => {
             categories: { newValue: JSON.stringify(['Default', 'Work']) },
             theme: { newValue: 'light' },
         });
+        await new Promise(r => setTimeout(r, 0)); // applied together, after the links re-read
         expect(getState().links).toEqual([]);
         expect(getState().categories).toEqual(['Default']);
         expect(getState().theme).toBe('light');

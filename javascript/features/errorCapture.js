@@ -12,7 +12,10 @@
  *
  * Everything is written to chrome.storage.local as a de-duplicated ring
  * buffer so it survives reloads and spans every context (newtab, manage,
- * popup, service worker). To avoid unsynchronized read-modify-writes across
+ * popup, service worker). It also survives extension updates, so each entry
+ * records the build that logged it (entries from before 7.0.0.43, when this
+ * started, have none) and the same problem in a newer build is a new entry.
+ * To avoid unsynchronized read-modify-writes across
  * those independent contexts, the service worker is the single writer: page
  * contexts forward their entries to it via chrome.runtime.sendMessage. Export
  * the log consistently via CodexConsole.errors() / exportErrors(), or the
@@ -27,6 +30,7 @@ const MAX_STACK_LENGTH = 2000;
 
 let initialized = false;
 let currentContext = 'unknown';
+let currentVersion = '';
 // The service worker is the single owner of the codexErrorLog storage key.
 // Page contexts (newtab, manage, popup) forward their entries to it rather than
 // writing directly, so read-modify-writes from different execution contexts can't
@@ -72,9 +76,18 @@ function signatureOf(entry) {
     // CSP violations differing only by query/fragment should still collapse,
     // so dedup on directive + normalized blocked URI rather than the full message.
     if (entry.type === 'csp-violation') {
-        return ['csp-violation', entry.directive || '', normalizeUri(entry.blockedURI)].join('|');
+        return ['csp-violation', entry.version || '', entry.directive || '', normalizeUri(entry.blockedURI)].join('|');
     }
-    return [entry.type, entry.message, entry.source || '', entry.directive || ''].join('|');
+    return [entry.type, entry.version || '', entry.message, entry.source || '', entry.directive || ''].join('|');
+}
+
+/** The running build's version ('' when the manifest can't be read). */
+function readVersion() {
+    try {
+        return chrome.runtime.getManifest().version || '';
+    } catch {
+        return '';
+    }
 }
 
 /** Serialize a storage-mutating task onto the owner's write chain so the
@@ -136,6 +149,7 @@ function forwardToOwner(payload) {
 function record(partial) {
     const entry = {
         context: currentContext,
+        version: currentVersion,
         type: 'error',
         message: '',
         source: '',
@@ -159,6 +173,7 @@ export function initErrorCapture(context = 'page') {
     if (initialized) return;
     initialized = true;
     currentContext = context;
+    currentVersion = readVersion();
     isOwner = (context === 'service-worker');
 
     // Owner: accept forwarded write requests from the page contexts. Registered
@@ -277,7 +292,9 @@ export function formatCapturedErrors(list) {
             const times = e.count > 1 ? ` (×${e.count})` : '';
             const src = e.source ? `\n    at ${e.source}` : '';
             const stack = e.stack ? `\n    ${String(e.stack).split('\n').slice(0, 4).join('\n    ')}` : '';
-            return `[${when}] [${e.context}] ${e.type}${times}: ${e.message}${src}${stack}`;
+            // Entries logged before builds were recorded came from 7.0.0.42 or older.
+            const build = e.version ? `v${e.version}` : '≤v7.0.0.42';
+            return `[${when}] [${e.context} ${build}] ${e.type}${times}: ${e.message}${src}${stack}`;
         })
         .join('\n');
 }

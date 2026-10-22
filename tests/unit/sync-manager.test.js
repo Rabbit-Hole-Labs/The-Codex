@@ -148,7 +148,11 @@ describe('Sync Manager', () => {
 
             expect(result.syncSaved).toBe(true);
             expect(mockStorageSync.set).toHaveBeenCalledTimes(1);
-            expect(mockStorageSync.set).toHaveBeenCalledWith({ links: '[]', syncMetadata: metadata });
+            expect(mockStorageSync.set).toHaveBeenCalledWith({
+                links: '[]',
+                linksManifest: { chunks: 1, hashes: [expect.any(String)] },
+                syncMetadata: metadata
+            });
             expect(mockStorageLocal.set).not.toHaveBeenCalled();
         });
 

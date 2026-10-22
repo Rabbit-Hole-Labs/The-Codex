@@ -1,5 +1,6 @@
 // Data Verification and Inspection Utility
 import { escapeHtml } from './utils.js';
+import { syncGet } from '../core-systems/syncStorage.js';
 
 export class DataVerification {
     constructor() {
@@ -7,10 +8,10 @@ export class DataVerification {
         this.isFormatted = false;
     }
 
-    // Get all data from sync storage
+    // Get all data from sync storage (links reassembled from their chunks)
     async getCloudData() {
         try {
-            const data = await chrome.storage.sync.get(null);
+            const data = await syncGet(null);
             return this.processStorageData(data, 'cloud');
         } catch (error) {
             throw new Error(`Failed to get cloud data: ${error.message}`);

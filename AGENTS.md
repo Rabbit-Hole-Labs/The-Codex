@@ -51,6 +51,7 @@ javascript/
 │   └── popup.js        # Browser action popup
 ├── core-systems/       # Business logic
 │   ├── storageManager.js   # Chrome storage (sync + local fallback)
+│   ├── syncStorage.js     # links split across sync items (8KB/item cap)
 │   ├── stateManager.js    # Centralized state with validation
 │   ├── syncManager.js     # Cross-device synchronization
 │   ├── uiManager.js       # Rendering and UI updates
@@ -78,7 +79,8 @@ javascript/
 - Error types: SECURITY, VALIDATION, STORAGE, SYNC, NETWORK, DOM, STATE, EXTERNAL
 
 ### Storage Strategy
-- Primary: `chrome.storage.sync` for cross-device sync (100KB limit, 8KB/item)
+- Primary: `chrome.storage.sync` for cross-device sync (100KB total, 8KB per item — key + value as Chromium's JSON writer serializes it, so the quotes inside the JSON-string `links` count twice)
+- `links` is split across sync items by `core-systems/syncStorage.js`: `links` holds the whole list when it fits one item, else its first chunk, then `links.1`…`links.N`, plus `linksManifest` (`{ chunks, hashes }`). All of it is written in ONE `set()`; readers verify each chunk against the manifest, so change listeners skip another device's half-arrived save and Sync now refuses to decide from one. Every sync read or write that involves `links` MUST go through `syncGet`/`syncSet`/`readSyncLinks` — a raw `chrome.storage.sync.set({ links })` leaves a stale manifest and the list reads as inconsistent
 - Fallback: `chrome.storage.local` for offline access
 - Always handle quota exceeded errors gracefully
 

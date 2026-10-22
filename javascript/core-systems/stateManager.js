@@ -5,6 +5,7 @@
 
 import { validateLink } from '../features/securityUtils.js';
 import { SETTING_ENUMS, MAX_CATEGORY_LENGTH, SYNC_RESOLVED_AT_KEY, STORED_SETTING_DEFAULTS } from './storageFormat.js';
+import { syncGet, syncSet, readSyncLinks, isLinkStorageKey, LINKS_KEY } from './syncStorage.js';
 
 // State validation schemas
 const stateSchemas = {
@@ -558,6 +559,9 @@ const REMOVED_FIELD_RESETS = {
 // Flag to prevent circular updates (our own write triggering onChanged)
 let isWritingToStorage = false;
 
+// Sync changes still being applied (see applySyncChange), or null.
+let syncApplyQueue = null;
+
 // Fields a page applies itself instead of taking the raw stored value here,
 // mapped to that page's handler (see claimStorageFields).
 const claimedFields = new Map();
@@ -659,8 +663,9 @@ export function applyStorageValues(values, { source = 'sync' } = {}) {
  * load; a list neither holds is emptied.
  */
 export async function reloadFromStorage() {
+    await syncApplyQueue; // sync changes already queued land first, not over this
     const [cloud, local] = await Promise.all([
-        chrome.storage.sync.get(PERSISTENT_FIELDS),
+        syncGet(PERSISTENT_FIELDS),
         chrome.storage.local.get(PERSISTENT_FIELDS)
     ]);
     const values = {};
@@ -686,8 +691,40 @@ if (typeof chrome !== 'undefined' && chrome.storage?.onChanged) {
         let entries = Object.entries(changes);
         // Skip the echo of this page's own persistToStorage write — except
         // claimed fields: the page that claimed them tracks every change.
-        if (isWritingToStorage) entries = entries.filter(([key]) => claimedFields.has(key));
-        applyStorageValues(Object.fromEntries(entries.map(([key, change]) => [key, change.newValue])));
+        if (isWritingToStorage) entries = entries.filter(([key]) => claimedFields.has(storedField(key)));
+        const linksTouched = entries.some(([key]) => isLinkStorageKey(key));
+        const values = Object.fromEntries(entries
+            .filter(([key]) => !isLinkStorageKey(key))
+            .map(([key, change]) => [key, change.newValue]));
+        applySyncChange(values, linksTouched);
+    });
+}
+
+// The state field a sync key belongs to: links' chunk and manifest keys are links.
+function storedField(key) {
+    return isLinkStorageKey(key) ? LINKS_KEY : key;
+}
+
+// Sync changes apply in the order they arrive. One that touches the links
+// re-reads them whole — they can span several sync items, not all of which
+// changed — and skips them while another device's save has only partly
+// arrived: the change that completes it fires again. Changes behind one
+// still reading wait for it, so an older value never lands over a newer one.
+function applySyncChange(values, linksTouched) {
+    if (!linksTouched && !syncApplyQueue) {
+        applyStorageValues(values);
+        return;
+    }
+    const queued = (syncApplyQueue ?? Promise.resolve()).then(async () => {
+        if (linksTouched) {
+            const { value, consistent } = await readSyncLinks();
+            if (consistent) values[LINKS_KEY] = value;
+        }
+        if (Object.keys(values).length > 0) applyStorageValues(values);
+    }).catch(error => console.error('Failed to apply a sync change:', error));
+    syncApplyQueue = queued;
+    queued.then(() => {
+        if (syncApplyQueue === queued) syncApplyQueue = null;
     });
 }
 
@@ -712,7 +749,7 @@ async function persistToStorage(updates) {
 
     try {
         isWritingToStorage = true;
-        await chrome.storage.sync.set(toStore);
+        await syncSet(toStore);
     } catch (error) {
         console.error('Failed to persist state to storage:', error);
     } finally {
@@ -733,7 +770,7 @@ export async function initializeFromStorage() {
     }
 
     try {
-        const data = await chrome.storage.sync.get(null);
+        const data = await syncGet(null);
         const updates = {};
 
         for (const key of PERSISTENT_FIELDS) {
