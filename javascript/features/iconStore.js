@@ -194,6 +194,53 @@ function bumpLastUsed(url, entry) {
 }
 
 /**
+ * Reads already-stored icons in one storage call, without touching the
+ * network: what the new tab can show in its first paint.
+ * @param {string[]} urls - Remote icon URLs
+ * @returns {Promise<Map<string, string>>} url -> data: URI, for those stored
+ */
+export async function readStoredIcons(urls) {
+    const found = new Map();
+    const cacheable = [...new Set(urls)].filter(isCacheableIconUrl);
+    if (cacheable.length === 0) return found;
+    try {
+        const result = await chrome.storage.local.get(cacheable.map(storageKey));
+        for (const url of cacheable) {
+            const entry = result?.[storageKey(url)];
+            if (entry && typeof entry.data === 'string') found.set(url, entry.data);
+        }
+    } catch {
+        // Nothing stored to show yet; the full load still resolves each icon.
+    }
+    return found;
+}
+
+/**
+ * Downloads the given icons into the store if they aren't there yet, so a new
+ * tab finds them locally. Icon bytes can't travel through chrome.storage.sync
+ * (100 KB for everything), so each device fetches the icons picked for its
+ * synced links itself, ahead of the next new tab (see the service worker).
+ * @param {Array<string>} urls - Icon URLs (non-cacheable values are skipped)
+ * @param {number} [concurrency]
+ * @returns {Promise<number>} how many icons were fetched
+ */
+export async function warmIconStore(urls, concurrency = 4) {
+    const wanted = [...new Set((urls ?? []).filter(url => typeof url === 'string'))].filter(isCacheableIconUrl);
+    if (wanted.length === 0) return 0;
+    const stored = await readStoredIcons(wanted);
+    const missing = wanted.filter(url => !stored.has(url));
+    let fetched = 0;
+    const worker = async () => {
+        while (missing.length > 0) {
+            const { data } = await loadStoredIcon(missing.shift());
+            if (data) fetched++;
+        }
+    };
+    await Promise.all(Array.from({ length: Math.min(concurrency, missing.length) }, worker));
+    return fetched;
+}
+
+/**
  * Main entry: returns the icon as a locally stored data: URI, fetching and
  * persisting it on first use.
  *

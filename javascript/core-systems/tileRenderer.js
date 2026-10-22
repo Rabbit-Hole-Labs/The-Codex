@@ -69,10 +69,13 @@ export function isHorizontalLayout(link, defaultTileSize = 'medium') {
  * @param {string} options.category - Category name
  * @param {string} options.defaultTileSize - Default tile size
  * @param {boolean} [options.lazyIcons=true] - Use data attributes for lazy icon loading
+ * @param {string} [options.iconSrc] - Icon already resolved on this device
+ *   (resolveCachedIcons: a data: URI or a pinned-host URL), shown in the
+ *   first paint instead of waiting for the lazy load
  * @returns {HTMLAnchorElement} The tile element
  */
 export function createTile(link, options = {}) {
-    const { index = 0, category = '', defaultTileSize = 'medium', lazyIcons = true } = options;
+    const { index = 0, category = '', defaultTileSize = 'medium', lazyIcons = true, iconSrc = '' } = options;
     const horizontal = isHorizontalLayout(link, defaultTileSize);
     const iconUrl = getIconUrl(link);
 
@@ -93,7 +96,9 @@ export function createTile(link, options = {}) {
     img.alt = '';
     img.loading = 'lazy';
     if (lazyIcons) {
-        img.src = '';
+        // A property assignment, not markup: iconSrc is a data: URI or a URL
+        // on a pinned icon host, used as-is.
+        img.src = iconSrc || '';
         img.dataset.iconUrl = sanitizeHTML(iconUrl);
         img.dataset.linkId = link.id || '';
     } else {
@@ -103,7 +108,7 @@ export function createTile(link, options = {}) {
 
     const placeholder = document.createElement('div');
     placeholder.className = 'tile-placeholder';
-    placeholder.style.display = iconUrl ? 'none' : '';
+    placeholder.style.display = iconUrl || iconSrc ? 'none' : '';
     content.appendChild(placeholder);
 
     const title = document.createElement('h3');
@@ -122,10 +127,12 @@ export function createTile(link, options = {}) {
  * @param {string} options.defaultTileSize - Default tile size
  * @param {string} options.view - 'grid' or 'list'
  * @param {boolean} [options.lazyIcons=true] - Lazy load icons
+ * @param {Map<Object, {src: string}>} [options.iconSources] - icons already
+ *   resolved on this device, per link object (resolveCachedIcons)
  * @returns {HTMLElement} The category section element
  */
 export function createCategorySection(categoryName, links, options = {}) {
-    const { defaultTileSize = 'medium', view = 'grid', lazyIcons = true } = options;
+    const { defaultTileSize = 'medium', view = 'grid', lazyIcons = true, iconSources = null } = options;
 
     const section = document.createElement('section');
     section.className = 'category-section fade-in';
@@ -142,7 +149,8 @@ export function createCategorySection(categoryName, links, options = {}) {
         // One link that can't be rendered hides only itself, not the page.
         // `index` stays the link's position in its category (drag relies on it).
         try {
-            grid.appendChild(createTile(link, { index, category: categoryName, defaultTileSize, lazyIcons }));
+            const iconSrc = iconSources?.get(link)?.src;
+            grid.appendChild(createTile(link, { index, category: categoryName, defaultTileSize, lazyIcons, iconSrc }));
         } catch (error) {
             console.error('[The Codex] Skipping a tile that failed to render:', link?.name, error);
         }

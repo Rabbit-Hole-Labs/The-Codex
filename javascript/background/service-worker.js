@@ -2,8 +2,10 @@
  * Background Service Worker - Extension lifecycle and storage management
  */
 import { initErrorCapture } from '../features/errorCapture.js';
+import { debug } from '../core-systems/debug.js';
 import { parseStoredArray, LEGACY_COLOR_THEMES } from '../core-systems/storageFormat.js';
-import { syncGet } from '../core-systems/syncStorage.js';
+import { syncGet, readSyncLinks, linksChanged } from '../core-systems/syncStorage.js';
+import { warmIconStore } from '../features/iconStore.js';
 
 // Register global error capture as early as possible (service-worker context).
 initErrorCapture('service-worker');
@@ -21,11 +23,41 @@ chrome.runtime.onInstalled.addListener((details) => {
     if (details?.reason === 'update') {
         migrateLegacyColorTheme();
     }
+    scheduleIconWarmUp();
 });
 
 chrome.runtime.onStartup.addListener(() => {
     verifyStorage();
+    scheduleIconWarmUp();
 });
+
+// Links saved on another device (or this one) arrive here: fetch the icons
+// picked for them now, so the next new tab shows them in its first paint.
+chrome.storage.onChanged.addListener((changes, areaName) => {
+    if (areaName === 'sync' && linksChanged(changes)) scheduleIconWarmUp();
+});
+
+const ICON_WARM_UP_DELAY_MS = 2000; // one run for a burst of changes
+let iconWarmUpTimer = null;
+
+function scheduleIconWarmUp() {
+    clearTimeout(iconWarmUpTimer);
+    iconWarmUpTimer = setTimeout(warmPickedIcons, ICON_WARM_UP_DELAY_MS);
+}
+
+// Download the icons picked for the synced links that this device doesn't
+// have yet (automatic matches are made per device, on its first new tab).
+async function warmPickedIcons() {
+    try {
+        const { value, consistent } = await readSyncLinks();
+        if (!consistent) return; // the change that completes the save schedules another run
+        const links = parseStoredArray(value) ?? [];
+        const fetched = await warmIconStore(links.map(link => link?.icon));
+        if (fetched > 0) debug(`Fetched ${fetched} icon(s) for synced links`);
+    } catch (error) {
+        debug('Icon warm-up failed; icons load on the next new tab instead:', error);
+    }
+}
 
 async function verifyStorage() {
     try {

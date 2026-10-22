@@ -9,7 +9,7 @@ import { getState, addStateChangeListener, safeUpdateState } from '../core-syste
 import { getPerformanceMetrics, resetPerformanceMetrics } from '../features/domOptimizer.js';
 import { createCategorySection, renderNoResults } from '../core-systems/tileRenderer.js';
 import { handleError, safeAsync, registerErrorHandler } from '../features/errorHandler.js';
-import { loadIconWithCache, getCacheStats } from '../features/iconCache.js';
+import { loadIconWithCache, getCacheStats, resolveCachedIcons, refreshCachedIcon } from '../features/iconCache.js';
 import { syncStatusIndicator } from '../features/syncStatusIndicator.js';
 import '../features/consoleCommands.js';
 import { debug } from '../core-systems/debug.js';
@@ -632,12 +632,35 @@ function sanitizeLoadedCategories(stored) {
     return categories;
 }
 
+// The longest the first paint waits for this device's stored icons; past it,
+// tiles show and their icons load right after, as they always did.
+const CACHED_ICON_WAIT_MS = 300;
+// Icons resolved at once after the first paint (network politeness).
+const ICON_LOAD_CONCURRENCY = 6;
+
+// Bumped by every render. A render waits for the stored-icon lookup, so it
+// checks this afterwards and gives way to a newer one: an older view must
+// never replace a newer one.
+let renderSequence = 0;
+
+/** This device's icons for `links` (resolveCachedIcons), within CACHED_ICON_WAIT_MS. */
+function cachedIconsForFirstPaint(links) {
+    const lookup = resolveCachedIcons(links).catch(error => {
+        debug('Stored icon lookup failed; icons will load after the first paint:', error);
+        return new Map();
+    });
+    const giveUp = new Promise(resolve => setTimeout(() => resolve(new Map()), CACHED_ICON_WAIT_MS));
+    return Promise.race([lookup, giveUp]);
+}
+
 async function renderLinksTraditional() {
+    const renderId = ++renderSequence;
     const currentState = getState();
     // Build the whole view off-DOM and swap it in only once it is complete:
     // a throw part-way must leave the last good view, not a cleared page.
     const fragment = document.createDocumentFragment();
     let filteredLinks;
+    let iconSources = new Map();
     try {
         filteredLinks = currentState.links.filter(link =>
             link.name.toLowerCase().includes(currentState.searchTerm.toLowerCase()) ||
@@ -656,12 +679,18 @@ async function renderLinksTraditional() {
             return indexA - indexB;
         });
 
+        // Icons this device already has go into the first paint, so tiles
+        // don't appear empty and fill in afterwards.
+        iconSources = await cachedIconsForFirstPaint(filteredLinks);
+        if (renderId !== renderSequence) return;
+
         sortedCategories.forEach(category => {
             const links = groupedLinks[category];
             const section = createCategorySection(category, links, {
                 defaultTileSize: currentState.defaultTileSize,
                 view: currentState.view,
-                lazyIcons: true
+                lazyIcons: true,
+                iconSources
             });
             fragment.appendChild(section);
         });
@@ -676,8 +705,8 @@ async function renderLinksTraditional() {
 
     linksContainer.replaceChildren(fragment);
 
-    // Load icons asynchronously with caching
-    loadIconsWithCaching(filteredLinks);
+    // Load the icons the first paint didn't have (and upkeep the ones it did)
+    loadIconsWithCaching(filteredLinks, iconSources);
 
     // Set up error handling for failed icon loads
     setupIconErrorHandling();
@@ -1298,88 +1327,38 @@ window.addEventListener('error', function(event) {
 });
 
 /**
- * Loads icons asynchronously with caching system
+ * Loads each tile's icon after the first paint. Tiles the first paint already
+ * gave a stored icon only get background upkeep (or, once their remembered
+ * match is a week old, a fresh match that replaces the icon if it changed);
+ * the rest resolve through loadIconWithCache, ICON_LOAD_CONCURRENCY at a time.
  * @param {Array} links - Array of link objects
+ * @param {Map<Object, {src: string, fresh: boolean}>} [cachedIcons] - what the
+ *   first paint showed, per link (resolveCachedIcons)
  */
-async function loadIconsWithCaching(links) {
+async function loadIconsWithCaching(links, cachedIcons = new Map()) {
     if (!links || links.length === 0) return;
 
     try {
         debug(`Loading icons for ${links.length} links...`);
         const startTime = performance.now();
 
-        // Get all icon elements
-        const iconElements = document.querySelectorAll('.tile-icon[data-link-id]');
-
-        // Create a map of link ID to icon element
+        // Map link ID to its icon element
         const iconMap = new Map();
-        iconElements.forEach(element => {
+        document.querySelectorAll('.tile-icon[data-link-id]').forEach(element => {
             const linkId = element.dataset.linkId;
             if (linkId) {
                 iconMap.set(linkId, element);
             }
         });
 
-        // Load icons in batches for better performance with CSP compliance
-        const batchSize = 5;
-        for (let i = 0; i < links.length; i += batchSize) {
-            const batch = links.slice(i, i + batchSize);
-
-            // Process batch with CSP-compliant options
-            await Promise.allSettled(
-                batch.map(async (link) => {
-                    const iconElement = iconMap.get(link.id);
-                    if (!iconElement) return;
-
-                    try {
-                        // Load icon with CSP-compliant caching
-                        const iconUrl = await loadIconWithCache(link, {
-                            preferCustom: true,
-                            allowClearbit: true,
-                            allowFavicon: true,
-                            allowGenerated: true,
-                            timeout: 3000,
-                            respectCSP: true // Enable CSP compliance
-                        });
-
-                        if (iconUrl) {
-                            iconElement.src = iconUrl;
-                            iconElement.style.display = 'block';
-
-                            // Hide placeholder
-                            const placeholder = iconElement.nextElementSibling;
-                            if (placeholder && placeholder.classList.contains('tile-placeholder')) {
-                                placeholder.style.display = 'none';
-                            }
-                        } else {
-                            // Show placeholder if no icon found
-                            iconElement.style.display = 'none';
-                            const placeholder = iconElement.nextElementSibling;
-                            if (placeholder && placeholder.classList.contains('tile-placeholder')) {
-                                placeholder.style.display = 'flex';
-                                placeholder.textContent = generateInitials(link.name);
-                            }
-                        }
-
-                    } catch (error) {
-                        console.warn(`Failed to load icon for ${link.name}:`, error);
-
-                        // Show placeholder on error
-                        iconElement.style.display = 'none';
-                        const placeholder = iconElement.nextElementSibling;
-                        if (placeholder && placeholder.classList.contains('tile-placeholder')) {
-                            placeholder.style.display = 'flex';
-                            placeholder.textContent = generateInitials(link.name);
-                        }
-                    }
-                })
-            );
-
-            // Small delay between batches to avoid overwhelming the network
-            if (i + batchSize < links.length) {
-                await new Promise(resolve => setTimeout(resolve, 100));
+        const queue = links.filter(link => iconMap.has(link.id));
+        const worker = async () => {
+            while (queue.length > 0) {
+                const link = queue.shift();
+                await loadTileIcon(link, iconMap.get(link.id), cachedIcons.get(link));
             }
-        }
+        };
+        await Promise.all(Array.from({ length: Math.min(ICON_LOAD_CONCURRENCY, queue.length) }, worker));
 
         const endTime = performance.now();
         debug(`Icon loading completed in ${(endTime - startTime).toFixed(2)}ms`);
@@ -1390,21 +1369,53 @@ async function loadIconsWithCaching(links) {
 
     } catch (error) {
         console.error('Error in icon loading process:', error);
+    }
+}
 
-        // Fallback: show placeholders for all icons on error
-        const iconElements = document.querySelectorAll('.tile-icon[data-link-id]');
-        iconElements.forEach(iconElement => {
-            const linkId = iconElement.dataset.linkId;
-            const link = links.find(l => l.id === linkId);
-            if (link) {
-                iconElement.style.display = 'none';
-                const placeholder = iconElement.nextElementSibling;
-                if (placeholder && placeholder.classList.contains('tile-placeholder')) {
-                    placeholder.style.display = 'flex';
-                    placeholder.textContent = generateInitials(link.name);
-                }
-            }
+/** Show a tile's initials placeholder instead of its icon. */
+function showIconPlaceholder(iconElement, link) {
+    iconElement.style.display = 'none';
+    const placeholder = iconElement.nextElementSibling;
+    if (placeholder && placeholder.classList.contains('tile-placeholder')) {
+        placeholder.style.display = 'flex';
+        placeholder.textContent = generateInitials(link.name);
+    }
+}
+
+/**
+ * Resolve one tile's icon (see loadIconsWithCaching).
+ * @param {Object} link
+ * @param {HTMLImageElement} iconElement
+ * @param {{src: string, fresh: boolean}|undefined} cached - shown by the first paint
+ */
+async function loadTileIcon(link, iconElement, cached) {
+    try {
+        if (cached?.fresh) {
+            await refreshCachedIcon(cached);
+            return;
+        }
+
+        const iconUrl = await loadIconWithCache(link, {
+            preferCustom: true,
+            allowFavicon: true,
+            allowGenerated: true,
+            timeout: 3000,
+            respectCSP: true
         });
+
+        if (iconUrl) {
+            if (iconElement.getAttribute('src') !== iconUrl) iconElement.src = iconUrl;
+            iconElement.style.display = 'block';
+            const placeholder = iconElement.nextElementSibling;
+            if (placeholder && placeholder.classList.contains('tile-placeholder')) {
+                placeholder.style.display = 'none';
+            }
+        } else if (!cached) {
+            showIconPlaceholder(iconElement, link);
+        }
+    } catch (error) {
+        console.warn(`Failed to load icon for ${link.name}:`, error);
+        if (!cached) showIconPlaceholder(iconElement, link);
     }
 }
 

@@ -4,7 +4,7 @@
  */
 
 import { debug } from '../core-systems/debug.js';
-import { loadStoredIcon } from './iconStore.js';
+import { loadStoredIcon, readStoredIcons } from './iconStore.js';
 import { ALLOWED_ICON_HOSTS, validateDataUrl, validateIconValue } from './iconPolicy.js';
 
 // validateIconValue lives in iconPolicy.js (dependency-free so the design kit
@@ -47,6 +47,21 @@ const SELFHST_ICONS_BASE = 'https://cdn.jsdelivr.net/gh/selfhst/icons';
 
 // Domain labels too generic to reliably identify an app on selfh.st.
 const GENERIC_DOMAIN_LABELS = new Set(['www', 'app', 'apps', 'home', 'dashboard', 'dash', 'portal', 'web', 'admin', 'my']);
+
+// Which source each automatically matched icon came from — a selfh.st URL,
+// the Google favicon URL, or generated initials — kept in chrome.storage.local
+// so the next new tab can paint it at once instead of probing candidates over
+// the network again. Keyed like the in-memory cache (url + name + icon), so a
+// renamed or re-pointed link is matched afresh.
+const ICON_SOURCES_KEY = 'iconSourcesV1';
+const GENERATED_SOURCE = 'generated';
+const SOURCE_FRESH_FOR = 7 * 24 * 60 * 60 * 1000;      // then re-matched in the background
+const GENERATED_FRESH_FOR = 24 * 60 * 60 * 1000;       // initials (e.g. matched offline): retried daily
+const SOURCE_FORGET_AFTER = 60 * 24 * 60 * 60 * 1000;  // links not seen for two months
+const GOOGLE_FAVICON_PREFIX = 'https://www.google.com/s2/favicons?';
+
+let pendingSources = null;
+let sourcesFlushTimer = null;
 
 // Fallback icon generation
 const FALLBACK_COLORS = [
@@ -114,10 +129,11 @@ export async function loadIconWithCache(link, options = {}) {
         //    This is the primary source and works for internal/homelab apps
         //    without ever contacting the internal host.
         if (compliantOptions.allowSelfhst !== false) {
-            iconUrl = await loadSelfhstIcon(link, compliantOptions.timeout);
-            if (iconUrl) {
-                await cacheIcon(cacheKey, iconUrl, ICON_SOURCES.SELFHST);
-                return iconUrl;
+            const match = await loadSelfhstIcon(link, compliantOptions.timeout);
+            if (match) {
+                rememberIconSource(link, match.url);
+                await cacheIcon(cacheKey, match.src, ICON_SOURCES.SELFHST);
+                return match.src;
             }
         }
 
@@ -126,6 +142,7 @@ export async function loadIconWithCache(link, options = {}) {
         if (compliantOptions.allowFavicon) {
             iconUrl = await loadGoogleFaviconIcon(link.url, compliantOptions.timeout);
             if (iconUrl) {
+                rememberIconSource(link, iconUrl);
                 await cacheIcon(cacheKey, iconUrl, ICON_SOURCES.GOOGLE);
                 return iconUrl;
             }
@@ -135,6 +152,7 @@ export async function loadIconWithCache(link, options = {}) {
         if (compliantOptions.allowGenerated) {
             iconUrl = generateFallbackIcon(link);
             if (iconUrl) {
+                rememberIconSource(link, GENERATED_SOURCE);
                 await cacheIcon(cacheKey, iconUrl, ICON_SOURCES.GENERATED);
                 return iconUrl;
             }
@@ -260,7 +278,8 @@ export function selfhstIconUrl(slug) {
  * apps by name without ever contacting the internal host.
  * @param {Object} link - Link object
  * @param {number} timeout - Timeout in milliseconds
- * @returns {Promise<string|null>} - Icon URL or null
+ * @returns {Promise<{src: string, url: string}|null>} - what to render (the
+ *   stored data: URI, or the URL) and the icon's URL; null when none matched
  */
 async function loadSelfhstIcon(link, timeout) {
     if (!link) return null;
@@ -271,10 +290,10 @@ async function loadSelfhstIcon(link, timeout) {
         // 404 skips the probe (it would just repeat the miss); indeterminate
         // failures (CORS/offline-but-HTTP-cached) still get the probe.
         const stored = await loadStoredIcon(url, timeout);
-        if (stored.data) return stored.data;
+        if (stored.data) return { src: stored.data, url };
         if (stored.notFound) continue;
         const result = await testImageLoad(url, timeout);
-        if (result) return result;
+        if (result) return { src: result, url };
     }
     return null;
 }
@@ -507,6 +526,114 @@ async function cacheIcon(cacheKey, iconUrl, source) {
     } catch (error) {
         console.warn('Failed to cache icon:', error);
     }
+}
+
+/**
+ * Remember which source an automatically matched icon came from (written in
+ * one batch shortly after, so a page of tiles is a single storage write).
+ * @param {Object} link
+ * @param {string} src - Icon URL, or GENERATED_SOURCE
+ */
+function rememberIconSource(link, src) {
+    pendingSources = { ...pendingSources, [generateCacheKey(link)]: { src, at: Date.now() } };
+    if (!sourcesFlushTimer) sourcesFlushTimer = setTimeout(flushIconSources, 500);
+}
+
+async function flushIconSources() {
+    sourcesFlushTimer = null;
+    const updates = pendingSources;
+    pendingSources = null;
+    if (!updates) return;
+    try {
+        const { [ICON_SOURCES_KEY]: stored } = await chrome.storage.local.get(ICON_SOURCES_KEY);
+        const now = Date.now();
+        const sources = {};
+        for (const [key, value] of Object.entries(stored ?? {})) {
+            if (now - (value?.at ?? 0) < SOURCE_FORGET_AFTER) sources[key] = value;
+        }
+        for (const [key, value] of Object.entries(updates)) {
+            // A re-match that only got as far as initials (e.g. offline) keeps
+            // the logo found before.
+            const previous = sources[key];
+            if (value.src === GENERATED_SOURCE && previous && previous.src !== GENERATED_SOURCE) continue;
+            sources[key] = value;
+        }
+        await chrome.storage.local.set({ [ICON_SOURCES_KEY]: sources });
+    } catch (error) {
+        debug('Could not remember icon sources:', error);
+    }
+}
+
+/**
+ * The icons this device can show in the new tab's first paint, without the
+ * network: custom icons and remembered selfh.st matches whose bytes are
+ * stored, remembered Google favicons (served from the browser's HTTP cache)
+ * and generated initials. Icons not listed load after the first paint.
+ * @param {Object[]} links
+ * @returns {Promise<Map<Object, {src: string, fresh: boolean, storedUrl: string|null}>>}
+ *   per link object: src for img.src; fresh = no need to match it again
+ *   (only its stored bytes revalidate); storedUrl = the byte-store entry it came from
+ */
+export async function resolveCachedIcons(links) {
+    const result = new Map();
+    const misses = [];
+    for (const link of links ?? []) {
+        if (!link) continue;
+        const inMemory = getCachedIcon(generateCacheKey(link));
+        if (inMemory) result.set(link, { src: inMemory.url, fresh: true, storedUrl: null });
+        else misses.push(link);
+    }
+    if (misses.length === 0) return result;
+
+    let sources = {};
+    try {
+        ({ [ICON_SOURCES_KEY]: sources = {} } = await chrome.storage.local.get(ICON_SOURCES_KEY));
+    } catch {
+        // Nothing remembered: custom icons can still come from the byte store.
+    }
+    const now = Date.now();
+    const fromStore = new Map(); // link -> { url, fresh }
+    for (const link of misses) {
+        const custom = String(link.icon ?? '').trim();
+        if (custom && custom !== 'default') {
+            if (/^data:/i.test(custom)) {
+                if (validateDataUrl(custom)) result.set(link, { src: custom, fresh: true, storedUrl: null });
+            } else {
+                fromStore.set(link, { url: custom, fresh: true });
+            }
+            continue;
+        }
+        const remembered = sources?.[generateCacheKey(link)];
+        if (typeof remembered?.src !== 'string') continue;
+        const freshFor = remembered.src === GENERATED_SOURCE ? GENERATED_FRESH_FOR : SOURCE_FRESH_FOR;
+        const fresh = now - (remembered.at ?? 0) < freshFor;
+        if (remembered.src === GENERATED_SOURCE) {
+            const generated = generateFallbackIcon(link);
+            if (generated) result.set(link, { src: generated, fresh, storedUrl: null });
+        } else if (remembered.src.startsWith(GOOGLE_FAVICON_PREFIX)) {
+            result.set(link, { src: remembered.src, fresh, storedUrl: null });
+        } else {
+            fromStore.set(link, { url: remembered.src, fresh });
+        }
+    }
+
+    // readStoredIcons only reads the pinned icon hosts, as loadCustomIcon allows.
+    const stored = await readStoredIcons([...fromStore.values()].map(entry => entry.url));
+    for (const [link, { url, fresh }] of fromStore) {
+        const data = stored.get(url);
+        if (data) result.set(link, { src: data, fresh, storedUrl: url });
+    }
+    return result;
+}
+
+/**
+ * Background upkeep for an icon the first paint took from this device:
+ * revalidates its stored bytes (weekly) and keeps it in the store's LRU.
+ * @param {{storedUrl: string|null}} cached - from resolveCachedIcons
+ * @param {number} [timeout]
+ */
+export async function refreshCachedIcon(cached, timeout = CACHE_CONFIG.timeout) {
+    if (cached?.storedUrl) await loadStoredIcon(cached.storedUrl, timeout);
 }
 
 /**
