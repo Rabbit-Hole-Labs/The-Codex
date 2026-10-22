@@ -1,7 +1,7 @@
 // Data Verification and Inspection Utility
 import { escapeHtml } from './utils.js';
-import { syncGet } from '../core-systems/syncStorage.js';
-import { PENDING_SYNC_PREFIX } from '../core-systems/storageFormat.js';
+import { syncGetChecked } from '../core-systems/syncStorage.js';
+import { PENDING_SYNC_PREFIX, parseStoredArray } from '../core-systems/storageFormat.js';
 
 // What chrome.storage.sync carries between devices. Everything else in
 // chrome.storage.local — the icon cache, remembered icon matches, the error
@@ -33,11 +33,15 @@ export class DataVerification {
         this.isFormatted = false;
     }
 
-    // Get all data from sync storage (links reassembled from their chunks)
+    // Get all data from sync storage (links reassembled from their chunks;
+    // summary.linksConsistent is false while another device's save of them
+    // has only partly arrived)
     async getCloudData() {
         try {
-            const data = await syncGet(null);
-            return this.processStorageData(data, 'cloud');
+            const { data, consistent } = await syncGetChecked(null);
+            const processed = this.processStorageData(data, 'cloud');
+            processed.summary.linksConsistent = consistent;
+            return processed;
         } catch (error) {
             throw new Error(`Failed to get cloud data: ${error.message}`);
         }
@@ -69,23 +73,26 @@ export class DataVerification {
             }
         };
 
-        // Parse known data structures
-        try {
-            if (rawData.links) {
-                processed.parsed.links = JSON.parse(rawData.links);
-                processed.summary.linkCount = processed.parsed.links.length;
+        // Parse known data structures: stored as JSON strings, or as raw
+        // arrays by older builds (both healthy, see parseStoredArray)
+        if (rawData.links !== undefined) {
+            const links = parseStoredArray(rawData.links);
+            if (links) {
+                processed.parsed.links = links;
+                processed.summary.linkCount = links.length;
+            } else {
+                processed.parsed.linksError = 'Failed to parse links';
             }
-        } catch {
-            processed.parsed.linksError = 'Failed to parse links';
         }
 
-        try {
-            if (rawData.categories) {
-                processed.parsed.categories = JSON.parse(rawData.categories);
-                processed.summary.categoryCount = processed.parsed.categories.length;
+        if (rawData.categories !== undefined) {
+            const categories = parseStoredArray(rawData.categories);
+            if (categories) {
+                processed.parsed.categories = categories;
+                processed.summary.categoryCount = categories.length;
+            } else {
+                processed.parsed.categoriesError = 'Failed to parse categories';
             }
-        } catch {
-            processed.parsed.categoriesError = 'Failed to parse categories';
         }
 
         // Include other data
@@ -162,7 +169,7 @@ export class DataVerification {
         const modified = [];
         common.forEach(localLink => {
             const cloudLink = cloudLinks.find(link => link.url === localLink.url);
-            if (JSON.stringify(localLink) !== JSON.stringify(cloudLink)) {
+            if (canonicalJson(localLink) !== canonicalJson(cloudLink)) {
                 modified.push({
                     url: localLink.url,
                     local: localLink,
@@ -263,10 +270,16 @@ export class DataVerification {
      */
     listSyncDifferences(localData, cloudData) {
         const reasons = [];
-        if (canonicalJson(localData.parsed.links ?? []) !== canonicalJson(cloudData.parsed.links ?? [])) {
+        if (cloudData.summary.linksConsistent === false) {
+            reasons.push('Links saved on another device are still arriving in Chrome sync; compare again in a moment.');
+        }
+        const unreadable = (field) => localData.parsed[`${field}Error`] || cloudData.parsed[`${field}Error`];
+        if (unreadable('links')
+            || canonicalJson(localData.parsed.links ?? []) !== canonicalJson(cloudData.parsed.links ?? [])) {
             reasons.push('The links differ (this device keeps a copy from its last Sync now).');
         }
-        if (canonicalJson(localData.parsed.categories ?? []) !== canonicalJson(cloudData.parsed.categories ?? [])) {
+        if (unreadable('categories')
+            || canonicalJson(localData.parsed.categories ?? []) !== canonicalJson(cloudData.parsed.categories ?? [])) {
             reasons.push('The categories differ.');
         }
         const localVersion = localData.raw.syncMetadata?.version ?? 0;

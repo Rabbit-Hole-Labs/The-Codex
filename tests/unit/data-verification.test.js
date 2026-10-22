@@ -92,6 +92,39 @@ describe('Compare data', () => {
         ]);
     });
 
+    test('lists stored as raw arrays (older builds) are read, not compared as empty', async () => {
+        fake.seed('sync', { links: [link(1), link(2)], categories: ['Default', 'Work'] });
+        fake.seed('local', { links: [link(1)], categories: ['Default', 'Work'] });
+
+        const { summary, local, cloud } = await dataVerification.compareData();
+
+        expect([local.summary.linkCount, cloud.summary.linkCount]).toEqual([1, 2]);
+        expect(summary.isInSync).toBe(false);
+        expect(summary.differences).toEqual([expect.stringMatching(/^The links differ/)]);
+    });
+
+    test('a cloud save still arriving from another device is not judged', async () => {
+        const { encodeLinksForSync } = await import('../../javascript/core-systems/syncStorage.js');
+        // The manifest of a newer save arrived; its chunks haven't yet.
+        const { items } = encodeLinksForSync(JSON.stringify([link(1), link(2), link(3)]));
+        fake.seed('sync', { linksManifest: items.linksManifest });
+
+        const { summary } = await dataVerification.compareData();
+
+        expect(summary.isInSync).toBe(false);
+        expect(summary.differences[0]).toMatch(/still arriving in Chrome sync; compare again in a moment/);
+    });
+
+    test('links that differ only in key order are neither out of sync nor "modified"', async () => {
+        const reordered = [link(1), link(2)].map(({ url, id, name, category }) => ({ url, id, category, name }));
+        fake.seed('local', { links: JSON.stringify(reordered) });
+
+        const comparison = await dataVerification.compareData();
+
+        expect(comparison.summary.isInSync).toBe(true);
+        expect(comparison.differences.links.modified).toEqual([]);
+    });
+
     test('a device that never synced is not in sync with a cloud that holds links', async () => {
         fake.seed('local', { links: undefined });
         await chrome.storage.local.remove(['links', 'categories', 'syncMetadata']);
