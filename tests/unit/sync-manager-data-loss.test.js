@@ -527,6 +527,18 @@ describe('Regression: SyncManager must not revert cloud data', () => {
             expect(result.warning).toMatch(/^1 link saved only on this device was replaced by newer changes in the cloud\./);
         });
 
+        test('same-URL links listed in another order are not counted', async () => {
+            const a = { ...link(1), name: 'Admin' };
+            const b = { ...link(1), name: 'Dashboard' }; // same URL
+            await withSyncWritesFailing(() => saveLinks(withId([a, b], 'local')));
+            await chrome.storage.sync.set({ links: JSON.stringify(withId([b, a], 'cloud')) });
+
+            const result = await syncManager.syncData();
+
+            expect(result.success).toBe(true);
+            expect(result.warning).toBeUndefined();
+        });
+
         test('count only real changes when ids also differ', async () => {
             const local = withId([link(1), { ...link(2), icon: 'https://cdn.jsdelivr.net/gh/selfhst/icons/webp/plex.webp' }], 'local');
             await withSyncWritesFailing(() => saveLinks(local));

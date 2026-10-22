@@ -34,12 +34,13 @@ let sourcesFlushTimer = null;
  * Key a link's remembered source (and its in-memory cache entry) by url,
  * name and icon, so a renamed or re-pointed link is matched afresh. No icon
  * ('', null) and 'default' are the same: the new tab loads 'default' as null.
+ * JSON keeps the parts apart (a ':' in a name can't pass for a port).
  * @param {Object} link
  * @returns {string}
  */
 export function iconCacheKey(link) {
     const icon = link.icon && link.icon !== 'default' ? link.icon : '';
-    return `${link.url}:${link.name}:${icon}`;
+    return JSON.stringify([link.url ?? '', link.name ?? '', icon]);
 }
 
 /**
@@ -106,7 +107,9 @@ export async function resolveCachedIcons(links, { inMemory, initialsFor }) {
     for (const link of links ?? []) {
         if (!link) continue;
         const src = inMemory(link);
-        if (src) result.set(link, { src, fresh: true, storedUrl: null, network: false });
+        // Anything but a data: URI (e.g. a favicon this page resolved) can
+        // still fail to load on a re-render.
+        if (src) result.set(link, { src, fresh: true, storedUrl: null, network: !/^data:/i.test(src) });
         else misses.push(link);
     }
     if (misses.length === 0) return result;

@@ -16,7 +16,7 @@ const PNG = 'data:image/png;base64,iVBORw0KGgo=';
 const DAY = 24 * 60 * 60 * 1000;
 const iconUrl = (slug) => `https://cdn.jsdelivr.net/gh/selfhst/icons/webp/${slug}.webp`;
 const storedIcon = (url, data = PNG) => ({ [`iconV1:${url}`]: { url, data, size: data.length, fetchedAt: Date.now(), lastUsed: Date.now() } });
-const sourceKey = (link) => `${link.url}:${link.name}:${link.icon && link.icon !== 'default' ? link.icon : ''}`;
+const sourceKey = (link) => JSON.stringify([link.url, link.name, link.icon && link.icon !== 'default' ? link.icon : '']);
 
 const link = (name, extra = {}) => ({
     id: `id-${name}`,
@@ -106,6 +106,26 @@ describe('resolveCachedIcons: what the first paint can show without the network'
 
         expect(found.get(week)).toMatchObject({ src: PNG, fresh: false });
         expect(found.get(initials)).toMatchObject({ fresh: false }); // initials retry daily
+    });
+
+    test('an icon this page already resolved keeps the fallback if it is a network URL', async () => {
+        const { resolveCachedIcons } = await import('../../javascript/features/iconSources.js');
+        const favicon = link('Wiki');
+        const stored = link('Plex');
+        const inMemory = (l) => (l === favicon ? 'https://www.google.com/s2/favicons?domain=wiki&sz=128' : PNG);
+
+        const found = await resolveCachedIcons([favicon, stored], { inMemory, initialsFor: () => null });
+
+        expect(found.get(favicon)).toMatchObject({ fresh: true, network: true });
+        expect(found.get(stored)).toMatchObject({ fresh: true, network: false });
+    });
+
+    test('links whose url and name only join alike keep separate remembered sources', async () => {
+        const { iconCacheKey } = await import('../../javascript/features/iconSources.js');
+        const a = { url: 'https://host', name: '8080:Admin', icon: 'default' };
+        const b = { url: 'https://host:8080', name: 'Admin', icon: null };
+        expect(iconCacheKey(a)).not.toBe(iconCacheKey(b));
+        expect(iconCacheKey({ ...a, icon: null })).toBe(iconCacheKey(a)); // no icon = 'default'
     });
 
     test('a remembered source on any other host is never painted', async () => {

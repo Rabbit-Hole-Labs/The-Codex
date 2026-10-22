@@ -124,8 +124,10 @@ const withoutId = ({ id, ...content }) => content;
 // value differs.
 function entriesCloudLacks(local, cloud, field, { countReorder = false } = {}) {
     if (field === 'links') {
-        // Each cloud link answers for one local link — same id first, then
-        // same URL — so a duplicate the cloud holds once still counts.
+        // Each cloud link answers for one local link: the one with its id,
+        // else one with the same content (ids aside). A local link left
+        // without an equal counterpart is lost — so a duplicate the cloud
+        // holds once still counts, and duplicates in another order don't.
         const unmatched = (parseStoredArray(cloud.links) ?? []).filter(isLinkEntry);
         const take = (matches) => {
             const index = unmatched.findIndex(matches);
@@ -134,7 +136,7 @@ function entriesCloudLacks(local, cloud, field, { countReorder = false } = {}) {
         const localLinks = (parseStoredArray(local.links) ?? []).filter(isLinkEntry);
         const counterparts = localLinks.map(link => (link.id != null ? take(other => other.id === link.id) : null));
         localLinks.forEach((link, i) => {
-            counterparts[i] ??= take(other => other.url === link.url);
+            counterparts[i] ??= take(other => sameStoredValue(withoutId(other), withoutId(link)));
         });
         return localLinks.filter((link, i) =>
             !counterparts[i] || !sameStoredValue(withoutId(link), withoutId(counterparts[i]))).length;
