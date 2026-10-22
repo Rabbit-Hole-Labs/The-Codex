@@ -70,13 +70,36 @@ describe('Compare data', () => {
         expect(dataVerification.renderComparison(await dataVerification.compareData())).toContain('Why not in sync');
     });
 
-    test('a reorder counts; a re-serialization (key order) does not', async () => {
+    test('a reorder counts, and says so; a re-serialization (key order) does not', async () => {
         fake.seed('local', { links: JSON.stringify([link(2), link(1)]) });
-        expect((await dataVerification.compareData()).summary.differences).toEqual([expect.stringMatching(/^The links differ/)]);
+        const comparison = await dataVerification.compareData();
+        expect(comparison.summary.differences).toEqual([expect.stringMatching(/^The links are the same, in a different order/)]);
+        // The details name the reorder, not just three zero counts.
+        expect(comparison.differences.links).toMatchObject({ onlyLocal: [], onlyCloud: [], modified: [], reordered: true });
+        expect(dataVerification.renderComparison(comparison)).toContain('Same links, in a different order');
 
         const reordered = [link(1), link(2)].map(({ url, id, name, category }) => ({ url, id, category, name }));
         fake.seed('local', { links: JSON.stringify(reordered) });
         expect((await dataVerification.compareData()).summary.isInSync).toBe(true);
+    });
+
+    test('categories in a different order are reported as a reorder, in the reason and the details', async () => {
+        fake.seed('local', { categories: JSON.stringify(['Work', 'Default']) });
+
+        const comparison = await dataVerification.compareData();
+
+        expect(comparison.summary.isInSync).toBe(false);
+        expect(comparison.summary.differences).toEqual(['The categories are the same, in a different order.']);
+        expect(comparison.differences.categories).toMatchObject({ onlyLocal: [], onlyCloud: [], reordered: true });
+        const html = dataVerification.renderComparison(comparison);
+        expect(html).toContain('Same categories, in a different order');
+        expect(html).not.toContain('Same links, in a different order');
+
+        // Different categories are not a reorder.
+        fake.seed('local', { categories: JSON.stringify(['Default', 'Home']) });
+        const changed = await dataVerification.compareData();
+        expect(changed.summary.differences).toEqual(['The categories differ.']);
+        expect(changed.differences.categories.reordered).toBe(false);
     });
 
     test('another device having synced since, or a change waiting for Sync now, is reported', async () => {

@@ -27,6 +27,14 @@ function canonicalJson(value) {
     return JSON.stringify(sortKeys(value ?? null));
 }
 
+/** Whether two lists hold the same items (repeats counted) in a different order. */
+function sameItemsReordered(localArray, cloudArray) {
+    const local = localArray.map(canonicalJson);
+    const cloud = cloudArray.map(canonicalJson);
+    return JSON.stringify(local) !== JSON.stringify(cloud)
+        && JSON.stringify([...local].sort()) === JSON.stringify([...cloud].sort());
+}
+
 export class DataVerification {
     constructor() {
         this.modal = null;
@@ -182,6 +190,7 @@ export class DataVerification {
             onlyLocal,
             onlyCloud,
             modified,
+            reordered: sameItemsReordered(localLinks, cloudLinks),
             totalLocal: localLinks.length,
             totalCloud: cloudLinks.length
         };
@@ -196,6 +205,7 @@ export class DataVerification {
             onlyLocal: localArray.filter(item => !cloudSet.has(item)),
             onlyCloud: cloudArray.filter(item => !localSet.has(item)),
             common: localArray.filter(item => cloudSet.has(item)),
+            reordered: sameItemsReordered(localArray, cloudArray),
             totalLocal: localArray.length,
             totalCloud: cloudArray.length
         };
@@ -273,15 +283,18 @@ export class DataVerification {
         if (cloudData.summary.linksConsistent === false) {
             reasons.push('Links saved on another device are still arriving in Chrome sync; compare again in a moment.');
         }
-        const unreadable = (field) => localData.parsed[`${field}Error`] || cloudData.parsed[`${field}Error`];
-        if (unreadable('links')
-            || canonicalJson(localData.parsed.links ?? []) !== canonicalJson(cloudData.parsed.links ?? [])) {
-            reasons.push('The links differ (this device keeps a copy from its last Sync now).');
-        }
-        if (unreadable('categories')
-            || canonicalJson(localData.parsed.categories ?? []) !== canonicalJson(cloudData.parsed.categories ?? [])) {
-            reasons.push('The categories differ.');
-        }
+        // "The links differ.", or "The links are the same, in a different order."
+        const listDifference = (field) => {
+            const local = localData.parsed[field] ?? [];
+            const cloud = cloudData.parsed[field] ?? [];
+            if (localData.parsed[`${field}Error`] || cloudData.parsed[`${field}Error`]) return `The ${field} differ`;
+            if (canonicalJson(local) === canonicalJson(cloud)) return null;
+            return sameItemsReordered(local, cloud) ? `The ${field} are the same, in a different order` : `The ${field} differ`;
+        };
+        const links = listDifference('links');
+        if (links) reasons.push(`${links} (this device keeps a copy from its last Sync now).`);
+        const categories = listDifference('categories');
+        if (categories) reasons.push(`${categories}.`);
         const localVersion = localData.raw.syncMetadata?.version ?? 0;
         const cloudVersion = cloudData.raw.syncMetadata?.version ?? 0;
         if (localVersion !== cloudVersion) {
@@ -649,11 +662,11 @@ ${summary.differences.map(reason => `• ${escapeHtml(reason)}`).join('\n')}
 • Only Local: ${diff.links.onlyLocal.length}
 • Only Cloud: ${diff.links.onlyCloud.length}
 • Modified: ${diff.links.modified.length}
-
+${diff.links.reordered ? '• Same links, in a different order\n' : ''}
 <strong>Category Differences:</strong>
 • Only Local: ${escapeHtml(diff.categories.onlyLocal.join(', ') || 'None')}
 • Only Cloud: ${escapeHtml(diff.categories.onlyCloud.join(', ') || 'None')}
-
+${diff.categories.reordered ? '• Same categories, in a different order\n' : ''}
 <strong>Metadata Status:</strong>
 ${escapeHtml(JSON.stringify(diff.metadata, null, 2))}
             </div>
