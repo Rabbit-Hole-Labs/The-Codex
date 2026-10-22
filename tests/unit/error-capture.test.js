@@ -22,11 +22,23 @@ describe('formatCapturedErrors', () => {
             ts: 0,
             source: 'index.html:1'
         }]);
-        expect(out).toContain('[newtab]');
+        // No recorded build: logged by 7.0.0.42 or older.
+        expect(out).toContain('[newtab ≤v7.0.0.42]');
         expect(out).toContain('csp-violation');
         expect(out).toContain('https://evil.example.com');
         expect(out).toContain('×3');
         expect(out).toContain('at index.html:1');
+    });
+
+    it('shows the build that logged each entry', () => {
+        const out = formatCapturedErrors([{
+            context: 'manage',
+            version: '7.0.0.43',
+            type: 'console.warn',
+            message: 'something',
+            ts: 0
+        }]);
+        expect(out).toContain('[manage v7.0.0.43] console.warn: something');
     });
 });
 
@@ -77,6 +89,23 @@ describe('owner-context capture (mocked chrome.storage)', () => {
         expect(entry).toBeTruthy();
         expect(entry.type).toBe('console.error');
         expect(entry.count).toBe(2);
+    });
+
+    it('records the build, and does not fold a newer build\'s repeat into an older build\'s entry', async () => {
+        // Logged by a build from before versions were recorded.
+        store.codexErrorLog = [{
+            context: 'newtab', type: 'console.error', message: 'CAPTURE_TEST old build',
+            source: '', ts: 1, firstTs: 1, lastTs: 1, count: 5
+        }];
+        initErrorCapture('service-worker');
+        console.error('CAPTURE_TEST old build');
+        await flush();
+
+        const matches = (await getCapturedErrors()).filter((e) => e.message === 'CAPTURE_TEST old build');
+        expect(matches).toHaveLength(2);
+        expect(matches[0]).toMatchObject({ count: 5, lastTs: 1 });
+        expect(matches[0].version).toBeUndefined();
+        expect(matches[1]).toMatchObject({ count: 1, version: 'test' });
     });
 
     it('captures an uncaught error event with source and stack', async () => {

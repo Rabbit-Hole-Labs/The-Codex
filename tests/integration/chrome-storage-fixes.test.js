@@ -117,8 +117,10 @@ describe('Storage Manager Functionality', () => {
 
       // Verify that save was successful
       expect(result).toBe(true);
+      // A list that fits one sync item is stored as-is, with its manifest.
       expect(mockChromeStorage.sync.set).toHaveBeenCalledWith({
-        links: JSON.stringify(validLinks)
+        links: JSON.stringify(validLinks),
+        linksManifest: { chunks: 1, hashes: [expect.any(String)] }
       });
     });
 

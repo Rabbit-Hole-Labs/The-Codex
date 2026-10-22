@@ -11,6 +11,7 @@
  */
 import { jest } from '@jest/globals';
 import { installChromeStorageFake, itemBytes } from '../helpers/chromeStorageFake.js';
+import { encodeLinksForSync } from '../../javascript/core-systems/syncStorage.js';
 
 const link = (i) => ({
     id: `link_${i}`,
@@ -24,15 +25,13 @@ const stored = (fake, area, key) => {
     return value === undefined ? undefined : JSON.parse(value);
 };
 
-// Far over the 8 KB per-item sync quota once Chrome re-escapes the JSON string.
-const OVERSIZED_LINKS = Array.from({ length: 200 }, (_, i) => link(i));
+// Over the 100 KB sync total even split across items (~110 KB in 14 items),
+// so Chrome rejects the write and saves fall back to local.
+const OVERSIZED_LINKS = Array.from({ length: 1000 }, (_, i) => link(i));
 
-// Passes saveLinks' 8000-character check but is over Chrome's 8192-byte item
-// quota once the JSON string is escaped again, so the save falls back to local.
-const OVER_QUOTA_UNDER_PREFLIGHT_LINKS = [];
-while (JSON.stringify([...OVER_QUOTA_UNDER_PREFLIGHT_LINKS, link(0)]).length < 8000) {
-    OVER_QUOTA_UNDER_PREFLIGHT_LINKS.push(link(OVER_QUOTA_UNDER_PREFLIGHT_LINKS.length));
-}
+// Bytes the sync items storing these links take (chunks plus manifest).
+const chunkedBytes = (links) => Object.entries(encodeLinksForSync(JSON.stringify(links)).items)
+    .reduce((sum, [key, value]) => sum + itemBytes(key, value), 0);
 
 async function flushAsyncWork() {
     await new Promise((resolve) => setTimeout(resolve, 0));
@@ -309,12 +308,12 @@ describe('Regression: SyncManager must not revert cloud data', () => {
         const cloud = [link(1)];
         fake.seed('sync', { links: JSON.stringify(cloud), categories: JSON.stringify(['Default']) });
         fake.seed('local', { links: JSON.stringify(OVERSIZED_LINKS), categories: JSON.stringify(['Default']) });
-        expect(itemBytes('links', JSON.stringify(OVERSIZED_LINKS))).toBeGreaterThan(8192);
+        expect(chunkedBytes(OVERSIZED_LINKS)).toBeGreaterThan(102400);
 
         const result = await syncManager.forcePushToRemote();
 
         expect(result.success).toBe(false);
-        expect(result.error).toMatch(/kQuotaBytesPerItem/);
+        expect(result.error).toMatch(/kQuotaBytes quota exceeded/);
         const names = events.map((e) => e.event);
         expect(names).toContain('syncError');
         expect(names).not.toContain('syncComplete');
@@ -332,7 +331,7 @@ describe('Regression: SyncManager must not revert cloud data', () => {
         const errors = events.filter((e) => e.event === 'syncError');
         expect(errors).toHaveLength(1);
         expect(errors[0].data.type).toBe('quota_exceeded');
-        expect(result.error).toMatch(/^Chrome sync storage quota exceeded\. \(Resource::kQuotaBytesPerItem/);
+        expect(result.error).toMatch(/^Chrome sync storage quota exceeded\. \(Resource::kQuotaBytes quota/);
     });
 
     test('a write-rate rejection says to wait and retry', async () => {
@@ -545,8 +544,7 @@ describe('Regression: SyncManager must not revert cloud data', () => {
         });
 
         test('stay pending when the push is over quota, and the failure is reported', async () => {
-            const links = OVER_QUOTA_UNDER_PREFLIGHT_LINKS;
-            expect(itemBytes('links', JSON.stringify(links))).toBeGreaterThan(8192);
+            const links = OVERSIZED_LINKS;
             expect(await saveLinks(links)).toBe(true); // the real quota makes it fall back
 
             const result = await syncManager.syncData();
@@ -1012,8 +1010,12 @@ describe('Regression: SyncManager must not revert cloud data', () => {
 
             expect(first.success).toBe(true); // the cloud took it; keeping the extra copy is best effort
             expect(fake.dump('local').syncMetadata.version).toBe(fake.dump('sync').syncMetadata.version);
-            // Another device deletes link 1 and records its sync.
-            fake.seed('sync', { links: JSON.stringify([link(2), link(3)]), syncMetadata: { version: 10, lastModified: 10 } });
+            // Another device deletes link 1 and records its sync (writing the
+            // links with their manifest, as every save does).
+            fake.seed('sync', {
+                ...encodeLinksForSync(JSON.stringify([link(2), link(3)])).items,
+                syncMetadata: { version: 10, lastModified: 10 }
+            });
 
             expect((await syncManager.syncData()).success).toBe(true);
             expect(stored(fake, 'sync', 'links').map((l) => l.id)).not.toContain('link_1');
@@ -1140,6 +1142,7 @@ describe('Regression: SyncManager must not revert cloud data', () => {
             // Cleared to explicit empty/default values in one write (never an empty area).
             expect(fake.dump('sync')).toEqual({
                 links: '[]',
+                linksManifest: { chunks: 1, hashes: [expect.any(String)] },
                 categories: '["Default"]',
                 theme: 'dark',
                 view: 'grid',
@@ -1216,6 +1219,7 @@ describe('Regression: SyncManager must not revert cloud data', () => {
             safeUpdateState({ links: [link(1)] }, { validate: false, skipPersistence: true });
 
             await chrome.storage.sync.remove('links');
+            await flushAsyncWork(); // a links change re-reads every chunk first
 
             expect(getState().links).toEqual([]);
         });

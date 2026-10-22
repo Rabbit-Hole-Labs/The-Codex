@@ -7,6 +7,7 @@ import { validateIconValue } from '../features/iconCache.js';
 import { debug, debugWarn, debugError } from './debug.js';
 import { pendingSyncKey, cloudValueFingerprint, SYNC_CLEARED_AT_KEY, coerceSettings, backfillLinkIds, SETTING_ENUMS } from './storageFormat.js';
 import { withPendingSyncLock } from './storageLock.js';
+import { syncGet, syncSet } from './syncStorage.js';
 const { ERROR_TYPES, ERROR_SEVERITY } = errorHandler;
 
 // The cloud values a save is based on, read BEFORE its sync write: if that
@@ -16,7 +17,7 @@ const { ERROR_TYPES, ERROR_SEVERITY } = errorHandler;
 // newest, keeps the cloud and sets the local copy aside.
 async function cloudBeforeSave(fields) {
     try {
-        return await chrome.storage.sync.get([...fields, SYNC_CLEARED_AT_KEY]);
+        return await syncGet([...fields, SYNC_CLEARED_AT_KEY]);
     } catch {
         return null;
     }
@@ -77,7 +78,7 @@ async function clearPendingSync(fields, { localCopies = false } = {}) {
 export async function loadLinks() {
     try {
         debug('STORAGE_MANAGER: Starting to load links from storage');
-        let data = await chrome.storage.sync.get(['links', 'theme', 'view', 'colorTheme', 'defaultTileSize', 'categories']);
+        let data = await syncGet(['links', 'theme', 'view', 'colorTheme', 'defaultTileSize', 'categories']);
         debug('STORAGE_MANAGER: Raw data loaded from sync storage', {
             hasLinks: !!data.links,
             linksType: data.links ? typeof data.links : 'undefined',
@@ -266,34 +267,21 @@ export async function saveLinks(links) {
             throw dataError;
         }
 
-        if (linksString.length > 8000) { // Chrome sync item size limit
-            const quotaError = new CodexError(
-                'Links data exceeds storage quota limit',
-                ERROR_TYPES.QUOTA,
-                ERROR_SEVERITY.HIGH,
-                {
-                    dataSize: linksString.length,
-                    limit: 8000
-                }
-            );
-            handleError(quotaError, {
-                context: 'storage-save-links',
-                showUserNotification: true,
-                logToConsole: true
-            });
-            throw quotaError;
-        }
-
-        // Try sync storage first (primary storage)
+        // Try sync storage first (primary storage). syncSet splits the links
+        // across several sync items when they outgrow Chrome's 8 KB per item.
         const cloudBefore = await cloudBeforeSave(['links']);
         try {
-            await chrome.storage.sync.set({ links: linksString });
+            await syncSet({ links: linksString });
             await clearPendingSync(['links']);
         } catch (syncError) {
             debugWarn('Sync storage failed, falling back to local storage', {
                 errorMessage: syncError.message,
                 errorStack: syncError.stack
             });
+            if (/QUOTA_BYTES|kQuotaBytes/.test(syncError.message ?? '')) {
+                console.warn(`[The Codex] Links (${Math.round(linksString.length / 1024)} KB) don't fit in Chrome sync storage; `
+                    + 'saved on this device only. Sync now uploads them once there is room.', syncError.message);
+            }
             
             // Fallback to local storage
             try {

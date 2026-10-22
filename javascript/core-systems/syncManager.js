@@ -7,6 +7,7 @@ import {
     parseStoredArray, pendingSyncKey, cloudValueFingerprint, PENDING_SYNC_FIELDS,
     SYNC_CLEARED_AT_KEY, SYNC_RESOLVED_AT_KEY, STORED_SETTING_DEFAULTS
 } from './storageFormat.js';
+import { syncGet, syncGetChecked, syncSet, readSyncLinks, isLinkStorageKey, linksChanged } from './syncStorage.js';
 
 // Confirm-dialog text for the destructive manual sync actions, shared by the
 // new-tab pill and the manage page's Sync tab so both describe the same thing.
@@ -208,8 +209,20 @@ const isQuotaBytesError = (message) => /QUOTA_BYTES|kQuotaBytes/.test(message ??
 const isMaxItemsError = (message) => /MAX_ITEMS|kMaxItems/.test(message ?? '');
 const isRateLimitError = (message) => /MAX_WRITE_OPERATIONS/.test(message ?? '');
 
+// A read of the cloud whose links chunks don't match their manifest: another
+// device's save has only partly arrived (see syncStorage.js).
+const LINKS_ARRIVING_MESSAGE = 'Links saved on another device are still arriving in Chrome sync.';
+
 // syncError payload for a failed chrome.storage.sync read or write.
 function syncStorageErrorEvent(rawMessage = '') {
+    if (rawMessage.startsWith(LINKS_ARRIVING_MESSAGE)) {
+        return {
+            type: 'sync_incomplete',
+            message: 'Your links are still syncing from another device.',
+            details: rawMessage,
+            recommendation: 'Try again in a moment.'
+        };
+    }
     if (isQuotaBytesError(rawMessage)) {
         return {
             type: 'quota_exceeded',
@@ -329,7 +342,7 @@ export class SyncManager {
                 return;
             }
             const touched = Object.entries(changes).some(([k, change]) =>
-                SyncManager.SYNCED_DATA_KEYS.includes(k) && change && 'newValue' in change);
+                (SyncManager.SYNCED_DATA_KEYS.includes(k) || isLinkStorageKey(k)) && change && 'newValue' in change);
             if (!touched) return;
             this.recordSyncActivity(changes);
         });
@@ -343,10 +356,11 @@ export class SyncManager {
             this.lastSyncTime = Date.now();
             await chrome.storage.local.set({ lastSyncTime: this.lastSyncTime, syncStatus: 'synced' });
 
+            // The links can span several sync items, not all in this change:
+            // count them from storage.
             let itemsSynced;
-            const linksChange = changes.links;
-            if (linksChange && typeof linksChange.newValue === 'string') {
-                try { itemsSynced = JSON.parse(linksChange.newValue).length; } catch { /* leave undefined */ }
+            if (linksChanged(changes)) {
+                try { itemsSynced = parseStoredArray((await readSyncLinks()).value)?.length; } catch { /* leave undefined */ }
             }
             this.notifyListeners('syncComplete', { time: this.lastSyncTime, itemsSynced });
         } catch (error) {
@@ -406,7 +420,7 @@ export class SyncManager {
     async getSyncMetadata() {
         try {
             const local = await chrome.storage.local.get(['syncMetadata']);
-            const sync = await chrome.storage.sync.get(['syncMetadata']);
+            const sync = await syncGet(['syncMetadata']);
 
             return {
                 local: local.syncMetadata || { version: 0, lastModified: 0 },
@@ -619,10 +633,16 @@ export class SyncManager {
         } catch (error) {
             throw Object.assign(error, { area: 'local' });
         }
+        let linksConsistent;
         try {
-            cloud = await chrome.storage.sync.get(['links', 'categories', ...SETTINGS_KEYS, 'syncMetadata', SYNC_CLEARED_AT_KEY]);
+            ({ data: cloud, consistent: linksConsistent } = await syncGetChecked(['links', 'categories', ...SETTINGS_KEYS, 'syncMetadata', SYNC_CLEARED_AT_KEY]));
         } catch (error) {
             throw Object.assign(error, { area: 'sync' });
+        }
+        // Deciding from half of another device's save could drop or upload a
+        // mixed list: wait for the rest (it syncs as one write).
+        if (!linksConsistent) {
+            throw Object.assign(new Error(`${LINKS_ARRIVING_MESSAGE} Try again in a moment.`), { area: 'sync' });
         }
         const noMetadata = { version: 0, lastModified: 0 };
         const metadata = { local: local.syncMetadata || noMetadata, remote: cloud.syncMetadata || noMetadata };
@@ -1014,7 +1034,7 @@ export class SyncManager {
     // in syncItems are left as they are. Returns { syncSaved, error }.
     async writeCloud(syncItems, metadata) {
         try {
-            await chrome.storage.sync.set({ ...pick(syncItems, Object.keys(syncItems ?? {})), syncMetadata: metadata });
+            await syncSet({ ...pick(syncItems, Object.keys(syncItems ?? {})), syncMetadata: metadata });
             debug('Sync data and version saved to sync storage');
             return { syncSaved: true };
         } catch (syncError) {
@@ -1221,7 +1241,7 @@ export class SyncManager {
         // For now, we'll just try to save as-is and handle errors
         // In a production app, you'd implement actual compression
         try {
-            await chrome.storage.sync.set(data);
+            await syncSet(data);
         } catch (error) {
             if (isQuotaBytesError(error.message)) {
                 debugError('Sync storage quota exceeded');
@@ -1269,7 +1289,7 @@ export class SyncManager {
     // True when chrome.storage.sync currently holds a non-empty links array.
     async hasSyncedData() {
         try {
-            const { links } = await chrome.storage.sync.get('links');
+            const { links } = await syncGet('links');
             if (Array.isArray(links)) return links.length > 0;
             if (typeof links === 'string') {
                 try { return JSON.parse(links).length > 0; } catch { return false; }
@@ -1384,7 +1404,7 @@ export class SyncManager {
             let cloudKeys;
             try {
                 cloudKeys = Object.keys(await chrome.storage.sync.get(null));
-                await chrome.storage.sync.set(cleared);
+                await syncSet(cleared);
             } catch (syncError) {
                 const event = syncStorageErrorEvent(syncError.message);
                 throw new Error(`${event.message} (${syncError.message})`);
@@ -1392,9 +1412,11 @@ export class SyncManager {
 
             // Keys we can't reset by value (e.g. linksView): remove them, best
             // effort. Leaving one behind is harmless, so a failure here doesn't
-            // fail the clear.
+            // fail the clear. The links' chunk keys stay: the write above
+            // already blanked them, and removing one could hit a save another
+            // device makes meanwhile.
             const clearedKeys = new Set(Object.keys(cleared));
-            const unknown = cloudKeys.filter(key => !clearedKeys.has(key));
+            const unknown = cloudKeys.filter(key => !clearedKeys.has(key) && !isLinkStorageKey(key));
             if (unknown.length > 0) {
                 try {
                     await chrome.storage.sync.remove(unknown);

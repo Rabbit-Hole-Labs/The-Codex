@@ -3,6 +3,7 @@
  */
 import { initErrorCapture } from '../features/errorCapture.js';
 import { parseStoredArray, LEGACY_COLOR_THEMES } from '../core-systems/storageFormat.js';
+import { syncGet } from '../core-systems/syncStorage.js';
 
 // Register global error capture as early as possible (service-worker context).
 initErrorCapture('service-worker');
@@ -28,7 +29,7 @@ chrome.runtime.onStartup.addListener(() => {
 
 async function verifyStorage() {
     try {
-        const data = await chrome.storage.sync.get(['links', 'categories']);
+        const data = await syncGet(['links', 'categories']);
 
         // links/categories are stored JSON-encoded, so a string that parses to
         // an array is healthy — only warn on genuine corruption (e.g. an object,
