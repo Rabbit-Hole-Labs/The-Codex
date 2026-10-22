@@ -1,6 +1,39 @@
 // Data Verification and Inspection Utility
 import { escapeHtml } from './utils.js';
-import { syncGet } from '../core-systems/syncStorage.js';
+import { syncGetChecked } from '../core-systems/syncStorage.js';
+import { PENDING_SYNC_FIELDS, pendingSyncKey, markerStillPending, parseStoredArray } from '../core-systems/storageFormat.js';
+
+// What chrome.storage.sync carries between devices. Everything else in
+// chrome.storage.local — the icon cache, remembered icon matches, the error
+// log, backups, sync status — belongs to this device and never syncs, so it
+// takes no part in whether the two are in sync.
+const SYNCED_KEYS = ['links', 'categories', 'theme', 'colorTheme', 'view', 'defaultTileSize', 'syncMetadata'];
+const ICON_CACHE_PREFIX = 'iconV1:';
+
+/** Bytes of a value as JSON (UTF-8). */
+function jsonBytes(value) {
+    return new Blob([JSON.stringify(value)]).size;
+}
+
+/** JSON with object keys sorted, so equal content compares equal. */
+function canonicalJson(value) {
+    const sortKeys = (v) => {
+        if (Array.isArray(v)) return v.map(sortKeys);
+        if (v && typeof v === 'object') {
+            return Object.fromEntries(Object.keys(v).sort().map(key => [key, sortKeys(v[key])]));
+        }
+        return v;
+    };
+    return JSON.stringify(sortKeys(value ?? null));
+}
+
+/** Whether two lists hold the same items (repeats counted) in a different order. */
+function sameItemsReordered(localArray, cloudArray) {
+    const local = localArray.map(canonicalJson);
+    const cloud = cloudArray.map(canonicalJson);
+    return JSON.stringify(local) !== JSON.stringify(cloud)
+        && JSON.stringify([...local].sort()) === JSON.stringify([...cloud].sort());
+}
 
 export class DataVerification {
     constructor() {
@@ -8,11 +41,15 @@ export class DataVerification {
         this.isFormatted = false;
     }
 
-    // Get all data from sync storage (links reassembled from their chunks)
+    // Get all data from sync storage (links reassembled from their chunks;
+    // summary.linksConsistent is false while another device's save of them
+    // has only partly arrived)
     async getCloudData() {
         try {
-            const data = await syncGet(null);
-            return this.processStorageData(data, 'cloud');
+            const { data, consistent } = await syncGetChecked(null);
+            const processed = this.processStorageData(data, 'cloud');
+            processed.summary.linksConsistent = consistent;
+            return processed;
         } catch (error) {
             throw new Error(`Failed to get cloud data: ${error.message}`);
         }
@@ -44,23 +81,26 @@ export class DataVerification {
             }
         };
 
-        // Parse known data structures
-        try {
-            if (rawData.links) {
-                processed.parsed.links = JSON.parse(rawData.links);
-                processed.summary.linkCount = processed.parsed.links.length;
+        // Parse known data structures: stored as JSON strings, or as raw
+        // arrays by older builds (both healthy, see parseStoredArray)
+        if (rawData.links !== undefined) {
+            const links = parseStoredArray(rawData.links);
+            if (links) {
+                processed.parsed.links = links;
+                processed.summary.linkCount = links.length;
+            } else {
+                processed.parsed.linksError = 'Failed to parse links';
             }
-        } catch {
-            processed.parsed.linksError = 'Failed to parse links';
         }
 
-        try {
-            if (rawData.categories) {
-                processed.parsed.categories = JSON.parse(rawData.categories);
-                processed.summary.categoryCount = processed.parsed.categories.length;
+        if (rawData.categories !== undefined) {
+            const categories = parseStoredArray(rawData.categories);
+            if (categories) {
+                processed.parsed.categories = categories;
+                processed.summary.categoryCount = categories.length;
+            } else {
+                processed.parsed.categoriesError = 'Failed to parse categories';
             }
-        } catch {
-            processed.parsed.categoriesError = 'Failed to parse categories';
         }
 
         // Include other data
@@ -70,10 +110,22 @@ export class DataVerification {
             }
         });
 
-        // Calculate summary
+        // Calculate summary. Every cloud key syncs; on this device only the
+        // synced keys' copies do, and the rest never leaves it.
         processed.summary.totalKeys = Object.keys(rawData).length;
-        processed.summary.totalSize = new Blob([JSON.stringify(rawData)]).size;
+        processed.summary.totalSize = jsonBytes(rawData);
         processed.summary.hasMetadata = !!rawData.syncMetadata;
+        const isSynced = (key) => source === 'cloud' || SYNCED_KEYS.includes(key);
+        const deviceOnlyKeys = Object.keys(rawData).filter(key => !isSynced(key));
+        const iconCacheKeys = deviceOnlyKeys.filter(key => key.startsWith(ICON_CACHE_PREFIX));
+        processed.summary.syncedSize = jsonBytes(Object.fromEntries(
+            Object.entries(rawData).filter(([key]) => isSynced(key))));
+        processed.summary.deviceOnly = {
+            keys: deviceOnlyKeys.length,
+            size: jsonBytes(Object.fromEntries(deviceOnlyKeys.map(key => [key, rawData[key]]))),
+            iconCacheEntries: iconCacheKeys.length,
+            iconCacheSize: jsonBytes(Object.fromEntries(iconCacheKeys.map(key => [key, rawData[key]])))
+        };
 
         return processed;
     }
@@ -125,7 +177,7 @@ export class DataVerification {
         const modified = [];
         common.forEach(localLink => {
             const cloudLink = cloudLinks.find(link => link.url === localLink.url);
-            if (JSON.stringify(localLink) !== JSON.stringify(cloudLink)) {
+            if (canonicalJson(localLink) !== canonicalJson(cloudLink)) {
                 modified.push({
                     url: localLink.url,
                     local: localLink,
@@ -138,6 +190,7 @@ export class DataVerification {
             onlyLocal,
             onlyCloud,
             modified,
+            reordered: sameItemsReordered(localLinks, cloudLinks),
             totalLocal: localLinks.length,
             totalCloud: cloudLinks.length
         };
@@ -152,6 +205,7 @@ export class DataVerification {
             onlyLocal: localArray.filter(item => !cloudSet.has(item)),
             onlyCloud: cloudArray.filter(item => !localSet.has(item)),
             common: localArray.filter(item => cloudSet.has(item)),
+            reordered: sameItemsReordered(localArray, cloudArray),
             totalLocal: localArray.length,
             totalCloud: cloudArray.length
         };
@@ -199,22 +253,69 @@ export class DataVerification {
         };
     }
 
-    // Create comparison summary
+    // Create comparison summary. Sizes compare the synced data only; what
+    // never syncs is reported apart (deviceOnly).
     createComparisonSummary(localData, cloudData) {
+        const differences = this.listSyncDifferences(localData, cloudData);
         return {
-            sizeDifference: cloudData.summary.totalSize - localData.summary.totalSize,
+            sizeDifference: cloudData.summary.syncedSize - localData.summary.syncedSize,
             linkCountDifference: cloudData.summary.linkCount - localData.summary.linkCount,
             categoryCountDifference: cloudData.summary.categoryCount - localData.summary.categoryCount,
             keyCountDifference: cloudData.summary.totalKeys - localData.summary.totalKeys,
-            isInSync: this.determineIfInSync(localData, cloudData)
+            isInSync: differences.length === 0,
+            differences,
+            deviceOnly: localData.summary.deviceOnly
         };
     }
 
-    // Determine if data is in sync
+    /**
+     * Why this device's copy isn't in sync with the cloud, as readable
+     * reasons (none when it is). Compares only what syncs: the links (content
+     * and order), the categories, the sync version, and changes saved only
+     * on this device that wait for Sync now. The device's own data (icon
+     * cache, error log, backups…) never syncs and is left out.
+     * @param {Object} localData - processStorageData of chrome.storage.local
+     * @param {Object} cloudData - processStorageData of chrome.storage.sync
+     * @returns {string[]}
+     */
+    listSyncDifferences(localData, cloudData) {
+        const reasons = [];
+        if (cloudData.summary.linksConsistent === false) {
+            reasons.push('Links saved on another device are still arriving in Chrome sync; compare again in a moment.');
+        }
+        // "The links differ.", or "The links are the same, in a different order."
+        const listDifference = (field) => {
+            const local = localData.parsed[field] ?? [];
+            const cloud = cloudData.parsed[field] ?? [];
+            if (localData.parsed[`${field}Error`] || cloudData.parsed[`${field}Error`]) return `The ${field} differ`;
+            if (canonicalJson(local) === canonicalJson(cloud)) return null;
+            return sameItemsReordered(local, cloud) ? `The ${field} are the same, in a different order` : `The ${field} differ`;
+        };
+        const links = listDifference('links');
+        if (links) reasons.push(`${links} (this device keeps a copy from its last Sync now).`);
+        const categories = listDifference('categories');
+        if (categories) reasons.push(`${categories}.`);
+        const localVersion = localData.raw.syncMetadata?.version ?? 0;
+        const cloudVersion = cloudData.raw.syncMetadata?.version ?? 0;
+        if (localVersion !== cloudVersion) {
+            reasons.push('The sync versions differ: another device has synced since this one (or this one never has).');
+        }
+        // Only changes Sync now would upload, by the sync manager's rule: one
+        // the cloud has superseded since (another device saved that field, or
+        // sync was cleared) is set aside by Sync now, not waiting for it.
+        const pending = PENDING_SYNC_FIELDS.filter(field => {
+            const marker = localData.raw[pendingSyncKey(field)];
+            return marker && markerStillPending(marker, cloudData.raw, field);
+        }).length;
+        if (pending > 0) {
+            reasons.push(`${pending} change${pending === 1 ? '' : 's'} saved only on this device, waiting for Sync now.`);
+        }
+        return reasons;
+    }
+
+    // Determine if data is in sync (see listSyncDifferences)
     determineIfInSync(localData, cloudData) {
-        const localStr = JSON.stringify(localData.raw);
-        const cloudStr = JSON.stringify(cloudData.raw);
-        return localStr === cloudStr;
+        return this.listSyncDifferences(localData, cloudData).length === 0;
     }
 
     // Validate data integrity
@@ -487,6 +588,10 @@ export class DataVerification {
                     <strong>Data Size:</strong>
                     <span>${(summary.totalSize / 1024).toFixed(2)} KB</span>
                 </div>
+                ${summary.deviceOnly.keys > 0 ? `<div class="data-summary-row">
+                    <strong>Of which device-only (never synced):</strong>
+                    <span>${(summary.deviceOnly.size / 1024).toFixed(2)} KB</span>
+                </div>` : ''}
                 <div class="data-summary-row">
                     <strong>Links:</strong>
                     <span>${summary.linkCount}</span>
@@ -525,7 +630,7 @@ ${escapeHtml(JSON.stringify(data.parsed, null, 2))}
                     <span style="color: ${summary.isInSync ? '#4caf50' : '#f44336'}">${summary.isInSync ? 'Yes' : 'No'}</span>
                 </div>
                 <div class="data-summary-row">
-                    <strong>Size Difference:</strong>
+                    <strong>Synced Data Size Difference:</strong>
                     <span>${summary.sizeDifference} bytes</span>
                 </div>
                 <div class="data-summary-row">
@@ -543,26 +648,31 @@ ${escapeHtml(JSON.stringify(data.parsed, null, 2))}
                     <h4>Local Data</h4>
                     <div><strong>Links:</strong> ${comparison.local.summary.linkCount}</div>
                     <div><strong>Categories:</strong> ${comparison.local.summary.categoryCount}</div>
-                    <div><strong>Size:</strong> ${(comparison.local.summary.totalSize / 1024).toFixed(2)} KB</div>
+                    <div><strong>Synced data:</strong> ${(comparison.local.summary.syncedSize / 1024).toFixed(2)} KB</div>
+                    <div><strong>Device-only (never synced):</strong> ${(summary.deviceOnly.size / 1024).toFixed(2)} KB
+                        (icon cache: ${summary.deviceOnly.iconCacheEntries} icons, ${(summary.deviceOnly.iconCacheSize / 1024).toFixed(2)} KB)</div>
                 </div>
                 <div class="comparison-column">
                     <h4>Cloud Data</h4>
                     <div><strong>Links:</strong> ${comparison.cloud.summary.linkCount}</div>
                     <div><strong>Categories:</strong> ${comparison.cloud.summary.categoryCount}</div>
-                    <div><strong>Size:</strong> ${(comparison.cloud.summary.totalSize / 1024).toFixed(2)} KB</div>
+                    <div><strong>Synced data:</strong> ${(comparison.cloud.summary.syncedSize / 1024).toFixed(2)} KB</div>
                 </div>
             </div>
 
             <div class="data-content">
-<strong>Link Differences:</strong>
+${summary.differences.length ? `<strong>Why not in sync:</strong>
+${summary.differences.map(reason => `• ${escapeHtml(reason)}`).join('\n')}
+
+` : ''}<strong>Link Differences:</strong>
 • Only Local: ${diff.links.onlyLocal.length}
 • Only Cloud: ${diff.links.onlyCloud.length}
 • Modified: ${diff.links.modified.length}
-
+${diff.links.reordered ? '• Same links, in a different order\n' : ''}
 <strong>Category Differences:</strong>
 • Only Local: ${escapeHtml(diff.categories.onlyLocal.join(', ') || 'None')}
 • Only Cloud: ${escapeHtml(diff.categories.onlyCloud.join(', ') || 'None')}
-
+${diff.categories.reordered ? '• Same categories, in a different order\n' : ''}
 <strong>Metadata Status:</strong>
 ${escapeHtml(JSON.stringify(diff.metadata, null, 2))}
             </div>
