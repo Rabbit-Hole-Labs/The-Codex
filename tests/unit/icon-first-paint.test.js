@@ -256,6 +256,23 @@ describe('warmIconStore: picked icons fetched before a new tab needs them', () =
         expect(globalThis.fetch.mock.calls.map(([url]) => url).sort()).toEqual([iconUrl('radarr'), iconUrl('sonarr')]);
         expect(fake.dump('local')[`iconV1:${iconUrl('sonarr')}`].data).toMatch(/^data:image\/png;base64,/);
     });
+
+    test('returns only once the icons are stored, and counts only those stored', async () => {
+        const { warmIconStore } = await import('../../javascript/features/iconStore.js');
+        globalThis.fetch = mockFetch([iconUrl('sonarr'), iconUrl('radarr')]);
+        // Writes that take a while; radarr's never succeeds (e.g. quota, even after pruning).
+        const realSet = chrome.storage.local.set;
+        chrome.storage.local.set = (items) => new Promise((resolve) => setTimeout(resolve, 30))
+            .then(() => (Object.keys(items).some((key) => key.includes('radarr'))
+                ? Promise.reject(new Error('Resource::kQuotaBytes quota exceeded'))
+                : realSet(items)));
+
+        const fetched = await warmIconStore([iconUrl('sonarr'), iconUrl('radarr')]);
+
+        expect(fetched).toBe(1);
+        expect(fake.dump('local')[`iconV1:${iconUrl('sonarr')}`]).toBeDefined();
+        expect(fake.dump('local')[`iconV1:${iconUrl('radarr')}`]).toBeUndefined();
+    });
 });
 
 describe('the new tab', () => {

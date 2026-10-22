@@ -125,6 +125,12 @@ async function readEntry(url) {
     }
 }
 
+/**
+ * Store an icon's bytes, pruning and retrying once if the write fails.
+ * @param {string} url
+ * @param {string} data - data: URI
+ * @returns {Promise<boolean>} whether it was stored
+ */
 async function writeEntry(url, data) {
     const entry = {
         url,
@@ -142,13 +148,14 @@ async function writeEntry(url, data) {
         try {
             await chrome.storage.local.set({ [storageKey(url)]: entry });
         } catch {
-            return; // give up quietly; rendering still has the in-memory data
+            return false; // give up quietly; rendering still has the in-memory data
         }
     }
     if (++writesSincePrune >= PRUNE_EVERY_N_WRITES) {
         writesSincePrune = 0;
         pruneIconStore().catch(() => {});
     }
+    return true;
 }
 
 /** Evicts least-recently-used entries until the store fits its byte budget. */
@@ -224,7 +231,7 @@ export async function readStoredIcons(urls) {
  * synced links itself, ahead of the next new tab (see the service worker).
  * @param {Array<string>} urls - Icon URLs (non-cacheable values are skipped)
  * @param {number} [concurrency]
- * @returns {Promise<number>} how many icons were fetched
+ * @returns {Promise<number>} how many icons were fetched and stored
  */
 export async function warmIconStore(urls, concurrency = 4) {
     const wanted = [...new Set((urls ?? []).filter(url => typeof url === 'string'))].filter(isCacheableIconUrl);
@@ -232,10 +239,13 @@ export async function warmIconStore(urls, concurrency = 4) {
     const stored = await readStoredIcons(wanted);
     const missing = wanted.filter(url => !stored.has(url));
     let fetched = 0;
+    // Each write is awaited (and counted only once stored): the service
+    // worker running this may be suspended soon after it returns.
     const worker = async () => {
         while (missing.length > 0) {
-            const { data } = await loadStoredIcon(missing.shift());
-            if (data) fetched++;
+            const url = missing.shift();
+            const { data } = await fetchIconAsDataUri(url);
+            if (data && data.length <= MAX_ENTRY_BYTES && await writeEntry(url, data)) fetched++;
         }
     };
     await Promise.all(Array.from({ length: Math.min(concurrency, missing.length) }, worker));
