@@ -9,7 +9,7 @@ import { jest } from '@jest/globals';
 // Mock the storageManager module before importing linkManager
 const mockSaveLinks = jest.fn().mockResolvedValue(true);
 
-jest.unstable_mockModule('../javascript/core-systems/storageManager.js', () => {
+jest.unstable_mockModule('../../javascript/core-systems/storageManager.js', () => {
   return {
     loadLinks: jest.fn(),
     saveLinks: mockSaveLinks,
