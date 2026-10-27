@@ -43,7 +43,7 @@ export function getIconUrl(link) {
  * @param {string} defaultTileSize - Default tile size from state
  * @returns {string} CSS class string (e.g., 'link-tile size-medium')
  */
-export function getTileClasses(link, defaultTileSize = 'medium') {
+function getTileClasses(link, defaultTileSize = 'medium') {
     const size = link.size || defaultTileSize;
     return `link-tile size-${size}`;
 }
@@ -54,7 +54,7 @@ export function getTileClasses(link, defaultTileSize = 'medium') {
  * @param {string} defaultTileSize - Default tile size from state
  * @returns {boolean}
  */
-export function isHorizontalLayout(link, defaultTileSize = 'medium') {
+function isHorizontalLayout(link, defaultTileSize = 'medium') {
     const size = link.size || defaultTileSize;
     return size === 'wide' || size === 'compact';
 }

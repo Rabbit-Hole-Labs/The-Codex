@@ -346,7 +346,7 @@ async function handleEditFormSubmit(e) {
     showMessage('Link updated.');
 }
 
-export function deleteLink(state, index) {
+function deleteLink(state, index) {
     if (confirm('Are you sure you want to delete this link?')) {
         LinkManager.deleteLink(state, index);
         renderLinks(state);
