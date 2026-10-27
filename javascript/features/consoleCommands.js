@@ -424,5 +424,3 @@ await CodexConsole.iconStats()
 // CodexConsole.help() — intentionally no load-time greeting, to keep the
 // console quiet on every page load.
 window.CodexConsole = CodexConsole;
-
-export default CodexConsole;

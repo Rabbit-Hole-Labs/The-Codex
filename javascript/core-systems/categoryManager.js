@@ -206,39 +206,3 @@ export async function reorderCategories(state, newOrder) {
         return false;
     }
 }
-
-/**
- * Move a category up or down in the order
- * @param {Object} state - Application state
- * @param {string} categoryName - Category to move
- * @param {number} direction - -1 for up, 1 for down
- * @returns {Promise<string[]>} - New category order
- */
-export async function moveCategory(state, categoryName, direction) {
-    try {
-        const currentCategories = await StorageManager.loadCategories();
-        const index = currentCategories.indexOf(categoryName);
-
-        if (index === -1) {
-            debugError('Category not found for move:', categoryName);
-            return currentCategories;
-        }
-
-        const newIndex = index + direction;
-
-        // Check bounds
-        if (newIndex < 0 || newIndex >= currentCategories.length) {
-            return currentCategories;
-        }
-
-        // Swap categories
-        const newOrder = [...currentCategories];
-        [newOrder[index], newOrder[newIndex]] = [newOrder[newIndex], newOrder[index]];
-
-        // Don't save automatically - let the user save
-        return newOrder;
-    } catch (error) {
-        debugError('Error moving category:', error);
-        return state.categories;
-    }
-}

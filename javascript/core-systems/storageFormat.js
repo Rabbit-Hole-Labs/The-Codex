@@ -143,7 +143,7 @@ export const SYNC_CLEARED_AT_KEY = 'syncClearedAt';
  * sync where the cloud wins writes nothing to sync and fires no sync onChanged.
  */
 export const SYNC_RESOLVED_AT_KEY = 'syncResolvedAt';
-export const PENDING_SYNC_PREFIX = 'pendingSyncSince.';
+const PENDING_SYNC_PREFIX = 'pendingSyncSince.';
 
 /** Fields that can be pending: links, categories and the synced settings. */
 export const PENDING_SYNC_FIELDS = Object.freeze(['links', 'categories', ...Object.keys(SETTING_ENUMS)]);

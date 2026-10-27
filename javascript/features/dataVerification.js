@@ -35,7 +35,7 @@ function sameItemsReordered(localArray, cloudArray) {
         && JSON.stringify([...local].sort()) === JSON.stringify([...cloud].sort());
 }
 
-export class DataVerification {
+class DataVerification {
     constructor() {
         this.modal = null;
         this.isFormatted = false;

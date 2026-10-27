@@ -282,7 +282,6 @@ export class SyncManager {
         // links and letting it win reverts every device. The manage page's
         // select can opt into the others explicitly.
         this.conflictResolutionStrategy = 'remote';
-        this.syncDebounceTimeout = null;
         this.syncQueue = [];
 
         // Initialize sync status
@@ -1257,24 +1256,6 @@ export class SyncManager {
         });
     }
 
-    // Save compressed data for large datasets
-    async saveCompressedData(data) {
-        // For now, we'll just try to save as-is and handle errors
-        // In a production app, you'd implement actual compression
-        try {
-            await syncSet(data);
-        } catch (error) {
-            if (isQuotaBytesError(error.message)) {
-                debugError('Sync storage quota exceeded');
-                this.notifyListeners('quotaExceeded', {
-                    bytesNeeded: new Blob([JSON.stringify(data)]).size,
-                    quotaLimit: chrome.storage.sync.QUOTA_BYTES
-                });
-            }
-            throw error;
-        }
-    }
-
     // Force sync from remote (pull)
     async forcePullFromRemote() {
         return this.syncData('remote');
@@ -1319,17 +1300,6 @@ export class SyncManager {
         } catch {
             return false;
         }
-    }
-
-    // Debounced sync for automatic syncing
-    debouncedSync(delay = 2000) {
-        if (this.syncDebounceTimeout) {
-            clearTimeout(this.syncDebounceTimeout);
-        }
-
-        this.syncDebounceTimeout = setTimeout(() => {
-            this.syncData();
-        }, delay);
     }
 
     // Back up before a clear: first to chrome.storage.local[SYNC_BACKUP_KEY]
