@@ -51,7 +51,7 @@ export const SYNC_QUOTAS = Object.freeze({
     MAX_WRITE_OPERATIONS_PER_HOUR: 1800
 });
 
-export const LOCAL_QUOTAS = Object.freeze({
+const LOCAL_QUOTAS = Object.freeze({
     QUOTA_BYTES: 10485760
 });
 
@@ -83,7 +83,7 @@ export function utf8ByteLength(str) {
  * emit it: it additionally escapes `<` (1 → 6 bytes) and U+2028/U+2029
  * (3 → 6 bytes), which only ever occur inside strings.
  */
-export function chromeJsonByteLength(json) {
+function chromeJsonByteLength(json) {
     let extra = 0;
     for (const ch of json) {
         if (ch === '<') extra += 5;

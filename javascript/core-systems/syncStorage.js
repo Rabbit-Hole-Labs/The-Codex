@@ -31,11 +31,11 @@ import { parseStoredArray } from './storageFormat.js';
 import { debugWarn } from './debug.js';
 
 export const LINKS_KEY = 'links';
-export const LINKS_MANIFEST_KEY = 'linksManifest';
+const LINKS_MANIFEST_KEY = 'linksManifest';
 
 // More chunks than the 100 KB sync total could hold (each is filled to ~8 KB),
 // so the limit that bites is always Chrome's own QUOTA_BYTES.
-export const MAX_LINK_CHUNKS = 16;
+const MAX_LINK_CHUNKS = 16;
 
 // Bytes kept free in each chunk, in case Chrome's accounting ever differs
 // slightly from syncItemBytes.
@@ -45,7 +45,7 @@ const DEFAULT_QUOTA_BYTES_PER_ITEM = 8192;
 const CHUNK_KEY_PATTERN = /^links\.(\d+)$/;
 
 /** Sync key holding chunk `index` (0 is `links` itself). */
-export function linkChunkKey(index) {
+function linkChunkKey(index) {
     return index === 0 ? LINKS_KEY : `${LINKS_KEY}.${index}`;
 }
 
@@ -54,7 +54,7 @@ const OVERFLOW_CHUNK_KEYS = Object.freeze(
 );
 
 /** Every sync key that holds part of the links. */
-export const LINK_STORAGE_KEYS = Object.freeze([LINKS_KEY, ...OVERFLOW_CHUNK_KEYS, LINKS_MANIFEST_KEY]);
+const LINK_STORAGE_KEYS = Object.freeze([LINKS_KEY, ...OVERFLOW_CHUNK_KEYS, LINKS_MANIFEST_KEY]);
 
 /** True for `links`, its chunk keys and its manifest. */
 export function isLinkStorageKey(key) {
@@ -100,7 +100,7 @@ function chromeJsonBytes(json) {
 }
 
 /** Bytes Chrome charges for one sync item: key + JSON-serialized value. */
-export function syncItemBytes(key, value) {
+function syncItemBytes(key, value) {
     return utf8Length(key) + chromeJsonBytes(JSON.stringify(value));
 }
 

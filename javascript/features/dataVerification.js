@@ -2,7 +2,7 @@
 import { escapeHtml } from './utils.js';
 import { syncGet } from '../core-systems/syncStorage.js';
 
-export class DataVerification {
+class DataVerification {
     constructor() {
         this.modal = null;
         this.isFormatted = false;
