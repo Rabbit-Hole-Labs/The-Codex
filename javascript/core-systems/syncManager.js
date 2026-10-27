@@ -1378,7 +1378,7 @@ export class SyncManager {
             inputs = await this.readSyncInputs();
         } catch (error) {
             const reason = error.area === 'sync' ? syncStorageErrorEvent(error.message).message : 'Could not read local storage.';
-            throw new Error(`${reason} Sync data was not cleared (${error.message}).`);
+            throw new Error(`${reason} Sync data was not cleared (${error.message}).`, { cause: error });
         }
         const { local, cloud } = inputs;
         const localSettings = pick(local, SETTINGS_KEYS); // only ever written by a failed save
@@ -1418,7 +1418,7 @@ export class SyncManager {
         try {
             await this.storeBackup(backup);
         } catch (error) {
-            throw new Error(`Could not save a backup on this device, so sync data was not cleared (${error.message}).`);
+            throw new Error(`Could not save a backup on this device, so sync data was not cleared (${error.message}).`, { cause: error });
         }
 
         return this.downloadBackupFile(backup);
@@ -1459,7 +1459,7 @@ export class SyncManager {
                 await syncSet(cleared);
             } catch (syncError) {
                 const event = syncStorageErrorEvent(syncError.message);
-                throw new Error(`${event.message} (${syncError.message})`);
+                throw new Error(`${event.message} (${syncError.message})`, { cause: syncError });
             }
 
             // Keys we can't reset by value (e.g. linksView): remove them, best
