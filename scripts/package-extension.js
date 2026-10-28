@@ -1553,6 +1553,30 @@ function locator(file, extensionId) {
     return { ownPrefix, ownPath, baseInfo, locate };
 }
 
+/** The CSP directive an import of a module `type` loads under: JSON is fetched under connect-src, CSS under style-src. */
+const moduleDirective = (type) => (type === 'json' ? 'connect-src' : type === 'css' ? 'style-src' : 'script-src');
+
+/** Whether Chrome's module loader takes `path` for an import of `type` (JavaScript unless json or css). */
+const moduleFileOk = (type, path) => (type === 'json' ? /\.json$/i : type === 'css' ? /\.css$/i : /\.m?js$/i).test(path);
+
+/** An import map address or integrity key Chrome reads as a URL: absolute, or a /, ./ or ../ path. */
+const urlLike = (value) => /^(\/|\.\.?\/|[a-z][a-z0-9+.-]*:)/i.test(value);
+
+/** Why Chrome rejects a parsed import map whole (a member of the wrong type), or null. */
+const importMapShapeProblem = (parsed) => (!isPlainObject(parsed) ? 'must be a JSON object'
+    : 'imports' in parsed && !isPlainObject(parsed.imports) ? '"imports" must be an object'
+        : 'scopes' in parsed && !(isPlainObject(parsed.scopes) && Object.values(parsed.scopes).every(isPlainObject)) ? '"scopes" must be an object of objects'
+            : 'integrity' in parsed && !isPlainObject(parsed.integrity) ? '"integrity" must be an object' : null);
+
+/** Why Chrome blocks or can't load the imports one import map entry names, or null when it maps them. */
+const importMapEntryProblem = (key, address) => {
+    const blocked = typeof address !== 'string' ? 'is not a string'
+        : !urlLike(address) ? 'is not a URL or a /, ./ or ../ path'
+            : key.endsWith('/') && !address.endsWith('/') ? 'must end in "/" like its key' : null;
+    if (blocked) return `${blocked}, so Chrome blocks imports of "${key}"`;
+    return address.endsWith('/') && !key.endsWith('/') ? "maps a module to a directory, which Chrome can't load" : null;
+};
+
 /**
  * References made by one packaged file.
  * @returns {{ refs: string[], uses: object[], external: object[], errors: string[], dynamicImports: number,
@@ -1620,6 +1644,11 @@ export function extractRefs(file, text, { classic = false, csp = null, scripting
             }
         }
     };
+    // The packaged file a URL names here (resolved against `base` while it is usable), or null.
+    const localTarget = (url, base) => {
+        const located = locate(url, baseUsable ? base : null);
+        return located.local ?? (located.external ? ownPath(located.external) : null);
+    };
     // Module specifiers: relative/absolute paths and http(s)/data/blob/chrome-extension URLs only.
     // A packaged target must be JavaScript, or JSON/CSS imported with that type attribute (which
     // Chrome fetches under connect-src and style-src). Imports inherit their importer's nonce.
@@ -1627,128 +1656,122 @@ export function extractRefs(file, text, { classic = false, csp = null, scripting
         for (const entry of entries) {
             const { specifier, type } = typeof entry === 'string' ? { specifier: entry, type: undefined } : entry;
             const isPath = specifier.startsWith('.') || specifier.startsWith('/') || /^chrome-extension:/i.test(specifier);
-            const located = isPath ? locate(specifier, baseUsable ? base : null) : {};
-            const target = located.local ?? (located.external ? ownPath(located.external) : null);
-            const expected = type === 'json' ? /\.json$/i : type === 'css' ? /\.css$/i : /\.m?js$/i;
-            if (target && !expected.test(target)) {
+            const target = isPath ? localTarget(specifier, base) : null;
+            if (target && !moduleFileOk(type, target)) {
                 result.errors.push(`${label}: module "${specifier}" resolves to ${target}, which Chrome's module loader rejects (not ${type ? `a ${type} module` : 'JavaScript'})`);
             }
             if (/^[a-z][a-z0-9+.-]*:/i.test(specifier) && !/^(https?|data|blob|chrome-extension):/i.test(specifier)) {
                 result.errors.push(`${label}: module specifier "${specifier}" uses a scheme Chrome can't import (e.g. node: built-ins don't exist in an extension)`);
             } else if (specifier.startsWith('.') || specifier.startsWith('/') || /^[a-z][a-z0-9+.-]*:/i.test(specifier)) {
-                const directive = type === 'json' ? 'connect-src' : type === 'css' ? 'style-src' : 'script-src';
-                add({ url: specifier, directive, base, policies, nonce, cors: true, module: true, sandboxed });
+                add({ url: specifier, directive: moduleDirective(type), base, policies, nonce, cors: true, module: true, sandboxed });
             } else {
                 // Only the import map of the page that loads the module can resolve it: see checkReferences.
                 result.bareImports.push({ label, specifier, type, referrer: base ? baseUrl(base) : fileUrl, policies, nonce, sandboxed });
             }
         }
     }
-    if (kind === 'html' || kind === 'htm') {
+    // A page's <base href>: blocked by a CSP's base-uri (then ignored), or the document base.
+    const documentBase = (page) => {
+        // An own (chrome-extension:) base is exempt from CSP, as Chrome exempts own URLs.
+        const own = baseInfo(page.base.href).localDir !== undefined;
+        const blocking = own ? null : [[csp, 'manifest CSP'], ...page.base.policies.map((meta) => [parseMetaCsp(meta), '<meta> CSP'])]
+            .find(([policy]) => policy && !baseUriAllows(policy, page.base.href));
+        if (blocking) {
+            baseUsable = false;
+            result.errors.push(`${file} line ${page.base.line}: <base href="${page.base.href}"> is blocked by the ${blocking[1]} (base-uri), so Chrome ignores it; remove it`);
+        } else {
+            result.documentBase = baseInfo(page.base.href);
+        }
+    };
+    // Inline scripts: check what they import (they run where the page's CSP allows inline script).
+    const inlineScript = (script) => {
+        const label = `${file} (inline script, line ${script.line})`;
+        const dynamic = dynamicImports(label, script.text);
+        result.errors.push(...dynamic.errors);
+        let statics = [];
+        try {
+            if (script.module) statics = staticImports(label, script.text);
+            else new vm.Script(script.text, { filename: label });
+        } catch (error) {
+            result.errors.push(script.module ? error.message : `${label} doesn't compile as a classic script: ${error.message}`);
+        }
+        addSpecifiers(label, [...statics, ...dynamic.specifiers], script.base, { policies: script.policies, nonce: script.nonce, sandboxed: script.sandboxed });
+    };
+    // The map as Chrome merges it into the page's (the first entry for a key wins): keys and
+    // addresses resolved against the document base, bad addresses as null (blocking).
+    const mergeImportMap = (parsed, mapBase) => {
+        const asUrl = (value) => {
+            if (!urlLike(value)) return null;
+            try {
+                return new URL(value, mapBase).href;
+            } catch {
+                return null;
+            }
+        };
+        const merge = (entries, target) => {
+            for (const [key, address] of Object.entries(entries)) {
+                const normalized = asUrl(key) ?? key;
+                if (key === '' || Object.hasOwn(target, normalized)) continue;
+                const url = typeof address === 'string' ? asUrl(address) : null;
+                target[normalized] = url && !(key.endsWith('/') && !url.endsWith('/')) ? url : null;
+            }
+        };
+        result.importMap ??= { imports: {}, scopes: {} };
+        merge(parsed.imports ?? {}, result.importMap.imports);
+        for (const [scope, entries] of Object.entries(parsed.scopes ?? {})) {
+            try {
+                const prefix = new URL(scope, mapBase).href;
+                merge(entries, result.importMap.scopes[prefix] ??= {});
+            } catch {
+                // a scope that isn't a URL is ignored
+            }
+        }
+    };
+    // Each mapping's address: one Chrome would block, or a module load to check.
+    const importMapAddresses = (label, parsed, map) => {
+        const specifierMaps = [['imports', parsed.imports ?? {}], ...Object.entries(parsed.scopes ?? {}).map(([scope, entries]) => [`scopes["${scope}"]`, entries])];
+        const mappings = specifierMaps.flatMap(([where, entries]) => Object.entries(entries).map(([key, address]) => ({ where, key, address })));
+        for (const { where, key, address } of mappings) {
+            if (key === '') continue; // ignored
+            const problem = importMapEntryProblem(key, address);
+            if (problem) result.errors.push(`${label}: ${where}["${key}"] ${problem}`);
+            else if (!address.endsWith('/')) add({ url: address, directive: 'script-src', base: map.base, policies: map.policies, cors: true, mapAddress: true });
+        }
+    };
+    // Inline import maps: JSON that Chrome rejects whole when a member has the wrong type, and
+    // whose bad entries become null mappings that block the imports they name.
+    const importMap = (map) => {
+        const label = `${file} (import map, line ${map.line})`;
+        let parsed;
+        try {
+            parsed = JSON.parse(map.text);
+        } catch (error) {
+            result.errors.push(`${label} is not valid JSON, so Chrome rejects it: ${error.message}`);
+            return;
+        }
+        const fatal = importMapShapeProblem(parsed);
+        if (fatal) {
+            result.errors.push(`${label}: ${fatal}, so Chrome rejects the map`);
+            return;
+        }
+        mergeImportMap(parsed, baseUrl(map.base));
+        importMapAddresses(label, parsed, map);
+        // Integrity entries: Chrome applies one to a module fetch of that URL (see checkReferences).
+        for (const [key, metadata] of Object.entries(parsed.integrity ?? {})) {
+            if (typeof metadata !== 'string' || !urlLike(key)) continue; // ignored by Chrome
+            const local = localTarget(key, map.base);
+            // Maps merge with the first entry for a URL winning.
+            if (local && !result.mapIntegrity.some((entry) => entry.path === local)) result.mapIntegrity.push({ path: local, integrity: metadata, line: map.line });
+        }
+    };
+    const htmlPage = () => {
         const page = htmlRefs(text, null, scripting);
         result.errors.push(...page.problems.map((item) => `${file} ${item}`));
-        if (page.base?.href) {
-            // An own (chrome-extension:) base is exempt from CSP, as Chrome exempts own URLs.
-            const own = baseInfo(page.base.href).localDir !== undefined;
-            const blocking = own ? null : [[csp, 'manifest CSP'], ...page.base.policies.map((meta) => [parseMetaCsp(meta), '<meta> CSP'])]
-                .find(([policy]) => policy && !baseUriAllows(policy, page.base.href));
-            if (blocking) {
-                baseUsable = false;
-                result.errors.push(`${file} line ${page.base.line}: <base href="${page.base.href}"> is blocked by the ${blocking[1]} (base-uri), so Chrome ignores it; remove it`);
-            } else {
-                result.documentBase = baseInfo(page.base.href);
-            }
-        }
+        if (page.base?.href) documentBase(page);
         page.urls.forEach(add);
-        // Inline scripts: check what they import (they run where the page's CSP allows inline script).
-        for (const script of page.inlineScripts) {
-            const label = `${file} (inline script, line ${script.line})`;
-            const dynamic = dynamicImports(label, script.text);
-            result.errors.push(...dynamic.errors);
-            let statics = [];
-            try {
-                if (script.module) statics = staticImports(label, script.text);
-                else new vm.Script(script.text, { filename: label });
-            } catch (error) {
-                result.errors.push(script.module ? error.message : `${label} doesn't compile as a classic script: ${error.message}`);
-            }
-            addSpecifiers(label, [...statics, ...dynamic.specifiers], script.base, { policies: script.policies, nonce: script.nonce, sandboxed: script.sandboxed });
-        }
-        // Inline import maps: JSON that Chrome rejects whole when a member has the wrong type, and
-        // whose bad entries become null mappings that block the imports they name.
-        const isObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
-        const urlLike = (value) => /^(\/|\.\.?\/|[a-z][a-z0-9+.-]*:)/i.test(value);
-        for (const map of page.importMaps) {
-            const label = `${file} (import map, line ${map.line})`;
-            let parsed;
-            try {
-                parsed = JSON.parse(map.text);
-            } catch (error) {
-                result.errors.push(`${label} is not valid JSON, so Chrome rejects it: ${error.message}`);
-                continue;
-            }
-            const fatal = !isObject(parsed) ? 'must be a JSON object'
-                : 'imports' in parsed && !isObject(parsed.imports) ? '"imports" must be an object'
-                    : 'scopes' in parsed && !(isObject(parsed.scopes) && Object.values(parsed.scopes).every(isObject)) ? '"scopes" must be an object of objects'
-                        : 'integrity' in parsed && !isObject(parsed.integrity) ? '"integrity" must be an object' : null;
-            if (fatal) {
-                result.errors.push(`${label}: ${fatal}, so Chrome rejects the map`);
-                continue;
-            }
-            // The map as Chrome merges it into the page's (the first entry for a key wins): keys and
-            // addresses resolved against the document base, bad addresses as null (blocking).
-            const mapBase = baseUrl(map.base);
-            const asUrl = (value) => {
-                if (!urlLike(value)) return null;
-                try {
-                    return new URL(value, mapBase).href;
-                } catch {
-                    return null;
-                }
-            };
-            const merge = (entries, target) => {
-                for (const [key, address] of Object.entries(entries)) {
-                    const normalized = asUrl(key) ?? key;
-                    if (key === '' || Object.hasOwn(target, normalized)) continue;
-                    const url = typeof address === 'string' ? asUrl(address) : null;
-                    target[normalized] = url && !(key.endsWith('/') && !url.endsWith('/')) ? url : null;
-                }
-            };
-            result.importMap ??= { imports: {}, scopes: {} };
-            merge(parsed.imports ?? {}, result.importMap.imports);
-            for (const [scope, entries] of Object.entries(parsed.scopes ?? {})) {
-                try {
-                    const prefix = new URL(scope, mapBase).href;
-                    merge(entries, result.importMap.scopes[prefix] ??= {});
-                } catch {
-                    // a scope that isn't a URL is ignored
-                }
-            }
-            const specifierMaps = [['imports', parsed.imports ?? {}], ...Object.entries(parsed.scopes ?? {}).map(([scope, entries]) => [`scopes["${scope}"]`, entries])];
-            for (const [where, entries] of specifierMaps) {
-                for (const [key, address] of Object.entries(entries)) {
-                    if (key === '') continue; // ignored
-                    const problem = typeof address !== 'string' ? 'is not a string'
-                        : !urlLike(address) ? 'is not a URL or a /, ./ or ../ path'
-                            : key.endsWith('/') && !address.endsWith('/') ? 'must end in "/" like its key' : null;
-                    if (problem) result.errors.push(`${label}: ${where}["${key}"] ${problem}, so Chrome blocks imports of "${key}"`);
-                    else if (address.endsWith('/') && !key.endsWith('/')) result.errors.push(`${label}: ${where}["${key}"] maps a module to a directory, which Chrome can't load`);
-                    else if (!address.endsWith('/')) add({ url: address, directive: 'script-src', base: map.base, policies: map.policies, cors: true, mapAddress: true });
-                }
-            }
-            // Integrity entries: Chrome applies one to a module fetch of that URL (see checkReferences).
-            for (const [key, metadata] of Object.entries(parsed.integrity ?? {})) {
-                if (typeof metadata !== 'string' || !urlLike(key)) continue; // ignored by Chrome
-                const located = locate(key, baseUsable ? map.base : null);
-                const local = located.local ?? (located.external ? ownPath(located.external) : null);
-                // Maps merge with the first entry for a URL winning.
-                if (local && !result.mapIntegrity.some((entry) => entry.path === local)) result.mapIntegrity.push({ path: local, integrity: metadata, line: map.line });
-            }
-        }
-        const resolveScripts = (list) => list.map(({ url, base }) => {
-            const located = locate(url, baseUsable ? base : null);
-            return located.local ?? (located.external ? ownPath(located.external) : null);
-        }).filter(Boolean);
+        page.inlineScripts.forEach(inlineScript);
+        page.importMaps.forEach(importMap);
+        const resolveScripts = (list) => list.map(({ url, base }) => localTarget(url, base)).filter(Boolean);
         result.inline = page.inline;
         result.inlineStyles = page.inlineStyles;
         result.policies = page.policies;
@@ -1758,7 +1781,8 @@ export function extractRefs(file, text, { classic = false, csp = null, scripting
         result.varChains = page.varChains;
         result.registeredUrls = [...page.registeredUrls];
         result.srcdocs = page.srcdocs;
-    } else if (kind === 'js' || kind === 'mjs') {
+    };
+    const jsModule = () => {
         const dynamic = dynamicImports(file, text);
         result.errors.push(...dynamic.errors);
         result.dynamicImports = dynamic.specifiers.length + dynamic.errors.length;
@@ -1775,13 +1799,17 @@ export function extractRefs(file, text, { classic = false, csp = null, scripting
             statics = staticImports(file, text);
         }
         addSpecifiers(file, [...statics, ...dynamic.specifiers], null);
-    } else if (kind === 'css') {
+    };
+    const stylesheet = () => {
         const scan = cssScan(text);
         scan.refs.forEach(add);
         result.varUses = [...scan.uses];
         result.varChains = scan.chains;
         result.registeredUrls = [...scan.registeredUrls];
-    }
+    };
+    if (kind === 'html' || kind === 'htm') htmlPage();
+    else if (kind === 'js' || kind === 'mjs') jsModule();
+    else if (kind === 'css') stylesheet();
     return result;
 }
 
