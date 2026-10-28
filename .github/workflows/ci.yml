@@ -33,6 +33,25 @@ jobs:
       - run: npm run lint
       - run: npm test -- --ci --coverage
 
+  fallow-audit:
+    # Changed-code gate: fails when this PR introduces dead code, duplication
+    # or complexity findings in the files it touches (gate=new-only, so
+    # existing debt never fails it). PR-only: a push to main has no base to
+    # diff against. The action takes the CLI version from package.json.
+    name: Fallow audit
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      # Full history: audit diffs against the merge-base with the base branch.
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: fallow-rs/fallow@v3
+        with:
+          command: audit
+
   package:
     # Builds the upload zip (dist/the-codex-<version>.zip) from this commit and
     # attaches it to the run, so every PR and main commit has a downloadable,
