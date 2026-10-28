@@ -445,6 +445,20 @@ export function cssRefs(css, options) {
     return cssScan(css, options).refs;
 }
 
+/** Index just past the CSS whitespace (space, tab, newline: ASCII only) starting at css[j]. */
+function cssSpaceEnd(css, j) {
+    let k = j;
+    while (k < css.length && /[ \t\n]/.test(css[k])) k++;
+    return k;
+}
+
+/** Index just past the CSS name (name characters and escapes) starting at css[j]. */
+function cssNameEnd(css, j) {
+    let k = j;
+    while (k < css.length && (css[k] === '\\' || /[\w\-\u0080-￿]/.test(css[k]))) k = css[k] === '\\' ? cssEscapeEnd(css, k) : k + 1;
+    return k;
+}
+
 /**
  * cssRefs plus the custom properties the CSS reads with var(): `uses` outside
  * custom properties, and `chains` ([holder, read] pairs) where one custom
@@ -494,159 +508,168 @@ export function cssScan(input, { declarations = false } = {}) {
         if (url && !skipPrelude) refs.push({ url, directive: directive(), ...custom() });
         pendingImport = false;
     };
-    while (i < css.length) {
-        const c = css[i];
+
+    // Token handlers: each reads the token starting at css[i] and returns the index just past it.
+    const string = () => {
+        declarationStart = false;
+        const [value, end] = readString(i);
+        if (expectSyntax) {
+            if (/<url>/i.test(value)) registeredUrls.add(property);
+            expectSyntax = false;
+        }
+        const fn = functions[functions.length - 1];
+        if (fn === 'image-set' || fn === '-webkit-image-set') refs.push({ url: value, directive: 'img-src', ...custom() });
+        else if (pendingImport && functions.length === 0) push(value);
+        return end;
+    };
+    const openBlock = () => {
+        if (depth === 0) importsAllowed = false;
+        skipPrelude = false;
+        depth++;
+        if (pendingFontFace) {
+            fontFaceDepth = depth;
+            pendingFontFace = false;
+        }
+        if (pendingProperty) {
+            property = pendingProperty;
+            propertyDepth = depth;
+            pendingProperty = null;
+        }
+        pendingImport = false;
+        declarationStart = true;
+        return i + 1;
+    };
+    const closeBlock = () => {
+        if (depth === fontFaceDepth) fontFaceDepth = -1;
+        if (depth === propertyDepth) {
+            property = null;
+            propertyDepth = -1;
+        }
+        depth = Math.max(0, depth - 1);
+        if (depth < customDepth) customDepth = -1;
+        declarationStart = true;
+        return i + 1;
+    };
+    const semicolon = () => {
+        if (depth === customDepth && functions.length === 0) customDepth = -1;
+        expectSyntax = false;
+        pendingProperty = null;
+        declarationStart = true;
+        pendingImport = false;
+        pendingFontFace = false;
+        skipPrelude = false;
+        return i + 1;
+    };
+    const atKeyword = () => {
+        declarationStart = false;
+        // An at-keyword may contain escapes (@\\69 mport is @import).
+        const j = cssNameEnd(css, i + 1);
+        const keyword = cssUnescape(css.slice(i + 1, j)).toLowerCase();
+        if (keyword === 'import') {
+            // Browsers ignore an @import after other rules or nested in a block.
+            if (importsAllowed && depth === 0) pendingImport = true;
+            else skipPrelude = true;
+        } else if (keyword === 'namespace') {
+            importsAllowed = false;
+            skipPrelude = true; // @namespace url(...) names a namespace; nothing is fetched
+        } else if (keyword !== 'charset' && keyword !== 'layer') {
+            importsAllowed = false;
+        }
+        if (keyword === 'font-face') pendingFontFace = true;
+        if (keyword === 'property') {
+            const k = cssSpaceEnd(css, j);
+            const name = cssUnescape(css.slice(k, cssNameEnd(css, k)));
+            if (name.startsWith('--')) pendingProperty = name;
+        }
+        return Math.max(j, i + 1);
+    };
+    const openParen = () => {
+        declarationStart = false;
+        functions.push('');
+        return i + 1;
+    };
+    const closeParen = () => {
+        declarationStart = false;
+        functions.pop();
+        return i + 1;
+    };
+    // --name read inside var() (a use, or a chain inside another custom property's value), or
+    // a custom property declaration (--x: ...), only where a declaration can start: inside a
+    // block, or anywhere in a style attribute; not a selector such as .--primary:hover.
+    const customProperty = (rawName, j) => {
+        if (functions[functions.length - 1] === 'var') {
+            if (customDepth === -1) uses.add(rawName);
+            else chains.push([customName, rawName]);
+        }
+        if (declarationStart && functions.length === 0 && customDepth === -1 && (depth > 0 || declarations)) {
+            let k = j;
+            while (k < css.length && /\s/.test(css[k])) k++;
+            if (css[k] === ':') {
+                customDepth = depth;
+                customName = rawName; // custom property names are case-sensitive
+            }
+        }
+    };
+    // url( "quoted" ): it must close after optional whitespace; anything else makes the value invalid.
+    const quotedUrl = (k) => {
+        const [value, end] = readString(k);
+        if (css[cssSpaceEnd(css, end)] === ')') push(value);
+        else pendingImport = false;
+        const close = css.indexOf(')', end);
+        return close === -1 ? css.length : close + 1;
+    };
+    // url(unquoted-token) ends at ')'; unescaped whitespace before other text, or a quote or '('
+    // inside, makes it a bad-url (no fetch).
+    const unquotedUrl = (start) => {
+        let k = start;
+        let raw = '';
+        let bad = false;
+        while (k < css.length && css[k] !== ')') {
+            if (css[k] === '\\' && css[k + 1] !== '\n') {
+                const end = cssEscapeEnd(css, k);
+                raw += css.slice(k, end);
+                k = end;
+            } else if (/[ \t\n]/.test(css[k])) {
+                // CSS whitespace is ASCII only: U+00A0 stays part of the URL.
+                k = cssSpaceEnd(css, k);
+                bad ||= css[k] !== ')';
+            } else {
+                bad ||= /["'(]/.test(css[k]);
+                raw += css[k++];
+            }
+        }
+        if (bad) pendingImport = false;
+        else push(cssUnescape(raw));
+        return k + 1;
+    };
+    const identifier = () => {
+        const j = cssNameEnd(css, i);
+        const rawName = cssUnescape(css.slice(i, j));
+        const name = rawName.toLowerCase();
+        if (property && depth === propertyDepth && name === 'syntax' && declarationStart && /^[ \t\n]*:/.test(css.slice(j, j + 64))) expectSyntax = true;
+        if (rawName.startsWith('--')) customProperty(rawName, j);
+        declarationStart = false;
+        if (css[j] !== '(') return j;
+        if (name !== 'url') {
+            functions.push(name);
+            return j + 1;
+        }
+        const k = cssSpaceEnd(css, j + 1);
+        return css[k] === '"' || css[k] === "'" ? quotedUrl(k) : unquotedUrl(k);
+    };
+    const punctuation = new Map([['{', openBlock], ['}', closeBlock], [';', semicolon], ['@', atKeyword], ['(', openParen], [')', closeParen]]);
+    const token = (c) => {
         if (c === '/' && css[i + 1] === '*') {
             const end = css.indexOf('*/', i + 2);
-            i = end === -1 ? css.length : end + 2;
-        } else if (c === '"' || c === "'") {
-            declarationStart = false;
-            const [value, end] = readString(i);
-            if (expectSyntax) {
-                if (/<url>/i.test(value)) registeredUrls.add(property);
-                expectSyntax = false;
-            }
-            const fn = functions[functions.length - 1];
-            if (fn === 'image-set' || fn === '-webkit-image-set') refs.push({ url: value, directive: 'img-src', ...custom() });
-            else if (pendingImport && functions.length === 0) push(value);
-            i = end;
-        } else if (c === '{') {
-            if (depth === 0) importsAllowed = false;
-            skipPrelude = false;
-            depth++;
-            if (pendingFontFace) {
-                fontFaceDepth = depth;
-                pendingFontFace = false;
-            }
-            if (pendingProperty) {
-                property = pendingProperty;
-                propertyDepth = depth;
-                pendingProperty = null;
-            }
-            pendingImport = false;
-            declarationStart = true;
-            i++;
-        } else if (c === '}') {
-            if (depth === fontFaceDepth) fontFaceDepth = -1;
-            if (depth === propertyDepth) {
-                property = null;
-                propertyDepth = -1;
-            }
-            depth = Math.max(0, depth - 1);
-            if (depth < customDepth) customDepth = -1;
-            declarationStart = true;
-            i++;
-        } else if (c === ';') {
-            if (depth === customDepth && functions.length === 0) customDepth = -1;
-            expectSyntax = false;
-            pendingProperty = null;
-            declarationStart = true;
-            pendingImport = false;
-            pendingFontFace = false;
-            skipPrelude = false;
-            i++;
-        } else if (c === '@') {
-            declarationStart = false;
-            // An at-keyword may contain escapes (@\\69 mport is @import).
-            let j = i + 1;
-            while (j < css.length && (css[j] === '\\' || /[\w\-\u0080-\uFFFF]/.test(css[j]))) j = css[j] === '\\' ? cssEscapeEnd(css, j) : j + 1;
-            const keyword = cssUnescape(css.slice(i + 1, j)).toLowerCase();
-            if (keyword === 'import') {
-                // Browsers ignore an @import after other rules or nested in a block.
-                if (importsAllowed && depth === 0) pendingImport = true;
-                else skipPrelude = true;
-            } else if (keyword === 'namespace') {
-                importsAllowed = false;
-                skipPrelude = true; // @namespace url(...) names a namespace; nothing is fetched
-            } else if (keyword !== 'charset' && keyword !== 'layer') {
-                importsAllowed = false;
-            }
-            if (keyword === 'font-face') pendingFontFace = true;
-            if (keyword === 'property') {
-                let k = j;
-                while (k < css.length && /[ \t\n]/.test(css[k])) k++;
-                let e = k;
-                while (e < css.length && (css[e] === '\\' || /[\w\-\u0080-\uFFFF]/.test(css[e]))) e = css[e] === '\\' ? cssEscapeEnd(css, e) : e + 1;
-                const name = cssUnescape(css.slice(k, e));
-                if (name.startsWith('--')) pendingProperty = name;
-            }
-            i = Math.max(j, i + 1);
-        } else if (c === '(') {
-            declarationStart = false;
-            functions.push('');
-            i++;
-        } else if (c === ')') {
-            declarationStart = false;
-            functions.pop();
-            i++;
-        } else if (c === '\\' || /[A-Za-z_\-\u0080-￿]/.test(c)) {
-            let j = i;
-            while (j < css.length && (css[j] === '\\' || /[\w\-\u0080-￿]/.test(css[j]))) j = css[j] === '\\' ? cssEscapeEnd(css, j) : j + 1;
-            const rawName = cssUnescape(css.slice(i, j));
-            const name = rawName.toLowerCase();
-            if (property && depth === propertyDepth && name === 'syntax' && declarationStart && /^[ \t\n]*:/.test(css.slice(j, j + 64))) expectSyntax = true;
-            if (rawName.startsWith('--') && functions[functions.length - 1] === 'var') {
-                if (customDepth === -1) uses.add(rawName);
-                else chains.push([customName, rawName]);
-            }
-            // A custom property declaration (--x: ...), only where a declaration can start: inside a
-            // block, or anywhere in a style attribute; not a selector such as .--primary:hover.
-            if (declarationStart && rawName.startsWith('--') && functions.length === 0 && customDepth === -1 && (depth > 0 || declarations)) {
-                let k = j;
-                while (k < css.length && /\s/.test(css[k])) k++;
-                if (css[k] === ':') {
-                    customDepth = depth;
-                    customName = rawName; // custom property names are case-sensitive
-                }
-            }
-            declarationStart = false;
-            if (css[j] !== '(') {
-                i = j;
-            } else if (name !== 'url') {
-                functions.push(name);
-                i = j + 1;
-            } else {
-                // url( "quoted" ) or url(unquoted-token)
-                let k = j + 1;
-                while (k < css.length && /[ \t\n]/.test(css[k])) k++;
-                if (css[k] === '"' || css[k] === "'") {
-                    const [value, end] = readString(k);
-                    // url("x") must close after optional whitespace; anything else makes the value invalid.
-                    let after = end;
-                    while (after < css.length && /[ \t\n]/.test(css[after])) after++;
-                    if (css[after] === ')') push(value);
-                    else pendingImport = false;
-                    const close = css.indexOf(')', end);
-                    i = close === -1 ? css.length : close + 1;
-                } else {
-                    // An unquoted url token ends at ')'; unescaped whitespace before
-                    // other text, or a quote or '(' inside, makes it a bad-url (no fetch).
-                    let raw = '';
-                    let bad = false;
-                    while (k < css.length && css[k] !== ')') {
-                        if (css[k] === '\\' && css[k + 1] !== '\n') {
-                            const end = cssEscapeEnd(css, k);
-                            raw += css.slice(k, end);
-                            k = end;
-                        } else if (/[ \t\n]/.test(css[k])) {
-                            // CSS whitespace is ASCII only: U+00A0 stays part of the URL.
-                            while (k < css.length && /[ \t\n]/.test(css[k])) k++;
-                            if (css[k] !== ')') bad = true;
-                        } else {
-                            if (/["'(]/.test(css[k])) bad = true;
-                            raw += css[k++];
-                        }
-                    }
-                    if (bad) pendingImport = false;
-                    else push(cssUnescape(raw));
-                    i = k + 1;
-                }
-            }
-        } else {
-            if (!/\s/.test(c)) declarationStart = false;
-            i++;
+            return end === -1 ? css.length : end + 2;
         }
-    }
+        if (c === '"' || c === "'") return string();
+        if (punctuation.has(c)) return punctuation.get(c)();
+        if (c === '\\' || /[A-Za-z_\-\u0080-￿]/.test(c)) return identifier();
+        if (!/\s/.test(c)) declarationStart = false;
+        return i + 1;
+    };
+    while (i < css.length) i = token(css[i]);
     return { refs, uses, chains, registeredUrls };
 }
 
