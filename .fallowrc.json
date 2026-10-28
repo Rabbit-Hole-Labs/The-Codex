@@ -6,7 +6,8 @@
     "design-kit/src/styles/styles.css"
   ],
   "duplicates": {
-    "ignore": ["design-kit/src/styles/**"],
-    "ignoredClones": ["dup:c5631be6:2"]
+    "ignore": [
+      "design-kit/src/styles/**"
+    ]
   }
 }
