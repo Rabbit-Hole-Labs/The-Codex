@@ -99,7 +99,7 @@ export async function addLink(state, name, url, category, icon, size = 'medium')
 
     } catch (error) {
         debugError('Error adding link:', error);
-        throw new Error(`Failed to add link: ${error.message}`);
+        throw new Error(`Failed to add link: ${error.message}`, { cause: error });
     }
 }
 

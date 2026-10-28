@@ -51,7 +51,7 @@ class DataVerification {
             processed.summary.linksConsistent = consistent;
             return processed;
         } catch (error) {
-            throw new Error(`Failed to get cloud data: ${error.message}`);
+            throw new Error(`Failed to get cloud data: ${error.message}`, { cause: error });
         }
     }
 
@@ -61,7 +61,7 @@ class DataVerification {
             const data = await chrome.storage.local.get(null);
             return this.processStorageData(data, 'local');
         } catch (error) {
-            throw new Error(`Failed to get local data: ${error.message}`);
+            throw new Error(`Failed to get local data: ${error.message}`, { cause: error });
         }
     }
 
@@ -148,7 +148,7 @@ class DataVerification {
 
             return comparison;
         } catch (error) {
-            throw new Error(`Failed to compare data: ${error.message}`);
+            throw new Error(`Failed to compare data: ${error.message}`, { cause: error });
         }
     }
 
@@ -335,7 +335,7 @@ class DataVerification {
 
             return validation;
         } catch (error) {
-            throw new Error(`Failed to validate data integrity: ${error.message}`);
+            throw new Error(`Failed to validate data integrity: ${error.message}`, { cause: error });
         }
     }
 
@@ -515,8 +515,7 @@ class DataVerification {
         this._viewer = { data, type };
         this.isFormatted = false;
 
-        let content = '';
-
+        let content;
         if (type === 'comparison') {
             content = this.renderComparison(data);
         } else if (type === 'validation') {

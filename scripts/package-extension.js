@@ -1324,7 +1324,7 @@ function staticImports(file, source) {
     try {
         mod = new vm.SourceTextModule(source, { identifier: file });
     } catch (error) {
-        throw new Error(`${file}: ${error.name}: ${error.message}`);
+        throw new Error(`${file}: ${error.name}: ${error.message}`, { cause: error });
     }
     return mod.moduleRequests
         ? mod.moduleRequests.map((request) => ({ specifier: request.specifier, type: request.attributes?.type }))
@@ -2301,7 +2301,7 @@ export function buildPackage({ root, outDir = join(root, 'dist'), stripKey = fal
     try {
         manifest = JSON.parse(manifestBytes.toString('utf8'));
     } catch (error) {
-        throw new Error(`manifest.json is not valid JSON (the Web Store rejects comments): ${error.message}`);
+        throw new Error(`manifest.json is not valid JSON (the Web Store rejects comments): ${error.message}`, { cause: error });
     }
     const realOut = realpathLoose(outDir);
     for (const entry of PACKAGE_ROOTS) {
