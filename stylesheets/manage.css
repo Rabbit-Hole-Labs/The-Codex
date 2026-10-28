@@ -1379,6 +1379,18 @@ body:has(.modal:not(.hidden)) {
   min-width: 150px;
 }
 
+.links-toolbar > .links-search {
+  flex: 0 1 260px;
+  min-width: 180px;
+}
+
+.links-empty {
+  padding: 24px 12px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--on-surface-variant);
+}
+
 /* Every control on the toolbar is exactly one height so the buttons
    (Move / Apply / Delete) and the selects line up — previously the buttons
    inside .action-row stretched to the taller select while "Delete selected"

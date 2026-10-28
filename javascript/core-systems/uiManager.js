@@ -21,6 +21,7 @@ export function getElements() {
         importBtn: document.getElementById('importBtn'),
         importFile: document.getElementById('importFile'),
         filterCategory: document.getElementById('filterCategory'),
+        linkSearch: document.getElementById('linkSearch'),
         prevPageBtn: document.getElementById('prevPage'),
         nextPageBtn: document.getElementById('nextPage'),
         pageInfo: document.getElementById('pageInfo'),
@@ -54,9 +55,43 @@ export function getElements() {
     };
 }
 
+/**
+ * The Manage Links filters as the toolbar shows them.
+ * @returns {{category: string, query: string}}
+ */
+export function currentFilters() {
+    const elements = getElements();
+    return {
+        category: elements.filterCategory?.value || 'all',
+        query: elements.linkSearch?.value ?? ''
+    };
+}
+
+/**
+ * Whether a link passes the Manage Links filters: its category (or 'all'),
+ * and every word of the search somewhere in its name, URL or category,
+ * ignoring case.
+ * @param {Object} link
+ * @param {{category?: string, query?: string}} filters
+ * @returns {boolean}
+ */
+export function linkMatchesFilters(link, { category = 'all', query = '' } = {}) {
+    if (category !== 'all' && link.category !== category) return false;
+    const words = query.toLowerCase().split(/\s+/).filter(Boolean);
+    if (words.length === 0) return true;
+    const text = [link.name, link.url, link.category].map(part => String(part ?? '').toLowerCase()).join('\n');
+    return words.every(word => text.includes(word));
+}
+
 export function renderLinks(state) {
     const elements = getElements();
     elements.linksContainer.innerHTML = '';
+    if (state.filteredLinks.length === 0 && state.links.length > 0) {
+        const empty = document.createElement('p');
+        empty.className = 'links-empty';
+        empty.textContent = 'No links match the search or category filter.';
+        elements.linksContainer.appendChild(empty);
+    }
     const start = (state.currentPage - 1) * state.linksPerPage;
     const end = start + state.linksPerPage;
     const linksToRender = state.filteredLinks.slice(start, end);
@@ -91,7 +126,9 @@ function updateLinksSummary(state) {
     const catCount = new Set((state.links || []).map(l => l.category || 'Default')).size;
     const linkWord = total === 1 ? 'link' : 'links';
     const catWord = catCount === 1 ? 'category' : 'categories';
-    summary.textContent = `${total} ${linkWord} across ${catCount} ${catWord}.`;
+    const shown = (state.filteredLinks || []).length;
+    const filtered = shown !== total ? ` Showing ${shown}.` : '';
+    summary.textContent = `${total} ${linkWord} across ${catCount} ${catWord}.${filtered}`;
 }
 
 function createLinkElement(link, index, state) {
@@ -144,17 +181,11 @@ function createLinkElement(link, index, state) {
 }
 
 export function filterLinks(state) {
-    const elements = getElements();
-    const selectedCategory = elements.filterCategory.value;
-    // filteredLinks must always be a DISTINCT array from links. The 'all' case
-    // used to assign `state.links` directly, aliasing the two arrays; a later
-    // single delete then spliced both state.links and state.filteredLinks — the
-    // same object — twice, removing two links instead of one (data loss). The
-    // filter() branch already returns a fresh array; spread the 'all' branch so
-    // it does too.
-    state.filteredLinks = selectedCategory === 'all'
-        ? [...state.links]
-        : state.links.filter(link => link.category === selectedCategory);
+    const filters = currentFilters();
+    // filteredLinks must always be a DISTINCT array from links (filter()
+    // returns a fresh one). Aliasing the two made a later single delete splice
+    // both — the same object — twice, removing two links instead of one.
+    state.filteredLinks = state.links.filter(link => linkMatchesFilters(link, filters));
     state.currentPage = 1;
     debug('Filtered links:', state.filteredLinks);
     keepView(state);
@@ -163,7 +194,7 @@ export function filterLinks(state) {
 
 export function updatePaginationControls(state) {
     const elements = getElements();
-    const totalPages = Math.ceil(state.filteredLinks.length / state.linksPerPage);
+    const totalPages = Math.max(1, Math.ceil(state.filteredLinks.length / state.linksPerPage));
     elements.pageInfo.textContent = `Page ${state.currentPage} of ${totalPages}`;
     elements.prevPageBtn.disabled = state.currentPage === 1;
     elements.nextPageBtn.disabled = state.currentPage === totalPages;
