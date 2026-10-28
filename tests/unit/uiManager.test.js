@@ -153,6 +153,91 @@ describe('uiManager', () => {
             expect(document.getElementById('nextPage').disabled).toBe(true);
         });
 
+        // The page always passes getState(), a copy: the page change has to
+        // reach the real state, or Previous after Next lands on "Page 0 of 2".
+        test('Next then Previous, through getState() snapshots, returns to page 1', async () => {
+            const { getState, safeUpdateState } = await import('../../javascript/core-systems/stateManager.js');
+            const links = createLinks(25);
+            safeUpdateState({ links, filteredLinks: [...links], currentPage: 1 }, { validate: false, skipPersistence: true });
+
+            UIManager.changePage(getState(), 1);
+            expect(document.getElementById('pageInfo').textContent).toBe('Page 2 of 2');
+            UIManager.changePage(getState(), -1);
+            expect(document.getElementById('pageInfo').textContent).toBe('Page 1 of 2');
+            expect(getState().currentPage).toBe(1);
+            UIManager.changePage(getState(), -1);
+            expect(getState().currentPage).toBe(1);
+        });
+
+        test('a bulk action after filtering acts on the rows shown, not the unfiltered list', async () => {
+            const { getState, safeUpdateState } = await import('../../javascript/core-systems/stateManager.js');
+            const links = [...createLinks(3, 'Work'), ...createLinks(2, 'Home').map((l, i) => ({ ...l, id: `home-${i}`, name: `Home ${i}` }))];
+            safeUpdateState({ links, filteredLinks: [...links], currentPage: 1 }, { validate: false, skipPersistence: true });
+            const filter = document.getElementById('filterCategory');
+            filter.appendChild(Object.assign(document.createElement('option'), { value: 'Home' }));
+            filter.value = 'Home';
+
+            UIManager.filterLinks(getState());
+            document.querySelector('.link-checkbox').checked = true; // first row shown: Home 0
+            const [index] = UIManager.getSelectedIndices(getState());
+            expect(getState().filteredLinks[index].name).toBe('Home 0');
+        });
+
+        describe('text search', () => {
+            const lab = [
+                { id: 'a', name: 'Jellyfin', url: 'http://192.168.1.199:8096/', category: 'Lab Tools' },
+                { id: 'b', name: 'Home Assistant', url: 'http://192.168.1.196:8123', category: 'Home Lab' },
+                { id: 'c', name: 'Proxmox', url: 'https://192.168.1.124:8006/', category: 'Lab Tools' },
+                { id: 'd', name: 'Azure portal', url: 'https://portal.azure.com/#home', category: 'Cloud Portals' }
+            ];
+
+            function addSearch(value) {
+                const input = document.createElement('input');
+                input.id = 'linkSearch';
+                input.value = value;
+                document.body.appendChild(input);
+                const summary = document.createElement('p');
+                summary.id = 'linksSummary';
+                document.body.appendChild(summary);
+            }
+
+            test('matches every word, in name, URL or category, ignoring case', () => {
+                const match = (query, category) => lab.filter(l => UIManager.linkMatchesFilters(l, { query, category })).map(l => l.id);
+                expect(match('')).toEqual(['a', 'b', 'c', 'd']);
+                expect(match('JELLY')).toEqual(['a']);
+                expect(match('192.168.1.19')).toEqual(['a', 'b']);
+                expect(match('lab prox')).toEqual(['c']);
+                expect(match('home')).toEqual(['b', 'd']); // name/category, and the URL's #home
+                expect(match('lab', 'Lab Tools')).toEqual(['a', 'c']);
+                expect(match('  ')).toEqual(['a', 'b', 'c', 'd']);
+            });
+
+            test('filterLinks applies the search, resets to page 1 and keeps it in state', async () => {
+                const { getState, safeUpdateState } = await import('../../javascript/core-systems/stateManager.js');
+                safeUpdateState({ links: lab, filteredLinks: [...lab], currentPage: 1 }, { validate: false, skipPersistence: true });
+                addSearch('lab');
+
+                UIManager.filterLinks(getState());
+                expect([...document.querySelectorAll('.link-title')].map(el => el.textContent))
+                    .toEqual(['Jellyfin', 'Home Assistant', 'Proxmox']);
+                expect(document.getElementById('linksSummary').textContent).toBe('4 links across 3 categories. Showing 3.');
+
+                document.querySelectorAll('.link-checkbox')[2].checked = true;
+                const [index] = UIManager.getSelectedIndices(getState());
+                expect(getState().filteredLinks[index].name).toBe('Proxmox');
+            });
+
+            test('no match says so, on page 1 of 1', async () => {
+                const { getState, safeUpdateState } = await import('../../javascript/core-systems/stateManager.js');
+                safeUpdateState({ links: lab, filteredLinks: [...lab], currentPage: 1 }, { validate: false, skipPersistence: true });
+                addSearch('nothing-like-this');
+
+                UIManager.filterLinks(getState());
+                expect(document.querySelector('.links-empty').textContent).toMatch(/No links match/);
+                expect(document.getElementById('pageInfo').textContent).toBe('Page 1 of 1');
+            });
+        });
+
         test('changePage increments currentPage', () => {
             const state = makeState({ filteredLinks: createLinks(30), linksPerPage: 10, currentPage: 1 });
             UIManager.changePage(state, 1);
