@@ -110,16 +110,7 @@ export async function renameCategory(state, oldCategory, newCategory) {
         const index = state.categories.indexOf(oldCategory);
         if (index !== -1) {
             state.categories[index] = newCategory;
-            state.links = state.links.map(link => {
-                if (link.category === oldCategory) {
-                    return { ...link, category: newCategory };
-                }
-                return link;
-            });
-            await StorageManager.saveCategories(state.categories);
-            await StorageManager.saveLinks(state.links);
-            await populateCategories(state);
-            UIManager.filterLinks(state);
+            await moveCategoryLinksAndSave(state, oldCategory, newCategory);
             return true;
         }
         return false;
@@ -128,6 +119,21 @@ export async function renameCategory(state, oldCategory, newCategory) {
         UIManager.showMessage('Failed to rename category. Please try again.', 'error');
         return false;
     }
+}
+
+// Move every link in category from to category to, save categories and
+// links, and refresh the category UI and the link filter.
+async function moveCategoryLinksAndSave(state, from, to) {
+    state.links = state.links.map(link => {
+        if (link.category === from) {
+            return { ...link, category: to };
+        }
+        return link;
+    });
+    await StorageManager.saveCategories(state.categories);
+    await StorageManager.saveLinks(state.links);
+    await populateCategories(state);
+    UIManager.filterLinks(state);
 }
 
 export async function deleteCategory(state, categoryToDelete) {
@@ -143,17 +149,7 @@ export async function deleteCategory(state, categoryToDelete) {
             state.categories = currentCategories;
 
             state.categories = state.categories.filter(category => category !== categoryToDelete);
-            state.links = state.links.map(link => {
-                if (link.category === categoryToDelete) {
-                    return { ...link, category: defaultCategory };
-                }
-                return link;
-            });
-
-            await StorageManager.saveCategories(state.categories);
-            await StorageManager.saveLinks(state.links);
-            await populateCategories(state);
-            UIManager.filterLinks(state);
+            await moveCategoryLinksAndSave(state, categoryToDelete, defaultCategory);
             return true;
         }
         return false;

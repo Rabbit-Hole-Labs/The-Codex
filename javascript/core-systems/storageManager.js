@@ -1,7 +1,7 @@
 import { syncManager } from './syncManager.js';
 import { handleError, CodexError } from '../features/errorHandler.js';
 import errorHandler from '../features/errorHandler.js';
-import { validateAndSanitizeUrl } from '../features/utils.js';
+import { validateAndSanitizeUrl, downloadJsonFile } from '../features/utils.js';
 import { sanitizeUserInput } from '../features/securityUtils.js';
 import { validateIconValue } from '../features/iconCache.js';
 import { debug, debugWarn, debugError } from './debug.js';
@@ -638,18 +638,8 @@ export async function exportLinks(state) {
             exportDate: new Date().toISOString()
         };
 
-        const json = JSON.stringify(data, null, 2);
-        const blob = new Blob([json], { type: 'application/json' });
-        const url = URL.createObjectURL(blob);
-        
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `the-codex-export-${new Date().toISOString().slice(0, 10)}.json`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-        
+        downloadJsonFile(JSON.stringify(data, null, 2), `the-codex-export-${new Date().toISOString().slice(0, 10)}.json`);
+
         debug('Links exported successfully');
         return true;
     } catch (error) {

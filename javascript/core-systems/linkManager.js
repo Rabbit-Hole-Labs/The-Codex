@@ -137,41 +137,38 @@ export async function bulkDeleteLinks(state, indices) {
     await StorageManager.saveLinks(state.links);
 }
 
-export async function bulkMoveLinks(state, indices, newCategory) {
+// Apply update to each selected link (indices into state.filteredLinks), in
+// both state.links and state.filteredLinks, then save state.links.
+async function updateSelectedLinks(state, indices, update) {
     // Process indices in reverse order to avoid index shifting issues
     const sortedIndices = [...indices].sort((a, b) => b - a);
-    
+
     for (const index of sortedIndices) {
         const actualIndex = resolveLinkIndex(state.links, state.filteredLinks[index]);
         if (actualIndex !== -1) {
-            state.links[actualIndex].category = newCategory;
-            state.filteredLinks[index].category = newCategory;
+            update(state.links[actualIndex]);
+            update(state.filteredLinks[index]);
         }
     }
-    
+
     await StorageManager.saveLinks(state.links);
 }
 
+export async function bulkMoveLinks(state, indices, newCategory) {
+    await updateSelectedLinks(state, indices, link => {
+        link.category = newCategory;
+    });
+}
+
 export async function bulkChangeSizeLinks(state, indices, newSize) {
-    // Process indices in reverse order to avoid index shifting issues
-    const sortedIndices = [...indices].sort((a, b) => b - a);
-    
-    for (const index of sortedIndices) {
-        const actualIndex = resolveLinkIndex(state.links, state.filteredLinks[index]);
-        if (actualIndex !== -1) {
-            if (newSize === 'default') {
-                // Remove size property to use global default
-                delete state.links[actualIndex].size;
-                delete state.filteredLinks[index].size;
-            } else {
-                // Set specific size
-                state.links[actualIndex].size = newSize;
-                state.filteredLinks[index].size = newSize;
-            }
+    await updateSelectedLinks(state, indices, link => {
+        if (newSize === 'default') {
+            // Remove size property to use global default
+            delete link.size;
+        } else {
+            link.size = newSize;
         }
-    }
-    
-    await StorageManager.saveLinks(state.links);
+    });
 }
 
 export async function editLink(state, index, name, url, category, icon, size = 'medium') {

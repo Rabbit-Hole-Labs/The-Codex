@@ -195,7 +195,7 @@ export function init(options = {}) {
  * link's name and URL.
  * @param {string} targetId - 'siteIcon' or 'editSiteIcon'
  */
-export function open(targetId = 'siteIcon') {
+function open(targetId = 'siteIcon') {
     currentTarget = targetId;
     const { modal, context, search } = els();
     if (!modal) return;
@@ -221,7 +221,7 @@ export function open(targetId = 'siteIcon') {
     runSearch(name, selfhstCandidateSlugs({ name, url }));
 }
 
-export function close() {
+function close() {
     const { modal } = els();
     if (!modal) return;
     modal.classList.add('hidden');

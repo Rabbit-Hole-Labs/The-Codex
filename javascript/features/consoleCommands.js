@@ -16,6 +16,7 @@ import { syncManager } from '../core-systems/syncManager.js';
 import { getCacheStats, clearIconCache } from './iconCache.js';
 import { setDebugEnabled, isDebugEnabled } from '../core-systems/debug.js';
 import { getCapturedErrors, clearCapturedErrors, formatCapturedErrors } from './errorCapture.js';
+import { downloadJsonFile } from './utils.js';
 
 // Global console helper for The Codex
 const CodexConsole = {
@@ -210,17 +211,7 @@ const CodexConsole = {
                 storageInfo: await this.storageInfo()
             };
 
-            const dataStr = JSON.stringify(exportData, null, 2);
-            const blob = new Blob([dataStr], { type: 'application/json' });
-            const url = URL.createObjectURL(blob);
-
-            const link = document.createElement('a');
-            link.href = url;
-            link.download = `codex-complete-data-export-${Date.now()}.json`;
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-            URL.revokeObjectURL(url);
+            downloadJsonFile(JSON.stringify(exportData, null, 2), `codex-complete-data-export-${Date.now()}.json`);
 
             console.log('Complete data export saved');
             return exportData;
@@ -256,15 +247,7 @@ const CodexConsole = {
                 count: list.length,
                 errors: list
             };
-            const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
-            const url = URL.createObjectURL(blob);
-            const link = document.createElement('a');
-            link.href = url;
-            link.download = `codex-errors-${Date.now()}.json`;
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-            URL.revokeObjectURL(url);
+            downloadJsonFile(JSON.stringify(payload, null, 2), `codex-errors-${Date.now()}.json`);
             console.log(`Exported ${list.length} captured error(s)`);
             return payload;
         } catch (error) {

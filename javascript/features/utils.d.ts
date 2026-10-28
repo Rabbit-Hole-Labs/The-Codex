@@ -10,3 +10,5 @@ export function escapeHtml(value: unknown): string;
 export function validateAndSanitizeUrl(url: unknown): string;
 export function isValidUrlFormat(url: unknown): boolean;
 export function extractDomain(url: string): string;
+/** Offers a JSON string as a downloaded file (blob URL + temporary <a download> click). */
+export function downloadJsonFile(json: string, filename: string): void;
