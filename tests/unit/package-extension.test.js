@@ -657,6 +657,16 @@ describe('package-extension', () => {
         expect(message).not.toContain('nope.png'); // an HTML <title> is still RCDATA
     });
 
+    test('link rel=icon is an image load; rel=prefetch falls under default-src', () => {
+        const message = buildError({
+            'manifest.json': JSON.stringify({ ...MANIFEST, content_security_policy: { extension_pages: "script-src 'self'; object-src 'none'; default-src 'self'; img-src 'self' https://cdn.example" } }),
+            'popup.html': '<link rel="icon" href="https://cdn.example/i.png"><link rel="prefetch" href="https://cdn.example/p.json">' +
+                '<script type="module" src="javascript/entry-points/popup.js"></script>'
+        });
+        expect(message).toContain('popup.html loads https://cdn.example/p.json, which the manifest CSP blocks (default-src)');
+        expect(message).not.toContain('i.png');
+    });
+
     test('the manifest key must be a real public key', () => {
         for (const key of ['FIXTUREKEY', 'not base64!!', 5, 'QUJD']) {
             expect(validateManifest({ ...MANIFEST, key })).toContain('key must be the base64 public key from the Chrome Web Store dashboard');
