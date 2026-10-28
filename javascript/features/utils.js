@@ -29,6 +29,7 @@ export function throttle(func, limit) {
  * @param {string} str - Input string possibly containing HTML
  * @returns {string} Plain text with all HTML stripped
  */
+// fallow-ignore-next-line unused-export -- the documented name (utils.d.ts, securityUtils.js); callers use the sanitizeHTML alias.
 export function extractTextContent(str) {
     if (!str) return '';
     // Use DOMParser to safely parse HTML and extract text
