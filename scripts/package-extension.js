@@ -1568,6 +1568,17 @@ const importMapShapeProblem = (parsed) => (!isPlainObject(parsed) ? 'must be a J
         : 'scopes' in parsed && !(isPlainObject(parsed.scopes) && Object.values(parsed.scopes).every(isPlainObject)) ? '"scopes" must be an object of objects'
             : 'integrity' in parsed && !isPlainObject(parsed.integrity) ? '"integrity" must be an object' : null);
 
+/** Whether a hyperlink-auditing ping is sent to `url`: only to HTTP(S) URLs, and not to one that doesn't parse. */
+const pingable = (url) => {
+    if (!/^https?:/i.test(url ?? '')) return false;
+    try {
+        new URL(url);
+        return true;
+    } catch {
+        return false;
+    }
+};
+
 /** Why Chrome blocks or can't load the imports one import map entry names, or null when it maps them. */
 const importMapEntryProblem = (key, address) => {
     const blocked = typeof address !== 'string' ? 'is not a string'
@@ -1614,34 +1625,30 @@ export function extractRefs(file, text, { classic = false, csp = null, scripting
             return;
         }
         const located = locate(url, baseUsable ? base : null, fragments || ping);
-        if (ping) {
-            // Only HTTP(S) URLs are pinged, and a URL that doesn't parse is skipped.
-            if (!/^https?:/i.test(located.external ?? '')) return;
-            try {
-                new URL(located.external);
-            } catch {
-                return;
-            }
-        }
+        if (ping && !pingable(located.external)) return;
         const local = located.local ?? (located.external ? ownPath(located.external) : null);
         const external = local ? null : located.external;
         // cors and ownIntegrity let a preload of the same URL be matched to this load.
         const load = { directive, policies, nonce, parserInserted, cors, module, ownIntegrity: Boolean(integrity), integrityAttr: integrity !== undefined, hint, mapAddress, sandboxed, order };
-        if (local) {
-            result.refs.push(local);
-            if (sandboxed) result.opaqueRefs.push(local);
-            if (srcdoc) result.srcdocRefs.push({ id: srcdoc, path: local });
-            if (directive) result.uses.push({ path: local, ...load });
-            if (integrity !== undefined) result.integrity.push({ path: local, integrity, line });
-            if (preload) result.preloads.push({ path: local, order, ...preload });
-        } else if (external && directive) {
-            if (/^chrome-extension:\/\//i.test(external) && !ownPrefix) {
-                result.errors.push(`${file}: ${external} can't be checked without a manifest key (the extension ID is unknown)`);
-            } else if (/^(https?|wss?|data|blob|chrome-extension):/i.test(external)) {
-                result.external.push({ url: external, ...load });
-            } else {
-                result.errors.push(`${file}: ${external} uses a URL scheme an extension page can't load (${directive})`);
-            }
+        if (local) addLocal(local, load, { srcdoc, integrity, line, preload });
+        else if (external && directive) addExternal(external, load);
+    };
+    // A load of one of the package's own files, with what the checks need to know about it.
+    const addLocal = (local, load, { srcdoc, integrity, line, preload }) => {
+        result.refs.push(local);
+        if (load.sandboxed) result.opaqueRefs.push(local);
+        if (srcdoc) result.srcdocRefs.push({ id: srcdoc, path: local });
+        if (load.directive) result.uses.push({ path: local, ...load });
+        if (integrity !== undefined) result.integrity.push({ path: local, integrity, line });
+        if (preload) result.preloads.push({ path: local, order: load.order, ...preload });
+    };
+    const addExternal = (external, load) => {
+        if (/^chrome-extension:\/\//i.test(external) && !ownPrefix) {
+            result.errors.push(`${file}: ${external} can't be checked without a manifest key (the extension ID is unknown)`);
+        } else if (/^(https?|wss?|data|blob|chrome-extension):/i.test(external)) {
+            result.external.push({ url: external, ...load });
+        } else {
+            result.errors.push(`${file}: ${external} uses a URL scheme an extension page can't load (${load.directive})`);
         }
     };
     // The packaged file a URL names here (resolved against `base` while it is usable), or null.
