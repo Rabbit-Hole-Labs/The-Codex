@@ -151,18 +151,51 @@ const validMatchPattern = (pattern) => {
     return port === undefined || port === '*' || (scheme !== '*' && Number(port) <= 65535);
 };
 
-/** Checks the manifest fields Chrome and the Web Store validate on upload. */
-export function validateManifest(manifest) {
-    const errors = [];
-    if (manifest.manifest_version !== 3) errors.push('manifest_version must be 3');
-    if (typeof manifest.name !== 'string' || !manifest.name.trim()) {
-        errors.push('name is required');
-    } else if (manifest.name.length > MAX_NAME_LENGTH) {
-        errors.push(`name is ${manifest.name.length} characters; Chrome allows ${MAX_NAME_LENGTH}`);
+const isPlainObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
+
+/** Content-script match patterns and paths: a non-empty array of non-empty strings. */
+const nonEmptyStrings = (value) => Array.isArray(value) && value.length > 0 && value.every((item) => typeof item === 'string' && item);
+
+/** Why one content_scripts entry is malformed, in the order Chrome would complain. */
+function contentScriptProblems(entry, index) {
+    if (!isPlainObject(entry)) return [`content_scripts[${index}] must be an object`];
+    const problems = [];
+    if (!nonEmptyStrings(entry.matches)) problems.push(`content_scripts[${index}].matches must be a non-empty array of match patterns`);
+    for (const key of ['js', 'css']) {
+        if (key in entry && !nonEmptyStrings(entry[key])) problems.push(`content_scripts[${index}].${key} must be a non-empty array of paths`);
     }
-    if (typeof manifest.version !== 'string') {
-        errors.push('version must be a string');
-    } else {
+    if (!('js' in entry) && !('css' in entry)) problems.push(`content_scripts[${index}] needs js or css`);
+    for (const key of ['matches', 'exclude_matches']) {
+        if (!Array.isArray(entry[key])) continue;
+        entry[key].forEach((pattern, n) => {
+            if (typeof pattern === 'string' && !validMatchPattern(pattern)) {
+                problems.push(`content_scripts[${index}].${key}[${n}] "${pattern}" isn't a match pattern (<scheme>://<host><path> or <all_urls>)`);
+            }
+        });
+    }
+    return problems;
+}
+
+/**
+ * The manifest checks, in the order their errors are reported. Each pushes what it finds onto
+ * `errors`; they are independent of one another.
+ */
+const MANIFEST_RULES = [
+    function manifestVersion(manifest, errors) {
+        if (manifest.manifest_version !== 3) errors.push('manifest_version must be 3');
+    },
+    function name(manifest, errors) {
+        if (typeof manifest.name !== 'string' || !manifest.name.trim()) {
+            errors.push('name is required');
+        } else if (manifest.name.length > MAX_NAME_LENGTH) {
+            errors.push(`name is ${manifest.name.length} characters; Chrome allows ${MAX_NAME_LENGTH}`);
+        }
+    },
+    function version(manifest, errors) {
+        if (typeof manifest.version !== 'string') {
+            errors.push('version must be a string');
+            return;
+        }
         const parts = manifest.version.split('.');
         const valid = parts.length <= 4 &&
             parts.every((part) => /^(0|[1-9]\d*)$/.test(part) && Number(part) <= 65535) &&
@@ -170,22 +203,24 @@ export function validateManifest(manifest) {
         if (!valid) {
             errors.push(`version "${manifest.version}" must be 1-4 dot-separated integers 0-65535, no leading zeros, not all zero`);
         }
-    }
-    if ('description' in manifest && typeof manifest.description !== 'string') {
-        errors.push('description must be a string');
-    } else if (typeof manifest.description === 'string' && manifest.description.length > MAX_DESCRIPTION_LENGTH) {
-        errors.push(`description is ${manifest.description.length} characters; the Web Store allows ${MAX_DESCRIPTION_LENGTH}`);
-    }
-    for (const [key, shape] of Object.entries(FIELD_SHAPES)) {
-        if (!(key in manifest)) continue;
-        const value = manifest[key];
-        const ok = shape === 'array' ? Array.isArray(value)
-            : shape === 'string' ? typeof value === 'string'
-                : value !== null && typeof value === 'object' && !Array.isArray(value);
-        if (!ok) errors.push(`${key} must be ${shape === 'array' ? 'an array' : shape === 'string' ? 'a string' : 'an object'}`);
-    }
-    const options = manifest.options_ui;
-    if (options && typeof options === 'object' && !Array.isArray(options)) {
+    },
+    function description(manifest, errors) {
+        if ('description' in manifest && typeof manifest.description !== 'string') {
+            errors.push('description must be a string');
+        } else if (typeof manifest.description === 'string' && manifest.description.length > MAX_DESCRIPTION_LENGTH) {
+            errors.push(`description is ${manifest.description.length} characters; the Web Store allows ${MAX_DESCRIPTION_LENGTH}`);
+        }
+    },
+    function fieldShapes(manifest, errors) {
+        const checks = { array: [Array.isArray, 'an array'], string: [(value) => typeof value === 'string', 'a string'], object: [isPlainObject, 'an object'] };
+        for (const [key, shape] of Object.entries(FIELD_SHAPES)) {
+            const [ok, expected] = checks[shape];
+            if (key in manifest && !ok(manifest[key])) errors.push(`${key} must be ${expected}`);
+        }
+    },
+    function optionsUi(manifest, errors) {
+        const options = manifest.options_ui;
+        if (!isPlainObject(options)) return;
         // Chrome drops a malformed options_ui (an install warning), falling back to options_page if any;
         // a well-formed one may not have chrome_style at all in MV3 (even false).
         const broken = typeof options.page !== 'string' || !options.page.trim() ? 'has no page'
@@ -197,8 +232,9 @@ export function validateManifest(manifest) {
         } else if (broken && !(typeof manifest.options_page === 'string' && manifest.options_page.trim())) {
             errors.push(`options_ui ${broken}, so Chrome ignores it and the extension has no options page`);
         }
-    }
-    if (manifest.manifest_version === 3) {
+    },
+    function mv2Leftovers(manifest, errors) {
+        if (manifest.manifest_version !== 3) return;
         const background = manifest.background && typeof manifest.background === 'object' ? manifest.background : {};
         for (const field of ['scripts', 'page']) {
             if (field in background) errors.push(`background.${field} is MV2-only; MV3 uses background.service_worker`);
@@ -206,8 +242,9 @@ export function validateManifest(manifest) {
         for (const key of ['browser_action', 'page_action']) {
             if (key in manifest) errors.push(`${key} is MV2-only; MV3 uses action`);
         }
-    }
-    if ('key' in manifest) {
+    },
+    function key(manifest, errors) {
+        if (!('key' in manifest)) return;
         // The Web Store's public key: strict base64 of a DER SubjectPublicKeyInfo.
         let validKey = typeof manifest.key === 'string' && manifest.key.length % 4 === 0 && /^[A-Za-z0-9+/]+={0,2}$/.test(manifest.key);
         if (validKey) {
@@ -218,18 +255,20 @@ export function validateManifest(manifest) {
             }
         }
         if (!validKey) errors.push('key must be the base64 public key from the Chrome Web Store dashboard');
-    }
-    const overrides = manifest.chrome_url_overrides;
-    if (overrides && typeof overrides === 'object' && !Array.isArray(overrides)) {
+    },
+    function urlOverrides(manifest, errors) {
+        const overrides = manifest.chrome_url_overrides;
+        if (!isPlainObject(overrides)) return;
         const keys = Object.keys(overrides);
         if (keys.length !== 1 || !['newtab', 'history', 'bookmarks'].includes(keys[0])) {
             errors.push('chrome_url_overrides must override exactly one of newtab, history or bookmarks');
         } else if (typeof overrides[keys[0]] !== 'string' || !overrides[keys[0]].trim()) {
             errors.push(`chrome_url_overrides.${keys[0]} must be the path of the override page`);
         }
-    }
-    const cspField = manifest.content_security_policy;
-    if (cspField && typeof cspField === 'object' && !Array.isArray(cspField)) {
+    },
+    function cspMembers(manifest, errors) {
+        const cspField = manifest.content_security_policy;
+        if (!isPlainObject(cspField)) return;
         for (const [member, value] of Object.entries(cspField)) {
             if (!['extension_pages', 'sandbox'].includes(member)) {
                 errors.push(`content_security_policy.${member} is not an MV3 member (use extension_pages or sandbox)`);
@@ -240,61 +279,48 @@ export function validateManifest(manifest) {
                 errors.push(`content_security_policy.${member} contains a character Chrome rejects (only tab, form feed and printable ASCII other than "," are allowed)`);
             }
         }
-    }
-    if (typeof cspField?.sandbox === 'string') {
+    },
+    function sandboxCsp(manifest, errors) {
+        const policy = manifest.content_security_policy?.sandbox;
+        if (typeof policy !== 'string') return;
         // Chrome requires a custom sandbox policy to keep the sandbox directive, without allow-same-origin.
-        const sandboxDirectives = parseCsp(cspField.sandbox);
+        const sandboxDirectives = parseCsp(policy);
         if (!sandboxDirectives.has('sandbox')) {
             errors.push('content_security_policy.sandbox must include the sandbox directive');
         } else if (sandboxDirectives.get('sandbox').includes('allow-same-origin')) {
             errors.push('content_security_policy.sandbox may not use allow-same-origin');
         }
-    }
-    for (const key of ['permissions', 'optional_permissions', 'host_permissions', 'optional_host_permissions']) {
-        if (key in manifest && !(Array.isArray(manifest[key]) && manifest[key].every((item) => typeof item === 'string' && item))) {
-            errors.push(`${key} must be an array of strings`);
+    },
+    function permissions(manifest, errors) {
+        for (const key of ['permissions', 'optional_permissions', 'host_permissions', 'optional_host_permissions']) {
+            if (key in manifest && !(Array.isArray(manifest[key]) && manifest[key].every((item) => typeof item === 'string' && item))) {
+                errors.push(`${key} must be an array of strings`);
+            }
         }
-    }
-    const dnr = manifest.declarative_net_request;
-    if (dnr && typeof dnr === 'object' && !Array.isArray(dnr)) {
+    },
+    function ruleResources(manifest, errors) {
+        const dnr = manifest.declarative_net_request;
+        if (!isPlainObject(dnr)) return;
         const resources = dnr.rule_resources;
         if (!Array.isArray(resources)) {
             errors.push('declarative_net_request.rule_resources must be an array');
-        } else {
-            const ids = new Set();
-            resources.forEach((resource, index) => {
-                const ok = resource && typeof resource === 'object' && typeof resource.id === 'string' && resource.id &&
-                    typeof resource.enabled === 'boolean' && typeof resource.path === 'string' && resource.path;
-                if (!ok) errors.push(`declarative_net_request.rule_resources[${index}] needs a string id, a boolean enabled and a string path`);
-                else if (ids.has(resource.id)) errors.push(`declarative_net_request.rule_resources[${index}] repeats the ruleset id "${resource.id}"`);
-                else ids.add(resource.id);
-            });
+            return;
         }
-    }
-    if (Array.isArray(manifest.content_scripts)) {
-        const strings = (value) => Array.isArray(value) && value.length > 0 && value.every((item) => typeof item === 'string' && item);
-        manifest.content_scripts.forEach((entry, index) => {
-            if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
-                errors.push(`content_scripts[${index}] must be an object`);
-                return;
-            }
-            if (!strings(entry.matches)) errors.push(`content_scripts[${index}].matches must be a non-empty array of match patterns`);
-            for (const key of ['js', 'css']) {
-                if (key in entry && !strings(entry[key])) errors.push(`content_scripts[${index}].${key} must be a non-empty array of paths`);
-            }
-            if (!('js' in entry) && !('css' in entry)) errors.push(`content_scripts[${index}] needs js or css`);
-            for (const key of ['matches', 'exclude_matches']) {
-                if (!Array.isArray(entry[key])) continue;
-                entry[key].forEach((pattern, n) => {
-                    if (typeof pattern === 'string' && !validMatchPattern(pattern)) {
-                        errors.push(`content_scripts[${index}].${key}[${n}] "${pattern}" isn't a match pattern (<scheme>://<host><path> or <all_urls>)`);
-                    }
-                });
-            }
+        const ids = new Set();
+        resources.forEach((resource, index) => {
+            const ok = resource && typeof resource === 'object' && typeof resource.id === 'string' && resource.id &&
+                typeof resource.enabled === 'boolean' && typeof resource.path === 'string' && resource.path;
+            if (!ok) errors.push(`declarative_net_request.rule_resources[${index}] needs a string id, a boolean enabled and a string path`);
+            else if (ids.has(resource.id)) errors.push(`declarative_net_request.rule_resources[${index}] repeats the ruleset id "${resource.id}"`);
+            else ids.add(resource.id);
         });
-    }
-    const policy = manifest.content_security_policy?.extension_pages;
-    if (manifest.manifest_version === 3 && typeof policy === 'string') {
+    },
+    function contentScripts(manifest, errors) {
+        if (Array.isArray(manifest.content_scripts)) errors.push(...manifest.content_scripts.flatMap(contentScriptProblems));
+    },
+    function extensionPagesCsp(manifest, errors) {
+        const policy = manifest.content_security_policy?.extension_pages;
+        if (manifest.manifest_version !== 3 || typeof policy !== 'string') return;
         // MV3 can't relax extension pages' script/object/worker sources beyond these.
         const directives = parseCsp(policy);
         for (const directive of ['script-src', 'object-src', 'worker-src']) {
@@ -306,22 +332,34 @@ export function validateManifest(manifest) {
                 errors.push(`content_security_policy.extension_pages ${directive} allows ${disallowed.join(' ')}; MV3 only permits 'self', 'none', 'wasm-unsafe-eval' and localhost there`);
             }
         }
-    }
-    if (manifest.manifest_version === 3 && manifest.background && typeof manifest.background === 'object' &&
-        !Array.isArray(manifest.background) && !(typeof manifest.background.service_worker === 'string' && manifest.background.service_worker.trim())) {
-        errors.push('background.service_worker is required in MV3 (a non-empty path)');
-    }
-    if (manifest.background?.service_worker && manifest.background.type !== 'module') {
-        errors.push('background.type must be "module": the packager checks JS files as ES modules');
-    }
-    if ('default_locale' in manifest || /__MSG_\w+__/.test(JSON.stringify(manifest))) {
-        errors.push('default_locale/__MSG_ strings are not supported by the packager yet (_locales/ is not packaged)');
-    }
-    for (const key of Object.keys(manifest)) {
-        if (!(key in PATH_FIELDS) && !NON_PATH_KEYS.has(key)) {
-            errors.push(`manifest key "${key}" is not understood by the packager; add it to PATH_FIELDS or NON_PATH_KEYS in scripts/package-extension.js`);
+    },
+    function serviceWorker(manifest, errors) {
+        if (manifest.manifest_version === 3 && isPlainObject(manifest.background) &&
+            !(typeof manifest.background.service_worker === 'string' && manifest.background.service_worker.trim())) {
+            errors.push('background.service_worker is required in MV3 (a non-empty path)');
+        }
+        if (manifest.background?.service_worker && manifest.background.type !== 'module') {
+            errors.push('background.type must be "module": the packager checks JS files as ES modules');
+        }
+    },
+    function locales(manifest, errors) {
+        if ('default_locale' in manifest || /__MSG_\w+__/.test(JSON.stringify(manifest))) {
+            errors.push('default_locale/__MSG_ strings are not supported by the packager yet (_locales/ is not packaged)');
+        }
+    },
+    function unknownKeys(manifest, errors) {
+        for (const key of Object.keys(manifest)) {
+            if (!(key in PATH_FIELDS) && !NON_PATH_KEYS.has(key)) {
+                errors.push(`manifest key "${key}" is not understood by the packager; add it to PATH_FIELDS or NON_PATH_KEYS in scripts/package-extension.js`);
+            }
         }
     }
+];
+
+/** Checks the manifest fields Chrome and the Web Store validate on upload. */
+export function validateManifest(manifest) {
+    const errors = [];
+    for (const rule of MANIFEST_RULES) rule(manifest, errors);
     return errors;
 }
 
@@ -407,6 +445,20 @@ export function cssRefs(css, options) {
     return cssScan(css, options).refs;
 }
 
+/** Index just past the CSS whitespace (space, tab, newline: ASCII only) starting at css[j]. */
+function cssSpaceEnd(css, j) {
+    let k = j;
+    while (k < css.length && /[ \t\n]/.test(css[k])) k++;
+    return k;
+}
+
+/** Index just past the CSS name (name characters and escapes) starting at css[j]. */
+function cssNameEnd(css, j) {
+    let k = j;
+    while (k < css.length && (css[k] === '\\' || /[\w\-\u0080-￿]/.test(css[k]))) k = css[k] === '\\' ? cssEscapeEnd(css, k) : k + 1;
+    return k;
+}
+
 /**
  * cssRefs plus the custom properties the CSS reads with var(): `uses` outside
  * custom properties, and `chains` ([holder, read] pairs) where one custom
@@ -456,159 +508,168 @@ export function cssScan(input, { declarations = false } = {}) {
         if (url && !skipPrelude) refs.push({ url, directive: directive(), ...custom() });
         pendingImport = false;
     };
-    while (i < css.length) {
-        const c = css[i];
+
+    // Token handlers: each reads the token starting at css[i] and returns the index just past it.
+    const string = () => {
+        declarationStart = false;
+        const [value, end] = readString(i);
+        if (expectSyntax) {
+            if (/<url>/i.test(value)) registeredUrls.add(property);
+            expectSyntax = false;
+        }
+        const fn = functions[functions.length - 1];
+        if (fn === 'image-set' || fn === '-webkit-image-set') refs.push({ url: value, directive: 'img-src', ...custom() });
+        else if (pendingImport && functions.length === 0) push(value);
+        return end;
+    };
+    const openBlock = () => {
+        if (depth === 0) importsAllowed = false;
+        skipPrelude = false;
+        depth++;
+        if (pendingFontFace) {
+            fontFaceDepth = depth;
+            pendingFontFace = false;
+        }
+        if (pendingProperty) {
+            property = pendingProperty;
+            propertyDepth = depth;
+            pendingProperty = null;
+        }
+        pendingImport = false;
+        declarationStart = true;
+        return i + 1;
+    };
+    const closeBlock = () => {
+        if (depth === fontFaceDepth) fontFaceDepth = -1;
+        if (depth === propertyDepth) {
+            property = null;
+            propertyDepth = -1;
+        }
+        depth = Math.max(0, depth - 1);
+        if (depth < customDepth) customDepth = -1;
+        declarationStart = true;
+        return i + 1;
+    };
+    const semicolon = () => {
+        if (depth === customDepth && functions.length === 0) customDepth = -1;
+        expectSyntax = false;
+        pendingProperty = null;
+        declarationStart = true;
+        pendingImport = false;
+        pendingFontFace = false;
+        skipPrelude = false;
+        return i + 1;
+    };
+    const atKeyword = () => {
+        declarationStart = false;
+        // An at-keyword may contain escapes (@\\69 mport is @import).
+        const j = cssNameEnd(css, i + 1);
+        const keyword = cssUnescape(css.slice(i + 1, j)).toLowerCase();
+        if (keyword === 'import') {
+            // Browsers ignore an @import after other rules or nested in a block.
+            if (importsAllowed && depth === 0) pendingImport = true;
+            else skipPrelude = true;
+        } else if (keyword === 'namespace') {
+            importsAllowed = false;
+            skipPrelude = true; // @namespace url(...) names a namespace; nothing is fetched
+        } else if (keyword !== 'charset' && keyword !== 'layer') {
+            importsAllowed = false;
+        }
+        if (keyword === 'font-face') pendingFontFace = true;
+        if (keyword === 'property') {
+            const k = cssSpaceEnd(css, j);
+            const name = cssUnescape(css.slice(k, cssNameEnd(css, k)));
+            if (name.startsWith('--')) pendingProperty = name;
+        }
+        return Math.max(j, i + 1);
+    };
+    const openParen = () => {
+        declarationStart = false;
+        functions.push('');
+        return i + 1;
+    };
+    const closeParen = () => {
+        declarationStart = false;
+        functions.pop();
+        return i + 1;
+    };
+    // --name read inside var() (a use, or a chain inside another custom property's value), or
+    // a custom property declaration (--x: ...), only where a declaration can start: inside a
+    // block, or anywhere in a style attribute; not a selector such as .--primary:hover.
+    const customProperty = (rawName, j) => {
+        if (functions[functions.length - 1] === 'var') {
+            if (customDepth === -1) uses.add(rawName);
+            else chains.push([customName, rawName]);
+        }
+        if (declarationStart && functions.length === 0 && customDepth === -1 && (depth > 0 || declarations)) {
+            let k = j;
+            while (k < css.length && /\s/.test(css[k])) k++;
+            if (css[k] === ':') {
+                customDepth = depth;
+                customName = rawName; // custom property names are case-sensitive
+            }
+        }
+    };
+    // url( "quoted" ): it must close after optional whitespace; anything else makes the value invalid.
+    const quotedUrl = (k) => {
+        const [value, end] = readString(k);
+        if (css[cssSpaceEnd(css, end)] === ')') push(value);
+        else pendingImport = false;
+        const close = css.indexOf(')', end);
+        return close === -1 ? css.length : close + 1;
+    };
+    // url(unquoted-token) ends at ')'; unescaped whitespace before other text, or a quote or '('
+    // inside, makes it a bad-url (no fetch).
+    const unquotedUrl = (start) => {
+        let k = start;
+        let raw = '';
+        let bad = false;
+        while (k < css.length && css[k] !== ')') {
+            if (css[k] === '\\' && css[k + 1] !== '\n') {
+                const end = cssEscapeEnd(css, k);
+                raw += css.slice(k, end);
+                k = end;
+            } else if (/[ \t\n]/.test(css[k])) {
+                // CSS whitespace is ASCII only: U+00A0 stays part of the URL.
+                k = cssSpaceEnd(css, k);
+                bad ||= css[k] !== ')';
+            } else {
+                bad ||= /["'(]/.test(css[k]);
+                raw += css[k++];
+            }
+        }
+        if (bad) pendingImport = false;
+        else push(cssUnescape(raw));
+        return k + 1;
+    };
+    const identifier = () => {
+        const j = cssNameEnd(css, i);
+        const rawName = cssUnescape(css.slice(i, j));
+        const name = rawName.toLowerCase();
+        if (property && depth === propertyDepth && name === 'syntax' && declarationStart && /^[ \t\n]*:/.test(css.slice(j, j + 64))) expectSyntax = true;
+        if (rawName.startsWith('--')) customProperty(rawName, j);
+        declarationStart = false;
+        if (css[j] !== '(') return j;
+        if (name !== 'url') {
+            functions.push(name);
+            return j + 1;
+        }
+        const k = cssSpaceEnd(css, j + 1);
+        return css[k] === '"' || css[k] === "'" ? quotedUrl(k) : unquotedUrl(k);
+    };
+    const punctuation = new Map([['{', openBlock], ['}', closeBlock], [';', semicolon], ['@', atKeyword], ['(', openParen], [')', closeParen]]);
+    const token = (c) => {
         if (c === '/' && css[i + 1] === '*') {
             const end = css.indexOf('*/', i + 2);
-            i = end === -1 ? css.length : end + 2;
-        } else if (c === '"' || c === "'") {
-            declarationStart = false;
-            const [value, end] = readString(i);
-            if (expectSyntax) {
-                if (/<url>/i.test(value)) registeredUrls.add(property);
-                expectSyntax = false;
-            }
-            const fn = functions[functions.length - 1];
-            if (fn === 'image-set' || fn === '-webkit-image-set') refs.push({ url: value, directive: 'img-src', ...custom() });
-            else if (pendingImport && functions.length === 0) push(value);
-            i = end;
-        } else if (c === '{') {
-            if (depth === 0) importsAllowed = false;
-            skipPrelude = false;
-            depth++;
-            if (pendingFontFace) {
-                fontFaceDepth = depth;
-                pendingFontFace = false;
-            }
-            if (pendingProperty) {
-                property = pendingProperty;
-                propertyDepth = depth;
-                pendingProperty = null;
-            }
-            pendingImport = false;
-            declarationStart = true;
-            i++;
-        } else if (c === '}') {
-            if (depth === fontFaceDepth) fontFaceDepth = -1;
-            if (depth === propertyDepth) {
-                property = null;
-                propertyDepth = -1;
-            }
-            depth = Math.max(0, depth - 1);
-            if (depth < customDepth) customDepth = -1;
-            declarationStart = true;
-            i++;
-        } else if (c === ';') {
-            if (depth === customDepth && functions.length === 0) customDepth = -1;
-            expectSyntax = false;
-            pendingProperty = null;
-            declarationStart = true;
-            pendingImport = false;
-            pendingFontFace = false;
-            skipPrelude = false;
-            i++;
-        } else if (c === '@') {
-            declarationStart = false;
-            // An at-keyword may contain escapes (@\\69 mport is @import).
-            let j = i + 1;
-            while (j < css.length && (css[j] === '\\' || /[\w\-\u0080-\uFFFF]/.test(css[j]))) j = css[j] === '\\' ? cssEscapeEnd(css, j) : j + 1;
-            const keyword = cssUnescape(css.slice(i + 1, j)).toLowerCase();
-            if (keyword === 'import') {
-                // Browsers ignore an @import after other rules or nested in a block.
-                if (importsAllowed && depth === 0) pendingImport = true;
-                else skipPrelude = true;
-            } else if (keyword === 'namespace') {
-                importsAllowed = false;
-                skipPrelude = true; // @namespace url(...) names a namespace; nothing is fetched
-            } else if (keyword !== 'charset' && keyword !== 'layer') {
-                importsAllowed = false;
-            }
-            if (keyword === 'font-face') pendingFontFace = true;
-            if (keyword === 'property') {
-                let k = j;
-                while (k < css.length && /[ \t\n]/.test(css[k])) k++;
-                let e = k;
-                while (e < css.length && (css[e] === '\\' || /[\w\-\u0080-\uFFFF]/.test(css[e]))) e = css[e] === '\\' ? cssEscapeEnd(css, e) : e + 1;
-                const name = cssUnescape(css.slice(k, e));
-                if (name.startsWith('--')) pendingProperty = name;
-            }
-            i = Math.max(j, i + 1);
-        } else if (c === '(') {
-            declarationStart = false;
-            functions.push('');
-            i++;
-        } else if (c === ')') {
-            declarationStart = false;
-            functions.pop();
-            i++;
-        } else if (c === '\\' || /[A-Za-z_\-\u0080-￿]/.test(c)) {
-            let j = i;
-            while (j < css.length && (css[j] === '\\' || /[\w\-\u0080-￿]/.test(css[j]))) j = css[j] === '\\' ? cssEscapeEnd(css, j) : j + 1;
-            const rawName = cssUnescape(css.slice(i, j));
-            const name = rawName.toLowerCase();
-            if (property && depth === propertyDepth && name === 'syntax' && declarationStart && /^[ \t\n]*:/.test(css.slice(j, j + 64))) expectSyntax = true;
-            if (rawName.startsWith('--') && functions[functions.length - 1] === 'var') {
-                if (customDepth === -1) uses.add(rawName);
-                else chains.push([customName, rawName]);
-            }
-            // A custom property declaration (--x: ...), only where a declaration can start: inside a
-            // block, or anywhere in a style attribute; not a selector such as .--primary:hover.
-            if (declarationStart && rawName.startsWith('--') && functions.length === 0 && customDepth === -1 && (depth > 0 || declarations)) {
-                let k = j;
-                while (k < css.length && /\s/.test(css[k])) k++;
-                if (css[k] === ':') {
-                    customDepth = depth;
-                    customName = rawName; // custom property names are case-sensitive
-                }
-            }
-            declarationStart = false;
-            if (css[j] !== '(') {
-                i = j;
-            } else if (name !== 'url') {
-                functions.push(name);
-                i = j + 1;
-            } else {
-                // url( "quoted" ) or url(unquoted-token)
-                let k = j + 1;
-                while (k < css.length && /[ \t\n]/.test(css[k])) k++;
-                if (css[k] === '"' || css[k] === "'") {
-                    const [value, end] = readString(k);
-                    // url("x") must close after optional whitespace; anything else makes the value invalid.
-                    let after = end;
-                    while (after < css.length && /[ \t\n]/.test(css[after])) after++;
-                    if (css[after] === ')') push(value);
-                    else pendingImport = false;
-                    const close = css.indexOf(')', end);
-                    i = close === -1 ? css.length : close + 1;
-                } else {
-                    // An unquoted url token ends at ')'; unescaped whitespace before
-                    // other text, or a quote or '(' inside, makes it a bad-url (no fetch).
-                    let raw = '';
-                    let bad = false;
-                    while (k < css.length && css[k] !== ')') {
-                        if (css[k] === '\\' && css[k + 1] !== '\n') {
-                            const end = cssEscapeEnd(css, k);
-                            raw += css.slice(k, end);
-                            k = end;
-                        } else if (/[ \t\n]/.test(css[k])) {
-                            // CSS whitespace is ASCII only: U+00A0 stays part of the URL.
-                            while (k < css.length && /[ \t\n]/.test(css[k])) k++;
-                            if (css[k] !== ')') bad = true;
-                        } else {
-                            if (/["'(]/.test(css[k])) bad = true;
-                            raw += css[k++];
-                        }
-                    }
-                    if (bad) pendingImport = false;
-                    else push(cssUnescape(raw));
-                    i = k + 1;
-                }
-            }
-        } else {
-            if (!/\s/.test(c)) declarationStart = false;
-            i++;
+            return end === -1 ? css.length : end + 2;
         }
-    }
+        if (c === '"' || c === "'") return string();
+        if (punctuation.has(c)) return punctuation.get(c)();
+        if (c === '\\' || /[A-Za-z_\-\u0080-￿]/.test(c)) return identifier();
+        if (!/\s/.test(c)) declarationStart = false;
+        return i + 1;
+    };
+    while (i < css.length) i = token(css[i]);
     return { refs, uses, chains, registeredUrls };
 }
 
@@ -619,6 +680,56 @@ const SVG_NS = 'http://www.w3.org/2000/svg';
 
 /** Elements parse5 keeps inside <select>: its legacy "in select" mode drops all others. */
 const SELECT_KEPT = new Set(['option', 'optgroup', 'hr', 'script', 'template', 'select']);
+
+/** One parse5 element as a scanHtml tag, its source location shifted into the whole document's. */
+function tagRecord(child, parent, context) {
+    const name = child.tagName.toLowerCase(); // parse5 keeps SVG's camelCase names (foreignObject)
+    const location = child.sourceCodeLocation;
+    const attrs = new Map();
+    for (const attr of child.attrs) attrs.set((attr.prefix ? `${attr.prefix}:${attr.name}` : attr.name).toLowerCase(), attr.value);
+    const ns = child.namespaceURI === HTML_NS ? 'html' : child.namespaceURI === SVG_NS ? 'svg' : 'math';
+    return {
+        name,
+        attrs,
+        ns,
+        foreign: ns !== 'html',
+        line: location ? location.startLine + context.lineDelta : context.line,
+        offset: location ? location.startOffset + context.offsetDelta : context.offset,
+        text: child.childNodes.filter((n) => n.nodeName === '#text').map((n) => n.value).join(''),
+        inHead: context.inHead,
+        inTemplate: context.inTemplate,
+        parent: parent.tagName?.toLowerCase() ?? null
+    };
+}
+
+/**
+ * What scanHtml walks below one element: its children (a <template>'s live in its content
+ * fragment), and for a <select> its source parsed again, minus the elements parse5 kept.
+ */
+function childWork(child, tag, context, source, options) {
+    const location = child.sourceCodeLocation;
+    const inner = { ...context, line: tag.line, offset: tag.offset, inHead: context.inHead || tag.name === 'head' };
+    const work = [];
+    if (child.content) {
+        if (!context.skip) work.push({ node: child.content, context: { ...inner, inTemplate: true } });
+    } else {
+        work.push({ node: child, context: inner });
+    }
+    if (tag.name === 'select' && tag.ns === 'html' && location?.startTag && !context.skip) {
+        const start = location.startTag.endOffset;
+        const end = location.endTag?.startOffset ?? location.endOffset;
+        work.push({
+            node: parseFragment(source.slice(start, end), options),
+            context: {
+                ...inner,
+                skip: SELECT_KEPT, // already in the tree (their descendants are not)
+                offsetDelta: context.offsetDelta + start,
+                lineDelta: context.lineDelta + location.startTag.endLine - 1
+            }
+        });
+    }
+    return work;
+}
 
 /**
  * The elements of an HTML document in source order, as parse5 (the HTML
@@ -642,45 +753,9 @@ export function scanHtml(html, { scripting = true } = {}) {
         const work = [];
         for (const child of node.childNodes ?? []) {
             if (!child.tagName) continue;
-            const name = child.tagName.toLowerCase(); // parse5 keeps SVG's camelCase names (foreignObject)
-            const location = child.sourceCodeLocation;
-            const attrs = new Map();
-            for (const attr of child.attrs) attrs.set((attr.prefix ? `${attr.prefix}:${attr.name}` : attr.name).toLowerCase(), attr.value);
-            const ns = child.namespaceURI === HTML_NS ? 'html' : child.namespaceURI === SVG_NS ? 'svg' : 'math';
-            const line = location ? location.startLine + context.lineDelta : context.line;
-            if (!context.skip?.has(name)) {
-                tags.push({
-                    name,
-                    attrs,
-                    ns,
-                    foreign: ns !== 'html',
-                    line,
-                    offset: location ? location.startOffset + context.offsetDelta : context.offset,
-                    text: child.childNodes.filter((n) => n.nodeName === '#text').map((n) => n.value).join(''),
-                    inHead: context.inHead,
-                    inTemplate: context.inTemplate,
-                    parent: node.tagName?.toLowerCase() ?? null
-                });
-            }
-            const inner = { ...context, line, offset: location ? location.startOffset + context.offsetDelta : context.offset, inHead: context.inHead || name === 'head' };
-            if (child.content) {
-                if (!context.skip) work.push({ node: child.content, context: { ...inner, inTemplate: true } }); // a <template>'s children live in its content fragment
-            } else {
-                work.push({ node: child, context: inner });
-            }
-            if (name === 'select' && ns === 'html' && location?.startTag && !context.skip) {
-                const start = location.startTag.endOffset;
-                const end = location.endTag?.startOffset ?? location.endOffset;
-                work.push({
-                    node: parseFragment(source.slice(start, end), options),
-                    context: {
-                        ...inner,
-                        skip: SELECT_KEPT, // already in the tree (their descendants are not)
-                        offsetDelta: context.offsetDelta + start,
-                        lineDelta: context.lineDelta + location.startTag.endLine - 1
-                    }
-                });
-            }
+            const tag = tagRecord(child, node, context);
+            if (!context.skip?.has(tag.name)) tags.push(tag);
+            work.push(...childWork(child, tag, context, source, options));
         }
         stack.push(...work.reverse());
     }
@@ -738,6 +813,7 @@ function joinBase(inherited, href) {
 
 /** Classic-script MIME types; Chrome strips whitespace (vertical tab included) around the type first. */
 const CLASSIC_JS_TYPES = /^(|(text|application)\/(x-)?(java|ecma)script|text\/(j|live)script|text\/javascript1\.[0-5])$/i;
+const trimScriptType = (type) => type.replace(/^[\t\n\v\f\r ]+|[\t\n\v\f\r ]+$/g, '');
 
 /**
  * Event-handler content attributes (on + name) that Chrome compiles as inline script: the
@@ -831,11 +907,16 @@ function htmlRefs(html, inheritedBase = null, scripting = true, inheritedPolicie
         if (!value || (/[\t\n\r]/.test(value) && value.includes('<'))) return;
         asciiTokens(value).forEach((url) => deferred.push({ url, directive: 'connect-src', ping: true }));
     };
-    const tags = scanHtml(html, { scripting });
-    for (const [position, tag] of tags.entries()) {
-        const { name, attrs, line, text } = tag;
-        const here = [...policies];
-        const nonce = attrs.get('nonce') ?? null;
+    const styleBlock = (text, nonce, here) => {
+        styles.push({ text, declarations: false });
+        styleItems.push({ kind: 'block', text, nonce, policies: here });
+    };
+
+    // Each element handler gets the tag and `at`: its position, the <meta> policies in effect
+    // there (here), and its nonce, src and href attributes.
+
+    // Attributes any element may carry: on* handlers, style=, and formaction on a submit control.
+    const anyElement = ({ name, attrs, line, foreign }, { here }) => {
         if (scripting) {
             for (const attr of attrs.keys()) {
                 if (EVENT_HANDLER_ATTRIBUTES.has(attr)) inline.push({ kind: 'handler', desc: `line ${line}: inline event handler ${attr}= on <${name}>`, text: attrs.get(attr), policies: here });
@@ -845,212 +926,226 @@ function htmlRefs(html, inheritedBase = null, scripting = true, inheritedPolicie
             styles.push({ text: attrs.get('style'), declarations: true });
             styleItems.push({ kind: 'attr', text: attrs.get('style'), policies: here });
         }
-        const src = attrs.get('src');
-        const href = attrs.get('href');
         // formaction is a submit target only on submit buttons and image/submit inputs.
         const controlType = (attrs.get('type') ?? '').toLowerCase();
         const submits = (name === 'button' && !['button', 'reset'].includes(controlType)) || (name === 'input' && ['submit', 'image'].includes(asciiTrim(controlType)));
-        if (attrs.has('formaction') && !tag.foreign && submits) add(attrs.get('formaction'), 'form-action');
-        if (tag.foreign) {
-            // SVG 2 href (or the legacy xlink:href, which href overrides): image and feImage load an
-            // image, script a classic script; use, a and the rest refer to their target. MathML
-            // elements load nothing.
-            const target = href ?? attrs.get('xlink:href');
-            const svg = tag.ns === 'svg';
-            // SVG script types read like HTML's: module exact, a classic type trimmed, others are data.
-            const svgType = attrs.get('type') ?? '';
-            const svgModule = /^module$/i.test(svgType);
-            if (svg && name === 'script' && !svgModule && !CLASSIC_JS_TYPES.test(svgType.replace(/^[\t\n\v\f\r ]+|[\t\n\v\f\r ]+$/g, ''))) continue;
-            if (svg && name === 'script') {
-                markScript(target, { classic: !svgModule && scripting, inert: !scripting });
-                if (!scripting) continue;
-                if (svgModule && firstModule === null) firstModule = line;
-                if (target === undefined && text.trim()) {
-                    problems.push(`line ${line}: inline <script> inside <svg> isn't supported by the packager; load it from a file`);
-                }
-            }
-            // Presentation attributes take CSS values: url() in them loads a resource (an image load).
-            if (svg) {
-                for (const attr of SVG_URL_ATTRIBUTES) {
-                    if (attrs.has(attr)) styles.push({ text: attrs.get(attr), declarations: false });
-                }
-            }
-            if (svg && name === 'style' && isCssType(attrs.get('type'))) {
-                styles.push({ text, declarations: false });
-                styleItems.push({ kind: 'block', text, nonce, policies: here });
-            }
-            if (target !== undefined && !urlTrim(target).startsWith('#')) {
-                if (svg && name === 'script') add(target, 'script-src', { parserInserted: true, nonce, integrity: attrs.get('integrity'), line, cors: svgModule, module: svgModule });
-                else add(target, svg && (name === 'image' || name === 'feimage') ? 'img-src' : null);
-            }
-            if (svg && name === 'a' && target !== undefined) ping(attrs.get('ping'));
-            add(src, null);
-            continue;
+        if (attrs.has('formaction') && !foreign && submits) add(attrs.get('formaction'), 'form-action');
+    };
+    // An SVG or MathML href that names a resource, not a #fragment of this document.
+    const linkTarget = (target) => target !== undefined && !urlTrim(target).startsWith('#');
+    // Presentation attributes take CSS values: url() in them loads a resource (an image load).
+    const presentationStyles = ({ attrs }) => {
+        for (const attr of SVG_URL_ATTRIBUTES) {
+            if (attrs.has(attr)) styles.push({ text: attrs.get(attr), declarations: false });
         }
-        switch (name) {
-            case 'script': {
-                // Chrome matches module/importmap exactly; a classic type may have whitespace around it.
-                const language = attrs.get('language') ?? '';
-                const type = attrs.has('type') ? attrs.get('type') : language ? `text/${language}` : '';
-                const module = /^module$/i.test(type);
-                const importmap = /^importmap$/i.test(type);
-                if (!module && !importmap && !CLASSIC_JS_TYPES.test(type.replace(/^[\t\n\v\f\r ]+|[\t\n\v\f\r ]+$/g, ''))) break; // a data block
-                if (importmap) {
-                    if (!scripting) break;
-                    if (src !== undefined) {
-                        problems.push(`line ${line}: <script type="importmap" src> is ignored by Chrome (import maps must be inline)`);
-                    } else if (text !== '') { // an empty one is skipped before anything is parsed
-                        inline.push({ kind: 'script', desc: `line ${line}: inline import map`, text, nonce, policies: here });
-                        // A module script before the map may resolve its imports first (always, when inline).
-                        if (firstModule !== null) problems.push(`line ${line}: this import map comes after the module script on line ${firstModule}, so Chrome may resolve that script's imports without it; put import maps first`);
-                        else importMaps.push({ text, line, base: currentBase() });
-                    }
-                    break;
-                }
-                if (module && scripting && firstModule === null) firstModule = line;
-                if (!scripting || (!module && attrs.has('nomodule'))) {
-                    // Never run: scripting is off (a sandbox without allow-scripts), or it is a nomodule
-                    // script, which Chrome skips because it runs modules. A classic file stays classic.
-                    markScript(src, { classic: false, inert: true });
-                    break;
-                }
-                if (src !== undefined) {
-                    add(src, 'script-src', { parserInserted: true, nonce, integrity: attrs.get('integrity'), line, cors: module || attrs.has('crossorigin'), module });
-                    if (!module) markScript(src);
-                    if (!module && !attrs.has('async') && !attrs.has('defer')) pauses.push(position);
-                } else if (text.trim()) {
-                    inline.push({ kind: 'script', desc: `line ${line}: inline <script>`, text, nonce, policies: here });
-                    inlineScripts.push({ text, module, nonce, line, base: currentBase() });
-                }
-                break;
-            }
-            case 'style':
-                if (!isCssType(attrs.get('type'))) break; // not CSS, so never applied
-                styles.push({ text, declarations: false });
-                styleItems.push({ kind: 'block', text, nonce, policies: here });
-                break;
-            case 'link': {
-                const rel = asciiTokens(attrs.get('rel')?.toLowerCase());
-                const as = asciiTrim(attrs.get('as') ?? '').toLowerCase();
-                const checked = { nonce, integrity: attrs.get('integrity'), line, cors: attrs.has('crossorigin') };
-                if (rel.includes('stylesheet')) {
-                    // Only a CSS sheet is fetched, and an integrity mismatch makes Chrome drop it.
-                    if (isCssType(attrs.get('type'), { parameters: true })) {
-                        add(href, 'style-src', checked);
-                        pauses.push(position);
-                    } else {
-                        add(href, null);
-                    }
-                } else if (rel.includes('icon') || rel.includes('apple-touch-icon')) {
-                    add(href, 'img-src');
-                } else if (rel.includes('modulepreload')) {
-                    // Fetched into the module map, so an integrity mismatch breaks later imports.
-                    if (Object.hasOwn(MODULEPRELOAD_DIRECTIVES, as)) add(href, MODULEPRELOAD_DIRECTIVES[as], { ...checked, cors: true, module: true });
-                    else add(href, null);
-                } else if (rel.includes('preload')) {
-                    // A preload's integrity counts where the page later uses the preloaded response
-                    // (a script, stylesheet or @font-face of that URL): see checkReferences.
-                    const preload = ['script', 'style', 'font'].includes(as) && attrs.has('integrity')
-                        ? { as, cors: attrs.has('crossorigin'), integrity: attrs.get('integrity'), line } : undefined;
-                    add(href, Object.hasOwn(PRELOAD_DIRECTIVES, as) ? PRELOAD_DIRECTIVES[as] : null, { nonce, preload, hint: true });
-                    // An image preload may name its candidates in imagesrcset (href is then optional).
-                    if (as === 'image') srcsetUrls(attrs.get('imagesrcset') || '').forEach((url) => add(url, 'img-src', { hint: true }));
-                } else if (rel.includes('manifest')) {
-                    add(href, 'manifest-src');
-                } else if (rel.includes('prefetch')) {
-                    add(href, 'default-src'); // CSP3 has no prefetch-src: prefetches fall under default-src
-                } else if (!rel.includes('preconnect') && !rel.includes('dns-prefetch')) {
-                    add(href, null);
-                }
-                break;
-            }
-            case 'img':
-                add(src, 'img-src');
-                srcsetUrls(attrs.get('srcset') || '').forEach((url) => add(url, 'img-src'));
-                break;
-            case 'source':
-                // Under <picture> only srcset (image candidates) counts; under <audio>/<video> only
-                // src (media); elsewhere a <source> loads nothing.
-                if (tag.parent === 'picture') srcsetUrls(attrs.get('srcset') || '').forEach((url) => add(url, 'img-src'));
-                else if (tag.parent === 'audio' || tag.parent === 'video') add(src, 'media-src');
-                break;
-            case 'video':
-            case 'audio':
-            case 'track':
-                add(src, 'media-src');
-                if (name === 'video') add(attrs.get('poster'), 'img-src'); // poster means nothing on audio or track
-                break;
-            case 'iframe':
-            case 'frame':
-                if (name === 'iframe' && attrs.has('srcdoc')) {
-                    // srcdoc wins over src (never requested). It is a nested document: it inherits this
-                    // page's policies and base URL, and runs no script when the iframe's sandbox lacks
-                    // allow-scripts.
-                    const sandbox = attrs.has('sandbox') ? asciiTokens(attrs.get('sandbox').toLowerCase()) : null;
-                    const nested = htmlRefs(attrs.get('srcdoc'), currentBase(), scripting && (!sandbox || sandbox.includes('allow-scripts')), here);
-                    // Without allow-same-origin the srcdoc's origin is opaque: Chrome exempts its own-URL scripts from CSP.
-                    const opaque = sandbox && !sandbox.includes('allow-same-origin') ? { sandboxed: true } : {};
-                    // Custom properties don't cross documents: the srcdoc's url()s in them resolve within it.
-                    const nestedRead = (property, seen = new Set()) => !seen.has(property) && (seen.add(property), nested.varUses.has(property) ||
-                        nested.varChains.some(([holder, read]) => read === property && (nested.registeredUrls.has(holder) || nestedRead(holder, seen))));
-                    const srcdoc = `${line}:${urls.length}`; // the srcdoc document's loads, for custom properties (see checkReferences)
-                    urls.push(...nested.urls.flatMap((item) => (item.custom === undefined ? [{ srcdoc, ...item, ...opaque }]
-                        : nested.registeredUrls.has(item.custom) || nestedRead(item.custom) ? [{ srcdoc, ...item, custom: undefined, ...opaque }] : [])));
-                    srcdocs.push({ id: srcdoc, varUses: [...nested.varUses], varChains: nested.varChains, registeredUrls: [...nested.registeredUrls],
-                        policies: [...nested.policies], opaque: Boolean(opaque.sandboxed) }, ...nested.srcdocs);
-                    problems.push(...nested.problems.map((item) => `line ${line} srcdoc ${item}`));
-                    inlineScripts.push(...nested.inlineScripts.map((script) => ({ ...script, ...opaque, line: `${line} srcdoc line ${script.line}` })));
-                    importMaps.push(...nested.importMaps.map((map) => ({ ...map, line: `${line} srcdoc line ${map.line}` })));
-                    classicScripts.push(...nested.classicScripts);
-                    inertScripts.push(...nested.inertScripts);
-                    inline.push(...nested.inline.map((item) => ({ ...item, desc: `line ${line} srcdoc ${item.desc}` })));
-                    styleItems.push(...nested.inlineStyles);
-                } else {
-                    add(src, 'frame-src');
-                }
-                break;
-            case 'object':
-                add(attrs.get('data'), 'object-src');
-                break;
-            case 'embed':
-                add(src, 'object-src');
-                break;
-            case 'input':
-                if (asciiTrim(attrs.get('type') ?? '').toLowerCase() === 'image') add(src, 'img-src');
-                break;
-            case 'base':
-                if (!base && href !== undefined && !tag.inTemplate) base = { href: joinBase(inheritedBase, urlTrim(href)), line, policies: here, position };
-                break;
-            case 'form':
-                add(attrs.get('action'), 'form-action');
-                break;
-            case 'meta': {
-                const equiv = (attrs.get('http-equiv') ?? '').toLowerCase(); // Chrome compares it unpadded
-                if (equiv === 'refresh') {
-                    // <meta http-equiv="refresh" content="N; url=target"> navigates to target.
-                    const m = /^\s*[\d.]*\s*[;,]?\s*(?:url\s*=\s*)?(["']?)(.*?)\1\s*$/i.exec(attrs.get('content') || '');
-                    if (m && m[2]) add(m[2], null);
-                } else if (equiv === 'content-security-policy' && tag.inHead && !tag.inTemplate && attrs.has('content')) {
-                    policies.push(attrs.get('content')); // enforced with the page's own policy from here on
-                }
-                break;
-            }
-            default:
-                // a, area and anything else: a navigation or unknown use; check local targets exist.
-                if (BACKGROUND_ELEMENTS.has(name) && urlTrim(attrs.get('background') ?? '')) {
-                    deferred.push({ url: attrs.get('background'), directive: 'img-src', line, name, elementBase: currentBase(), position });
-                }
-                add(src, null);
-                add(href, null);
-                if ((name === 'a' || name === 'area') && href !== undefined) {
-                    ping(attrs.get('ping'));
-                    // Following a javascript: link runs its code as inline script.
-                    if (scripting && /^javascript:/i.test(urlTrim(href))) {
-                        inline.push({ kind: 'navigation', desc: `line ${line}: javascript: URL in <${name} href>`, text: urlTrim(href).slice('javascript:'.length), policies: here });
-                    }
-                }
+    };
+    // SVG script types read like HTML's: module exact, a classic type trimmed, others are data.
+    const svgScript = (tag, { nonce, src }, target) => {
+        const { attrs, line, text } = tag;
+        const module = /^module$/i.test(attrs.get('type') ?? '');
+        if (!module && !CLASSIC_JS_TYPES.test(trimScriptType(attrs.get('type') ?? ''))) return;
+        markScript(target, { classic: !module && scripting, inert: !scripting });
+        if (!scripting) return;
+        if (module && firstModule === null) firstModule = line;
+        if (target === undefined && text.trim()) {
+            problems.push(`line ${line}: inline <script> inside <svg> isn't supported by the packager; load it from a file`);
         }
+        presentationStyles(tag);
+        if (linkTarget(target)) add(target, 'script-src', { parserInserted: true, nonce, integrity: attrs.get('integrity'), line, cors: module, module });
+        add(src, null);
+    };
+    const svgElement = (tag, { here, nonce, src }, target) => {
+        const { name, attrs, text } = tag;
+        presentationStyles(tag);
+        if (name === 'style' && isCssType(attrs.get('type'))) styleBlock(text, nonce, here);
+        if (linkTarget(target)) add(target, name === 'image' || name === 'feimage' ? 'img-src' : null);
+        if (name === 'a' && target !== undefined) ping(attrs.get('ping'));
+        add(src, null);
+    };
+    // SVG 2 href (or the legacy xlink:href, which href overrides): image and feImage load an
+    // image, script a classic script; use, a and the rest refer to their target. MathML
+    // elements load nothing.
+    const foreignElement = (tag, at) => {
+        const target = at.href ?? tag.attrs.get('xlink:href');
+        if (tag.ns === 'svg') {
+            (tag.name === 'script' ? svgScript : svgElement)(tag, at, target);
+        } else {
+            if (linkTarget(target)) add(target, null);
+            add(at.src, null);
+        }
+    };
+    const importMapElement = ({ line, text }, { here, nonce, src }) => {
+        if (!scripting) return;
+        if (src !== undefined) {
+            problems.push(`line ${line}: <script type="importmap" src> is ignored by Chrome (import maps must be inline)`);
+        } else if (text !== '') { // an empty one is skipped before anything is parsed
+            inline.push({ kind: 'script', desc: `line ${line}: inline import map`, text, nonce, policies: here });
+            // A module script before the map may resolve its imports first (always, when inline).
+            if (firstModule !== null) problems.push(`line ${line}: this import map comes after the module script on line ${firstModule}, so Chrome may resolve that script's imports without it; put import maps first`);
+            else importMaps.push({ text, line, base: currentBase() });
+        }
+    };
+    // A <script> that runs (module or classic): its file, or its inline text.
+    const runScript = ({ attrs, line, text }, { position, here, nonce, src }, module) => {
+        if (src !== undefined) {
+            add(src, 'script-src', { parserInserted: true, nonce, integrity: attrs.get('integrity'), line, cors: module || attrs.has('crossorigin'), module });
+            if (!module) markScript(src);
+            if (!module && !attrs.has('async') && !attrs.has('defer')) pauses.push(position);
+        } else if (text.trim()) {
+            inline.push({ kind: 'script', desc: `line ${line}: inline <script>`, text, nonce, policies: here });
+            inlineScripts.push({ text, module, nonce, line, base: currentBase() });
+        }
+    };
+    const scriptElement = (tag, at) => {
+        const { attrs, line } = tag;
+        // Chrome matches module/importmap exactly; a classic type may have whitespace around it.
+        const language = attrs.get('language') ?? '';
+        const type = attrs.has('type') ? attrs.get('type') : language ? `text/${language}` : '';
+        const module = /^module$/i.test(type);
+        if (/^importmap$/i.test(type)) {
+            importMapElement(tag, at);
+        } else if (module || CLASSIC_JS_TYPES.test(trimScriptType(type))) { // anything else is a data block
+            if (module && scripting && firstModule === null) firstModule = line;
+            // Never run: scripting is off (a sandbox without allow-scripts), or it is a nomodule
+            // script, which Chrome skips because it runs modules. A classic file stays classic.
+            if (!scripting || (!module && attrs.has('nomodule'))) markScript(at.src, { classic: false, inert: true });
+            else runScript(tag, at, module);
+        }
+    };
+    const checkedLoad = ({ attrs, line }, { nonce }) => ({ nonce, integrity: attrs.get('integrity'), line, cors: attrs.has('crossorigin') });
+    const linkAs = ({ attrs }) => asciiTrim(attrs.get('as') ?? '').toLowerCase();
+    // <link> kinds by rel token, the first that matches wins; other links are navigations.
+    const linkKinds = [
+        [['stylesheet'], (tag, at) => {
+            // Only a CSS sheet is fetched, and an integrity mismatch makes Chrome drop it.
+            const css = isCssType(tag.attrs.get('type'), { parameters: true });
+            add(at.href, css ? 'style-src' : null, css ? checkedLoad(tag, at) : {});
+            if (css) pauses.push(at.position);
+        }],
+        [['icon', 'apple-touch-icon'], (tag, { href }) => add(href, 'img-src')],
+        [['modulepreload'], (tag, at) => {
+            // Fetched into the module map, so an integrity mismatch breaks later imports.
+            const as = linkAs(tag);
+            const known = Object.hasOwn(MODULEPRELOAD_DIRECTIVES, as);
+            add(at.href, known ? MODULEPRELOAD_DIRECTIVES[as] : null, known ? { ...checkedLoad(tag, at), cors: true, module: true } : {});
+        }],
+        [['preload'], ({ attrs, line }, { nonce, href }) => {
+            // A preload's integrity counts where the page later uses the preloaded response
+            // (a script, stylesheet or @font-face of that URL): see checkReferences.
+            const as = linkAs({ attrs });
+            const preload = ['script', 'style', 'font'].includes(as) && attrs.has('integrity')
+                ? { as, cors: attrs.has('crossorigin'), integrity: attrs.get('integrity'), line } : undefined;
+            add(href, Object.hasOwn(PRELOAD_DIRECTIVES, as) ? PRELOAD_DIRECTIVES[as] : null, { nonce, preload, hint: true });
+            // An image preload may name its candidates in imagesrcset (href is then optional).
+            if (as === 'image') srcsetUrls(attrs.get('imagesrcset') || '').forEach((url) => add(url, 'img-src', { hint: true }));
+        }],
+        [['manifest'], (tag, { href }) => add(href, 'manifest-src')],
+        [['prefetch'], (tag, { href }) => add(href, 'default-src')], // CSP3 has no prefetch-src: prefetches fall under default-src
+        [['preconnect', 'dns-prefetch'], () => {}] // connection hints: nothing is fetched
+    ];
+    const linkElement = (tag, at) => {
+        const rel = asciiTokens(tag.attrs.get('rel')?.toLowerCase());
+        const kind = linkKinds.find(([tokens]) => tokens.some((token) => rel.includes(token)));
+        if (kind) kind[1](tag, at);
+        else add(at.href, null);
+    };
+    // srcdoc wins over src (never requested). It is a nested document: it inherits this page's
+    // policies and base URL, and runs no script when the iframe's sandbox lacks allow-scripts.
+    const srcdocFrame = ({ attrs, line }, here) => {
+        const sandbox = attrs.has('sandbox') ? asciiTokens(attrs.get('sandbox').toLowerCase()) : null;
+        const nested = htmlRefs(attrs.get('srcdoc'), currentBase(), scripting && (!sandbox || sandbox.includes('allow-scripts')), here);
+        // Without allow-same-origin the srcdoc's origin is opaque: Chrome exempts its own-URL scripts from CSP.
+        const opaque = sandbox && !sandbox.includes('allow-same-origin') ? { sandboxed: true } : {};
+        // Custom properties don't cross documents: the srcdoc's url()s in them resolve within it.
+        const nestedRead = (property, seen = new Set()) => !seen.has(property) && (seen.add(property), nested.varUses.has(property) ||
+            nested.varChains.some(([holder, read]) => read === property && (nested.registeredUrls.has(holder) || nestedRead(holder, seen))));
+        const srcdoc = `${line}:${urls.length}`; // the srcdoc document's loads, for custom properties (see checkReferences)
+        urls.push(...nested.urls.flatMap((item) => (item.custom === undefined ? [{ srcdoc, ...item, ...opaque }]
+            : nested.registeredUrls.has(item.custom) || nestedRead(item.custom) ? [{ srcdoc, ...item, custom: undefined, ...opaque }] : [])));
+        srcdocs.push({ id: srcdoc, varUses: [...nested.varUses], varChains: nested.varChains, registeredUrls: [...nested.registeredUrls],
+            policies: [...nested.policies], opaque: Boolean(opaque.sandboxed) }, ...nested.srcdocs);
+        problems.push(...nested.problems.map((item) => `line ${line} srcdoc ${item}`));
+        inlineScripts.push(...nested.inlineScripts.map((script) => ({ ...script, ...opaque, line: `${line} srcdoc line ${script.line}` })));
+        importMaps.push(...nested.importMaps.map((map) => ({ ...map, line: `${line} srcdoc line ${map.line}` })));
+        classicScripts.push(...nested.classicScripts);
+        inertScripts.push(...nested.inertScripts);
+        inline.push(...nested.inline.map((item) => ({ ...item, desc: `line ${line} srcdoc ${item.desc}` })));
+        styleItems.push(...nested.inlineStyles);
+    };
+    const metaElement = ({ attrs, inHead, inTemplate }) => {
+        const equiv = (attrs.get('http-equiv') ?? '').toLowerCase(); // Chrome compares it unpadded
+        if (equiv === 'refresh') {
+            // <meta http-equiv="refresh" content="N; url=target"> navigates to target.
+            const m = /^\s*[\d.]*\s*[;,]?\s*(?:url\s*=\s*)?(["']?)(.*?)\1\s*$/i.exec(attrs.get('content') || '');
+            if (m && m[2]) add(m[2], null);
+        } else if (equiv === 'content-security-policy' && inHead && !inTemplate && attrs.has('content')) {
+            policies.push(attrs.get('content')); // enforced with the page's own policy from here on
+        }
+    };
+    // a, area and anything else: a navigation or unknown use; check local targets exist.
+    const otherElement = ({ name, attrs, line }, { position, here, src, href }) => {
+        if (BACKGROUND_ELEMENTS.has(name) && urlTrim(attrs.get('background') ?? '')) {
+            deferred.push({ url: attrs.get('background'), directive: 'img-src', line, name, elementBase: currentBase(), position });
+        }
+        add(src, null);
+        add(href, null);
+        if ((name === 'a' || name === 'area') && href !== undefined) {
+            ping(attrs.get('ping'));
+            // Following a javascript: link runs its code as inline script.
+            if (scripting && /^javascript:/i.test(urlTrim(href))) {
+                inline.push({ kind: 'navigation', desc: `line ${line}: javascript: URL in <${name} href>`, text: urlTrim(href).slice('javascript:'.length), policies: here });
+            }
+        }
+    };
+    const media = ({ name, attrs }, { src }) => {
+        add(src, 'media-src');
+        if (name === 'video') add(attrs.get('poster'), 'img-src'); // poster means nothing on audio or track
+    };
+    const frame = (tag, { here, src }) => {
+        if (tag.name === 'iframe' && tag.attrs.has('srcdoc')) srcdocFrame(tag, here);
+        else add(src, 'frame-src');
+    };
+    const elements = new Map([
+        ['script', scriptElement],
+        ['style', ({ attrs, text }, { here, nonce }) => {
+            if (isCssType(attrs.get('type'))) styleBlock(text, nonce, here); // otherwise not CSS, so never applied
+        }],
+        ['link', linkElement],
+        ['img', ({ attrs }, { src }) => {
+            add(src, 'img-src');
+            srcsetUrls(attrs.get('srcset') || '').forEach((url) => add(url, 'img-src'));
+        }],
+        ['source', ({ attrs, parent }, { src }) => {
+            // Under <picture> only srcset (image candidates) counts; under <audio>/<video> only
+            // src (media); elsewhere a <source> loads nothing.
+            if (parent === 'picture') srcsetUrls(attrs.get('srcset') || '').forEach((url) => add(url, 'img-src'));
+            else if (parent === 'audio' || parent === 'video') add(src, 'media-src');
+        }],
+        ['video', media],
+        ['audio', media],
+        ['track', media],
+        ['iframe', frame],
+        ['frame', frame],
+        ['object', ({ attrs }) => add(attrs.get('data'), 'object-src')],
+        ['embed', (tag, { src }) => add(src, 'object-src')],
+        ['input', ({ attrs }, { src }) => {
+            if (asciiTrim(attrs.get('type') ?? '').toLowerCase() === 'image') add(src, 'img-src');
+        }],
+        ['base', ({ inTemplate, line }, { position, here, href }) => {
+            if (!base && href !== undefined && !inTemplate) base = { href: joinBase(inheritedBase, urlTrim(href)), line, policies: here, position };
+        }],
+        ['form', ({ attrs }) => add(attrs.get('action'), 'form-action')],
+        ['meta', metaElement]
+    ]);
+
+    for (const [position, tag] of scanHtml(html, { scripting }).entries()) {
+        const { attrs } = tag;
+        const at = { position, here: [...policies], nonce: attrs.get('nonce') ?? null, src: attrs.get('src'), href: attrs.get('href') };
+        anyElement(tag, at);
+        const handle = tag.foreign ? foreignElement : elements.get(tag.name) ?? otherElement;
+        handle(tag, at);
     }
+
     // Styles, legacy backgrounds and pings load once the page is parsed: against the document's
     // base URL, under every <meta> policy. Imports from inline modules and import maps too.
     const finalBase = currentBase();
@@ -1189,34 +1284,40 @@ function sourceMatches(source, parsed, directive = null) {
     }
     const hostname = parsed.hostname.toLowerCase();
     if (host.startsWith('*.') ? !hostname.endsWith(host.slice(1)) : host !== '*' && hostname !== host) return false;
-    if (port && port !== '*') {
-        const effective = parsed.port || ({ 'https:': '443', 'http:': '80', 'wss:': '443', 'ws:': '80' })[scheme] || '';
-        // With the scheme upgraded (http to https, ws to wss), Chrome matches only port 443: from a
-        // source port of 80, or of 443 for an https subresource (not a frame or form target), never
-        // from another port (http://h:8080 doesn't match https://h:8080).
-        const upgraded = upgrade && `${sourceScheme}:` !== scheme;
-        const navigation = directive === 'frame-src' || directive === 'form-action';
-        const sourcePortOk = port === '80' || (port === '443' && scheme === 'https:' && !navigation);
-        if (upgraded ? !(sourcePortOk && effective === '443') : effective !== port) return false;
-    } else if (!port && parsed.port !== '') {
-        return false; // no port in the source: only the scheme's default port matches
+    return sourcePortMatches(port, parsed, { upgraded: upgrade && `${sourceScheme}:` !== scheme, directive }) &&
+        (!path || sourcePathMatches(path, parsed.pathname));
+}
+
+/** Whether a CSP source's port (undefined when it names none) admits the URL's port. */
+function sourcePortMatches(port, parsed, { upgraded, directive }) {
+    const scheme = parsed.protocol;
+    // No port in the source: only the scheme's default port matches.
+    if (!port) return parsed.port === '';
+    if (port === '*') return true;
+    const effective = parsed.port || ({ 'https:': '443', 'http:': '80', 'wss:': '443', 'ws:': '80' })[scheme] || '';
+    if (!upgraded) return effective === port;
+    // With the scheme upgraded (http to https, ws to wss), Chrome matches only port 443: from a
+    // source port of 80, or of 443 for an https subresource (not a frame or form target), never
+    // from another port (http://h:8080 doesn't match https://h:8080).
+    const navigation = directive === 'frame-src' || directive === 'form-action';
+    const sourcePortOk = port === '80' || (port === '443' && scheme === 'https:' && !navigation);
+    return sourcePortOk && effective === '443';
+}
+
+/** Decodes percent-escapes, or keeps the text as written when an escape is malformed. */
+const decodeOrKeep = (text) => {
+    try {
+        return decodeURIComponent(text);
+    } catch {
+        return text;
     }
-    if (path) {
-        let sourcePath = path;
-        try {
-            sourcePath = decodeURIComponent(path);
-        } catch {
-            // keep the raw path
-        }
-        let pathname = parsed.pathname;
-        try {
-            pathname = decodeURIComponent(pathname);
-        } catch {
-            // a malformed escape: compare the path as written
-        }
-        if (sourcePath.endsWith('/') ? !pathname.startsWith(sourcePath) : pathname !== sourcePath) return false;
-    }
-    return true;
+};
+
+/** Whether a CSP source path matches a URL path: a "/"-ending source is a prefix, any other is exact. */
+function sourcePathMatches(path, urlPath) {
+    const sourcePath = decodeOrKeep(path);
+    const pathname = decodeOrKeep(urlPath);
+    return sourcePath.endsWith('/') ? pathname.startsWith(sourcePath) : pathname === sourcePath;
 }
 
 /**
@@ -1452,6 +1553,41 @@ function locator(file, extensionId) {
     return { ownPrefix, ownPath, baseInfo, locate };
 }
 
+/** The CSP directive an import of a module `type` loads under: JSON is fetched under connect-src, CSS under style-src. */
+const moduleDirective = (type) => (type === 'json' ? 'connect-src' : type === 'css' ? 'style-src' : 'script-src');
+
+/** Whether Chrome's module loader takes `path` for an import of `type` (JavaScript unless json or css). */
+const moduleFileOk = (type, path) => (type === 'json' ? /\.json$/i : type === 'css' ? /\.css$/i : /\.m?js$/i).test(path);
+
+/** An import map address or integrity key Chrome reads as a URL: absolute, or a /, ./ or ../ path. */
+const urlLike = (value) => /^(\/|\.\.?\/|[a-z][a-z0-9+.-]*:)/i.test(value);
+
+/** Why Chrome rejects a parsed import map whole (a member of the wrong type), or null. */
+const importMapShapeProblem = (parsed) => (!isPlainObject(parsed) ? 'must be a JSON object'
+    : 'imports' in parsed && !isPlainObject(parsed.imports) ? '"imports" must be an object'
+        : 'scopes' in parsed && !(isPlainObject(parsed.scopes) && Object.values(parsed.scopes).every(isPlainObject)) ? '"scopes" must be an object of objects'
+            : 'integrity' in parsed && !isPlainObject(parsed.integrity) ? '"integrity" must be an object' : null);
+
+/** Whether a hyperlink-auditing ping is sent to `url`: only to HTTP(S) URLs, and not to one that doesn't parse. */
+const pingable = (url) => {
+    if (!/^https?:/i.test(url ?? '')) return false;
+    try {
+        new URL(url);
+        return true;
+    } catch {
+        return false;
+    }
+};
+
+/** Why Chrome blocks or can't load the imports one import map entry names, or null when it maps them. */
+const importMapEntryProblem = (key, address) => {
+    const blocked = typeof address !== 'string' ? 'is not a string'
+        : !urlLike(address) ? 'is not a URL or a /, ./ or ../ path'
+            : key.endsWith('/') && !address.endsWith('/') ? 'must end in "/" like its key' : null;
+    if (blocked) return `${blocked}, so Chrome blocks imports of "${key}"`;
+    return address.endsWith('/') && !key.endsWith('/') ? "maps a module to a directory, which Chrome can't load" : null;
+};
+
 /**
  * References made by one packaged file.
  * @returns {{ refs: string[], uses: object[], external: object[], errors: string[], dynamicImports: number,
@@ -1489,35 +1625,36 @@ export function extractRefs(file, text, { classic = false, csp = null, scripting
             return;
         }
         const located = locate(url, baseUsable ? base : null, fragments || ping);
-        if (ping) {
-            // Only HTTP(S) URLs are pinged, and a URL that doesn't parse is skipped.
-            if (!/^https?:/i.test(located.external ?? '')) return;
-            try {
-                new URL(located.external);
-            } catch {
-                return;
-            }
-        }
+        if (ping && !pingable(located.external)) return;
         const local = located.local ?? (located.external ? ownPath(located.external) : null);
         const external = local ? null : located.external;
         // cors and ownIntegrity let a preload of the same URL be matched to this load.
         const load = { directive, policies, nonce, parserInserted, cors, module, ownIntegrity: Boolean(integrity), integrityAttr: integrity !== undefined, hint, mapAddress, sandboxed, order };
-        if (local) {
-            result.refs.push(local);
-            if (sandboxed) result.opaqueRefs.push(local);
-            if (srcdoc) result.srcdocRefs.push({ id: srcdoc, path: local });
-            if (directive) result.uses.push({ path: local, ...load });
-            if (integrity !== undefined) result.integrity.push({ path: local, integrity, line });
-            if (preload) result.preloads.push({ path: local, order, ...preload });
-        } else if (external && directive) {
-            if (/^chrome-extension:\/\//i.test(external) && !ownPrefix) {
-                result.errors.push(`${file}: ${external} can't be checked without a manifest key (the extension ID is unknown)`);
-            } else if (/^(https?|wss?|data|blob|chrome-extension):/i.test(external)) {
-                result.external.push({ url: external, ...load });
-            } else {
-                result.errors.push(`${file}: ${external} uses a URL scheme an extension page can't load (${directive})`);
-            }
+        if (local) addLocal(local, load, { srcdoc, integrity, line, preload });
+        else if (external && directive) addExternal(external, load);
+    };
+    // A load of one of the package's own files, with what the checks need to know about it.
+    const addLocal = (local, load, { srcdoc, integrity, line, preload }) => {
+        result.refs.push(local);
+        if (load.sandboxed) result.opaqueRefs.push(local);
+        if (srcdoc) result.srcdocRefs.push({ id: srcdoc, path: local });
+        if (load.directive) result.uses.push({ path: local, ...load });
+        if (integrity !== undefined) result.integrity.push({ path: local, integrity, line });
+        if (preload) result.preloads.push({ path: local, order: load.order, ...preload });
+    };
+    const addExternal = (external, load) => {
+        if (/^chrome-extension:\/\//i.test(external) && !ownPrefix) {
+            result.errors.push(`${file}: ${external} can't be checked without a manifest key (the extension ID is unknown)`);
+        } else if (/^(https?|wss?|data|blob|chrome-extension):/i.test(external)) {
+            result.external.push({ url: external, ...load });
+        } else {
+            result.errors.push(`${file}: ${external} uses a URL scheme an extension page can't load (${load.directive})`);
         }
+    };
+    // The packaged file a URL names here (resolved against `base` while it is usable), or null.
+    const localTarget = (url, base) => {
+        const located = locate(url, baseUsable ? base : null);
+        return located.local ?? (located.external ? ownPath(located.external) : null);
     };
     // Module specifiers: relative/absolute paths and http(s)/data/blob/chrome-extension URLs only.
     // A packaged target must be JavaScript, or JSON/CSS imported with that type attribute (which
@@ -1526,128 +1663,122 @@ export function extractRefs(file, text, { classic = false, csp = null, scripting
         for (const entry of entries) {
             const { specifier, type } = typeof entry === 'string' ? { specifier: entry, type: undefined } : entry;
             const isPath = specifier.startsWith('.') || specifier.startsWith('/') || /^chrome-extension:/i.test(specifier);
-            const located = isPath ? locate(specifier, baseUsable ? base : null) : {};
-            const target = located.local ?? (located.external ? ownPath(located.external) : null);
-            const expected = type === 'json' ? /\.json$/i : type === 'css' ? /\.css$/i : /\.m?js$/i;
-            if (target && !expected.test(target)) {
+            const target = isPath ? localTarget(specifier, base) : null;
+            if (target && !moduleFileOk(type, target)) {
                 result.errors.push(`${label}: module "${specifier}" resolves to ${target}, which Chrome's module loader rejects (not ${type ? `a ${type} module` : 'JavaScript'})`);
             }
             if (/^[a-z][a-z0-9+.-]*:/i.test(specifier) && !/^(https?|data|blob|chrome-extension):/i.test(specifier)) {
                 result.errors.push(`${label}: module specifier "${specifier}" uses a scheme Chrome can't import (e.g. node: built-ins don't exist in an extension)`);
             } else if (specifier.startsWith('.') || specifier.startsWith('/') || /^[a-z][a-z0-9+.-]*:/i.test(specifier)) {
-                const directive = type === 'json' ? 'connect-src' : type === 'css' ? 'style-src' : 'script-src';
-                add({ url: specifier, directive, base, policies, nonce, cors: true, module: true, sandboxed });
+                add({ url: specifier, directive: moduleDirective(type), base, policies, nonce, cors: true, module: true, sandboxed });
             } else {
                 // Only the import map of the page that loads the module can resolve it: see checkReferences.
                 result.bareImports.push({ label, specifier, type, referrer: base ? baseUrl(base) : fileUrl, policies, nonce, sandboxed });
             }
         }
     }
-    if (kind === 'html' || kind === 'htm') {
+    // A page's <base href>: blocked by a CSP's base-uri (then ignored), or the document base.
+    const documentBase = (page) => {
+        // An own (chrome-extension:) base is exempt from CSP, as Chrome exempts own URLs.
+        const own = baseInfo(page.base.href).localDir !== undefined;
+        const blocking = own ? null : [[csp, 'manifest CSP'], ...page.base.policies.map((meta) => [parseMetaCsp(meta), '<meta> CSP'])]
+            .find(([policy]) => policy && !baseUriAllows(policy, page.base.href));
+        if (blocking) {
+            baseUsable = false;
+            result.errors.push(`${file} line ${page.base.line}: <base href="${page.base.href}"> is blocked by the ${blocking[1]} (base-uri), so Chrome ignores it; remove it`);
+        } else {
+            result.documentBase = baseInfo(page.base.href);
+        }
+    };
+    // Inline scripts: check what they import (they run where the page's CSP allows inline script).
+    const inlineScript = (script) => {
+        const label = `${file} (inline script, line ${script.line})`;
+        const dynamic = dynamicImports(label, script.text);
+        result.errors.push(...dynamic.errors);
+        let statics = [];
+        try {
+            if (script.module) statics = staticImports(label, script.text);
+            else new vm.Script(script.text, { filename: label });
+        } catch (error) {
+            result.errors.push(script.module ? error.message : `${label} doesn't compile as a classic script: ${error.message}`);
+        }
+        addSpecifiers(label, [...statics, ...dynamic.specifiers], script.base, { policies: script.policies, nonce: script.nonce, sandboxed: script.sandboxed });
+    };
+    // The map as Chrome merges it into the page's (the first entry for a key wins): keys and
+    // addresses resolved against the document base, bad addresses as null (blocking).
+    const mergeImportMap = (parsed, mapBase) => {
+        const asUrl = (value) => {
+            if (!urlLike(value)) return null;
+            try {
+                return new URL(value, mapBase).href;
+            } catch {
+                return null;
+            }
+        };
+        const merge = (entries, target) => {
+            for (const [key, address] of Object.entries(entries)) {
+                const normalized = asUrl(key) ?? key;
+                if (key === '' || Object.hasOwn(target, normalized)) continue;
+                const url = typeof address === 'string' ? asUrl(address) : null;
+                target[normalized] = url && !(key.endsWith('/') && !url.endsWith('/')) ? url : null;
+            }
+        };
+        result.importMap ??= { imports: {}, scopes: {} };
+        merge(parsed.imports ?? {}, result.importMap.imports);
+        for (const [scope, entries] of Object.entries(parsed.scopes ?? {})) {
+            try {
+                const prefix = new URL(scope, mapBase).href;
+                merge(entries, result.importMap.scopes[prefix] ??= {});
+            } catch {
+                // a scope that isn't a URL is ignored
+            }
+        }
+    };
+    // Each mapping's address: one Chrome would block, or a module load to check.
+    const importMapAddresses = (label, parsed, map) => {
+        const specifierMaps = [['imports', parsed.imports ?? {}], ...Object.entries(parsed.scopes ?? {}).map(([scope, entries]) => [`scopes["${scope}"]`, entries])];
+        const mappings = specifierMaps.flatMap(([where, entries]) => Object.entries(entries).map(([key, address]) => ({ where, key, address })));
+        for (const { where, key, address } of mappings) {
+            if (key === '') continue; // ignored
+            const problem = importMapEntryProblem(key, address);
+            if (problem) result.errors.push(`${label}: ${where}["${key}"] ${problem}`);
+            else if (!address.endsWith('/')) add({ url: address, directive: 'script-src', base: map.base, policies: map.policies, cors: true, mapAddress: true });
+        }
+    };
+    // Inline import maps: JSON that Chrome rejects whole when a member has the wrong type, and
+    // whose bad entries become null mappings that block the imports they name.
+    const importMap = (map) => {
+        const label = `${file} (import map, line ${map.line})`;
+        let parsed;
+        try {
+            parsed = JSON.parse(map.text);
+        } catch (error) {
+            result.errors.push(`${label} is not valid JSON, so Chrome rejects it: ${error.message}`);
+            return;
+        }
+        const fatal = importMapShapeProblem(parsed);
+        if (fatal) {
+            result.errors.push(`${label}: ${fatal}, so Chrome rejects the map`);
+            return;
+        }
+        mergeImportMap(parsed, baseUrl(map.base));
+        importMapAddresses(label, parsed, map);
+        // Integrity entries: Chrome applies one to a module fetch of that URL (see checkReferences).
+        for (const [key, metadata] of Object.entries(parsed.integrity ?? {})) {
+            if (typeof metadata !== 'string' || !urlLike(key)) continue; // ignored by Chrome
+            const local = localTarget(key, map.base);
+            // Maps merge with the first entry for a URL winning.
+            if (local && !result.mapIntegrity.some((entry) => entry.path === local)) result.mapIntegrity.push({ path: local, integrity: metadata, line: map.line });
+        }
+    };
+    const htmlPage = () => {
         const page = htmlRefs(text, null, scripting);
         result.errors.push(...page.problems.map((item) => `${file} ${item}`));
-        if (page.base?.href) {
-            // An own (chrome-extension:) base is exempt from CSP, as Chrome exempts own URLs.
-            const own = baseInfo(page.base.href).localDir !== undefined;
-            const blocking = own ? null : [[csp, 'manifest CSP'], ...page.base.policies.map((meta) => [parseMetaCsp(meta), '<meta> CSP'])]
-                .find(([policy]) => policy && !baseUriAllows(policy, page.base.href));
-            if (blocking) {
-                baseUsable = false;
-                result.errors.push(`${file} line ${page.base.line}: <base href="${page.base.href}"> is blocked by the ${blocking[1]} (base-uri), so Chrome ignores it; remove it`);
-            } else {
-                result.documentBase = baseInfo(page.base.href);
-            }
-        }
+        if (page.base?.href) documentBase(page);
         page.urls.forEach(add);
-        // Inline scripts: check what they import (they run where the page's CSP allows inline script).
-        for (const script of page.inlineScripts) {
-            const label = `${file} (inline script, line ${script.line})`;
-            const dynamic = dynamicImports(label, script.text);
-            result.errors.push(...dynamic.errors);
-            let statics = [];
-            try {
-                if (script.module) statics = staticImports(label, script.text);
-                else new vm.Script(script.text, { filename: label });
-            } catch (error) {
-                result.errors.push(script.module ? error.message : `${label} doesn't compile as a classic script: ${error.message}`);
-            }
-            addSpecifiers(label, [...statics, ...dynamic.specifiers], script.base, { policies: script.policies, nonce: script.nonce, sandboxed: script.sandboxed });
-        }
-        // Inline import maps: JSON that Chrome rejects whole when a member has the wrong type, and
-        // whose bad entries become null mappings that block the imports they name.
-        const isObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
-        const urlLike = (value) => /^(\/|\.\.?\/|[a-z][a-z0-9+.-]*:)/i.test(value);
-        for (const map of page.importMaps) {
-            const label = `${file} (import map, line ${map.line})`;
-            let parsed;
-            try {
-                parsed = JSON.parse(map.text);
-            } catch (error) {
-                result.errors.push(`${label} is not valid JSON, so Chrome rejects it: ${error.message}`);
-                continue;
-            }
-            const fatal = !isObject(parsed) ? 'must be a JSON object'
-                : 'imports' in parsed && !isObject(parsed.imports) ? '"imports" must be an object'
-                    : 'scopes' in parsed && !(isObject(parsed.scopes) && Object.values(parsed.scopes).every(isObject)) ? '"scopes" must be an object of objects'
-                        : 'integrity' in parsed && !isObject(parsed.integrity) ? '"integrity" must be an object' : null;
-            if (fatal) {
-                result.errors.push(`${label}: ${fatal}, so Chrome rejects the map`);
-                continue;
-            }
-            // The map as Chrome merges it into the page's (the first entry for a key wins): keys and
-            // addresses resolved against the document base, bad addresses as null (blocking).
-            const mapBase = baseUrl(map.base);
-            const asUrl = (value) => {
-                if (!urlLike(value)) return null;
-                try {
-                    return new URL(value, mapBase).href;
-                } catch {
-                    return null;
-                }
-            };
-            const merge = (entries, target) => {
-                for (const [key, address] of Object.entries(entries)) {
-                    const normalized = asUrl(key) ?? key;
-                    if (key === '' || Object.hasOwn(target, normalized)) continue;
-                    const url = typeof address === 'string' ? asUrl(address) : null;
-                    target[normalized] = url && !(key.endsWith('/') && !url.endsWith('/')) ? url : null;
-                }
-            };
-            result.importMap ??= { imports: {}, scopes: {} };
-            merge(parsed.imports ?? {}, result.importMap.imports);
-            for (const [scope, entries] of Object.entries(parsed.scopes ?? {})) {
-                try {
-                    const prefix = new URL(scope, mapBase).href;
-                    merge(entries, result.importMap.scopes[prefix] ??= {});
-                } catch {
-                    // a scope that isn't a URL is ignored
-                }
-            }
-            const specifierMaps = [['imports', parsed.imports ?? {}], ...Object.entries(parsed.scopes ?? {}).map(([scope, entries]) => [`scopes["${scope}"]`, entries])];
-            for (const [where, entries] of specifierMaps) {
-                for (const [key, address] of Object.entries(entries)) {
-                    if (key === '') continue; // ignored
-                    const problem = typeof address !== 'string' ? 'is not a string'
-                        : !urlLike(address) ? 'is not a URL or a /, ./ or ../ path'
-                            : key.endsWith('/') && !address.endsWith('/') ? 'must end in "/" like its key' : null;
-                    if (problem) result.errors.push(`${label}: ${where}["${key}"] ${problem}, so Chrome blocks imports of "${key}"`);
-                    else if (address.endsWith('/') && !key.endsWith('/')) result.errors.push(`${label}: ${where}["${key}"] maps a module to a directory, which Chrome can't load`);
-                    else if (!address.endsWith('/')) add({ url: address, directive: 'script-src', base: map.base, policies: map.policies, cors: true, mapAddress: true });
-                }
-            }
-            // Integrity entries: Chrome applies one to a module fetch of that URL (see checkReferences).
-            for (const [key, metadata] of Object.entries(parsed.integrity ?? {})) {
-                if (typeof metadata !== 'string' || !urlLike(key)) continue; // ignored by Chrome
-                const located = locate(key, baseUsable ? map.base : null);
-                const local = located.local ?? (located.external ? ownPath(located.external) : null);
-                // Maps merge with the first entry for a URL winning.
-                if (local && !result.mapIntegrity.some((entry) => entry.path === local)) result.mapIntegrity.push({ path: local, integrity: metadata, line: map.line });
-            }
-        }
-        const resolveScripts = (list) => list.map(({ url, base }) => {
-            const located = locate(url, baseUsable ? base : null);
-            return located.local ?? (located.external ? ownPath(located.external) : null);
-        }).filter(Boolean);
+        page.inlineScripts.forEach(inlineScript);
+        page.importMaps.forEach(importMap);
+        const resolveScripts = (list) => list.map(({ url, base }) => localTarget(url, base)).filter(Boolean);
         result.inline = page.inline;
         result.inlineStyles = page.inlineStyles;
         result.policies = page.policies;
@@ -1657,7 +1788,8 @@ export function extractRefs(file, text, { classic = false, csp = null, scripting
         result.varChains = page.varChains;
         result.registeredUrls = [...page.registeredUrls];
         result.srcdocs = page.srcdocs;
-    } else if (kind === 'js' || kind === 'mjs') {
+    };
+    const jsModule = () => {
         const dynamic = dynamicImports(file, text);
         result.errors.push(...dynamic.errors);
         result.dynamicImports = dynamic.specifiers.length + dynamic.errors.length;
@@ -1674,15 +1806,197 @@ export function extractRefs(file, text, { classic = false, csp = null, scripting
             statics = staticImports(file, text);
         }
         addSpecifiers(file, [...statics, ...dynamic.specifiers], null);
-    } else if (kind === 'css') {
+    };
+    const stylesheet = () => {
         const scan = cssScan(text);
         scan.refs.forEach(add);
         result.varUses = [...scan.uses];
         result.varChains = scan.chains;
         result.registeredUrls = [...scan.registeredUrls];
-    }
+    };
+    if (kind === 'html' || kind === 'htm') htmlPage();
+    else if (kind === 'js' || kind === 'mjs') jsModule();
+    else if (kind === 'css') stylesheet();
     return result;
 }
+
+// declarativeNetRequest ------------------------------------------------------------
+
+const RULE_ACTIONS = new Set(['block', 'redirect', 'allow', 'upgradeScheme', 'modifyHeaders', 'allowAllRequests']);
+
+/** Checks of a redirect action by the field Chrome uses: the first of url, extensionPath, transform and regexSubstitution present. */
+const REDIRECT_CHECKS = {
+    url: (redirect) => {
+        let scheme = null;
+        try {
+            scheme = new URL(redirect.url).protocol;
+        } catch {
+            // reported below
+        }
+        return !scheme || scheme === 'javascript:' ? ['action.redirect.url must be a valid URL other than javascript:'] : [];
+    },
+    extensionPath: (redirect, rule, packaged) => {
+        if (!(typeof redirect.extensionPath === 'string' && redirect.extensionPath.startsWith('/'))) {
+            return ['action.redirect.extensionPath must be a path starting with "/"'];
+        }
+        const target = resolveRef('manifest.json', redirect.extensionPath);
+        return target && !packaged.has(target) ? [`action.redirect.extensionPath ${redirect.extensionPath} is not in the package`] : [];
+    },
+    transform: () => [],
+    regexSubstitution: (redirect, rule) => {
+        if (typeof redirect.regexSubstitution !== 'string' || !redirect.regexSubstitution) return ['action.redirect.regexSubstitution must be a non-empty string'];
+        return typeof rule.condition?.regexFilter !== 'string' ? ['action.redirect.regexSubstitution needs condition.regexFilter'] : [];
+    }
+};
+
+/** Why Chrome rejects one modifyHeaders entry: an HTTP token for the name; no CR, LF or NUL in a value (as Chrome checks them). */
+const headerProblem = (info) => {
+    const operation = info?.operation;
+    if (!info || typeof info.header !== 'string' || !/^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/.test(info.header) || !['append', 'set', 'remove'].includes(operation)) {
+        return 'needs a valid header name and an operation of append, set or remove';
+    }
+    if (operation === 'remove' ? 'value' in info : typeof info.value !== 'string') {
+        return operation === 'remove' ? "can't have a value with remove" : `needs a string value with ${operation}`;
+    }
+    return typeof info.value === 'string' && /[\r\n\0]/.test(info.value) ? 'has a value with CR, LF or NUL' : null;
+};
+
+/** The fields each action type needs (Chrome drops a static rule without them). */
+const RULE_ACTION_CHECKS = {
+    redirect: (rule, action, packaged) => {
+        const redirect = action.redirect && typeof action.redirect === 'object' ? action.redirect : null;
+        const field = redirect && Object.keys(REDIRECT_CHECKS).find((key) => key in redirect);
+        if (!field) return ['a redirect action needs action.redirect with url, extensionPath, transform or regexSubstitution'];
+        return REDIRECT_CHECKS[field](redirect, rule, packaged);
+    },
+    modifyHeaders: (rule, action) => {
+        const lists = ['requestHeaders', 'responseHeaders'].filter((key) => key in action);
+        const problems = lists.length ? [] : ['a modifyHeaders action needs requestHeaders or responseHeaders'];
+        for (const key of lists) {
+            if (!Array.isArray(action[key]) || !action[key].length) {
+                problems.push(`action.${key} must be a non-empty list`);
+                continue;
+            }
+            action[key].forEach((info, n) => {
+                const problem = headerProblem(info);
+                if (problem) problems.push(`action.${key}[${n}] ${problem}`);
+            });
+        }
+        return problems;
+    },
+    allowAllRequests: (rule) => {
+        const types = rule.condition?.resourceTypes;
+        return !Array.isArray(types) || !types.length || types.some((type) => type !== 'main_frame' && type !== 'sub_frame')
+            ? ['an allowAllRequests action needs condition.resourceTypes of main_frame and/or sub_frame only'] : [];
+    }
+};
+
+/**
+ * Why Chrome would drop one static rule (none when it is valid): unique positive integer ids
+ * (tracked in `ruleIds`), an action with a known type and what that type needs, a condition object.
+ */
+function ruleProblems(rule, ruleIds, packaged) {
+    if (!isPlainObject(rule)) return ['must be an object'];
+    const action = rule.action && typeof rule.action === 'object' ? rule.action : {};
+    const actionCheck = typeof action.type === 'string' && Object.hasOwn(RULE_ACTION_CHECKS, action.type) ? RULE_ACTION_CHECKS[action.type] : () => [];
+    return [
+        ruleIdProblem(rule.id, ruleIds),
+        'priority' in rule && (!Number.isInteger(rule.priority) || rule.priority < 1) ? 'priority must be a positive integer' : null,
+        !rule.action || typeof rule.action !== 'object' || !RULE_ACTIONS.has(rule.action.type) ? `action.type must be one of ${[...RULE_ACTIONS].join(', ')}` : null,
+        !isPlainObject(rule.condition) ? 'condition must be an object' : null,
+        ...actionCheck(rule, action, packaged)
+    ].filter(Boolean);
+}
+
+/** Why a rule id is refused: not a positive integer, or already used in the ruleset (ids so far in `ruleIds`). */
+function ruleIdProblem(id, ruleIds) {
+    if (!Number.isInteger(id) || id < 1) return 'id must be a positive integer';
+    if (ruleIds.has(id)) return `duplicate id ${id}`;
+    ruleIds.add(id);
+    return null;
+}
+
+// Reference check ------------------------------------------------------------------
+
+/**
+ * The CSPs the extension's pages run under. sandbox.pages entries are paths, or patterns where
+ * '*' matches anything: those pages get the sandbox CSP, every other page extension_pages.
+ * policiesAt gives a page's policies at one point: its own CSP plus the <meta> CSPs in effect
+ * there (and the MV3 minimum CSP on non-sandbox pages).
+ */
+function pagePolicies(manifest) {
+    const policy = manifest.content_security_policy?.extension_pages;
+    const csp = withMinimumCsp(parseCsp(typeof policy === 'string' ? policy : DEFAULT_MV3_CSP));
+    const sandboxPolicy = manifest.content_security_policy?.sandbox;
+    const sandboxCsp = parseCsp(typeof sandboxPolicy === 'string' ? sandboxPolicy : DEFAULT_SANDBOX_CSP);
+    const sandboxEntries = (Array.isArray(manifest.sandbox?.pages) ? manifest.sandbox.pages : [])
+        .filter((page) => typeof page === 'string')
+        .map((page) => posix.normalize(page.replace(/^\//, '')));
+    const sandboxPatterns = sandboxEntries.map((page) => new RegExp(`^${page.split('*').map((part) => part.replace(/[.+?^${}()|[\]\\]/g, '\\$&')).join('.*')}$`));
+    const isSandboxPage = (file) => sandboxPatterns.some((pattern) => pattern.test(file));
+    const cspFor = (file) => (isSandboxPage(file) ? sandboxCsp : csp);
+    const policyNameFor = (file) => (isSandboxPage(file) ? 'sandbox CSP' : 'manifest CSP');
+    const minimum = manifest.manifest_version === 3 ? [[parseCsp(MINIMUM_MV3_CSP), "MV3 minimum CSP (script-src 'self')"]] : [];
+    const policiesAt = (page, metas) => [[cspFor(page), policyNameFor(page)], ...(isSandboxPage(page) ? [] : minimum),
+        ...metas.map((meta) => [parseMetaCsp(meta), `<meta> CSP in ${page}`])];
+    // Scripting is on in sandbox pages unless their CSP's sandbox directive omits allow-scripts.
+    const scriptingFor = (file) => !isSandboxPage(file) || !sandboxCsp.has('sandbox') || sandboxCsp.get('sandbox').includes('allow-scripts');
+    return { csp, sandboxEntries, sandboxPatterns, isSandboxPage, cspFor, minimum, policiesAt, scriptingFor };
+}
+
+/** Scripts that run as classic scripts: those the pages load without type="module", and content scripts. */
+function classicScriptFiles(pageResults, manifest) {
+    const classic = new Set([...pageResults.values()].flatMap((page) => page.classicScripts));
+    if (Array.isArray(manifest.content_scripts)) {
+        for (const script of manifest.content_scripts) {
+            for (const js of Array.isArray(script?.js) ? script.js : []) {
+                if (typeof js === 'string') classic.add(posix.normalize(js.replace(/^\//, '')));
+            }
+        }
+    }
+    return classic;
+}
+
+/** Every file reachable from `roots` along `edges`, the roots included. */
+function reachableFrom(edges, roots) {
+    const seen = new Set(roots);
+    const queue = [...roots];
+    while (queue.length) {
+        for (const next of edges.get(queue.shift()) || []) {
+            if (!seen.has(next)) {
+                seen.add(next);
+                queue.push(next);
+            }
+        }
+    }
+    return seen;
+}
+
+/** Whether a page's inline script (an element, a javascript: navigation or an on* handler) may run under `policy`. */
+const inlineScriptAllowed = (policy, item) => (item.kind === 'script'
+    ? inlineAllowed(policy, 'script-src', item)
+    // A javascript: navigation is checked like a script element that needs 'unsafe-hashes' for a hash.
+    : item.kind === 'navigation' ? inlineAllowed(policy, 'script-src', { text: item.text, attribute: true })
+        : inlineAllowed(policy, 'script-src-attr', { text: item.text, attribute: true }));
+
+/** Whether a page's inline style (a <style> block or a style attribute) applies under `policy`. */
+const inlineStyleAllowed = (policy, item) => (item.kind === 'block'
+    ? inlineAllowed(policy, 'style-src', item)
+    : inlineAllowed(policy, 'style-src-attr', { text: item.text, attribute: true }));
+
+/** Why a page's import map leaves a bare specifier unresolved (`found` is its result, if any). */
+const unmappedReason = (page, map, found) => (!map ? `${page} has no import map`
+    : found ? `the import map of ${page} blocks it` : `the import map of ${page} doesn't map it`);
+
+/** Whether `policy` blocks a load in a context whose module graph inherits `nonces`. */
+const loadBlocked = (policy, load, nonces, extensionId) => !loadAllowed(policy, load, extensionId) &&
+    // An import inherits the nonce of the script that roots its module graph.
+    !(load.directive === 'script-src' && !load.parserInserted && nonces.some((nonce) => loadAllowed(policy, { ...load, nonce }, extensionId)));
+
+/** What a blocked load's message names: the directive, or why a markup <script> fails 'strict-dynamic'. */
+const blockedReason = (policy, load) => (load.directive === 'script-src' && load.parserInserted && sourcesFor(policy, 'script-src')?.includes("'strict-dynamic'")
+    ? "script-src has 'strict-dynamic', so a <script> in the markup needs a matching nonce"
+    : load.url ? load.directive : `${load.directive} doesn't allow 'self'`);
 
 /**
  * Checks every reference made by the manifest and every packaged page, module
@@ -1695,25 +2009,7 @@ export function checkReferences(root, files, manifest) {
     const errors = [];
     const edges = new Map([['manifest.json', []]]);
     const usesDynamicImport = new Set();
-    const policy = manifest.content_security_policy?.extension_pages;
-    const csp = withMinimumCsp(parseCsp(typeof policy === 'string' ? policy : DEFAULT_MV3_CSP));
-    const sandboxPolicy = manifest.content_security_policy?.sandbox;
-    const sandboxCsp = parseCsp(typeof sandboxPolicy === 'string' ? sandboxPolicy : DEFAULT_SANDBOX_CSP);
-    // sandbox.pages entries are paths, or patterns where '*' matches anything.
-    const sandboxEntries = (Array.isArray(manifest.sandbox?.pages) ? manifest.sandbox.pages : [])
-        .filter((page) => typeof page === 'string')
-        .map((page) => posix.normalize(page.replace(/^\//, '')));
-    const sandboxPatterns = sandboxEntries.map((page) => new RegExp(`^${page.split('*').map((part) => part.replace(/[.+?^${}()|[\]\\]/g, '\\$&')).join('.*')}$`));
-    const isSandboxPage = (file) => sandboxPatterns.some((pattern) => pattern.test(file));
-    // Sandboxed pages get their own CSP; every other page runs under extension_pages.
-    const cspFor = (file) => (isSandboxPage(file) ? sandboxCsp : csp);
-    const policyNameFor = (file) => (isSandboxPage(file) ? 'sandbox CSP' : 'manifest CSP');
-    // A page's policies at one point: its own CSP plus the <meta> CSPs in effect there.
-    const minimum = manifest.manifest_version === 3 ? [[parseCsp(MINIMUM_MV3_CSP), "MV3 minimum CSP (script-src 'self')"]] : [];
-    const policiesAt = (page, metas) => [[cspFor(page), policyNameFor(page)], ...(isSandboxPage(page) ? [] : minimum),
-        ...metas.map((meta) => [parseMetaCsp(meta), `<meta> CSP in ${page}`])];
-    // Scripting is on in sandbox pages unless their CSP's sandbox directive omits allow-scripts.
-    const scriptingFor = (file) => !isSandboxPage(file) || !sandboxCsp.has('sandbox') || sandboxCsp.get('sandbox').includes('allow-scripts');
+    const { csp, sandboxEntries, sandboxPatterns, isSandboxPage, cspFor, minimum, policiesAt, scriptingFor } = pagePolicies(manifest);
     const isPage = (file) => /\.html?$/i.test(file);
     const extensionId = extensionIdFromKey(manifest.key);
     const read = (file) => readFileSync(join(root, file), 'utf8');
@@ -1728,20 +2024,17 @@ export function checkReferences(root, files, manifest) {
         if (!extensionId || placeholders.some((placeholder) => placeholder !== '__MSG_@@extension_id__')) return null;
         return Buffer.from(latin1.replaceAll('__MSG_@@extension_id__', extensionId), 'latin1');
     };
+    const servedIntegrityProblem = (path, integrity) => {
+        const bytes = servedBytes(path);
+        return bytes ? integrityProblem(integrity, bytes) : "can't be pinned: Chrome fills in the file's locale-dependent __MSG_ placeholders";
+    };
 
     // Pages first: they decide which scripts run as classic scripts.
     const results = new Map();
     for (const file of files.filter(isPage)) {
         results.set(file, extractRefs(file, read(file), { csp: cspFor(file), scripting: scriptingFor(file), extensionId }));
     }
-    const classic = new Set([...results.values()].flatMap((page) => page.classicScripts));
-    if (Array.isArray(manifest.content_scripts)) {
-        for (const script of manifest.content_scripts) {
-            for (const js of Array.isArray(script?.js) ? script.js : []) {
-                if (typeof js === 'string') classic.add(posix.normalize(js.replace(/^\//, '')));
-            }
-        }
-    }
+    const classic = classicScriptFiles(results, manifest);
 
     const note = (from, ref) => {
         if (packaged.has(ref)) {
@@ -1750,27 +2043,51 @@ export function checkReferences(root, files, manifest) {
             errors.push(`${from} references ${ref}, which is not in the package`);
         }
     };
-    let refs = [];
-    try {
-        refs = manifestRefs(manifest);
-    } catch (error) {
-        errors.push(error.message);
-    }
-    for (const ref of refs) {
-        // Chrome reads manifest paths literally: no URL decoding or ?/# handling.
-        note('manifest.json', posix.normalize(ref.startsWith('/') ? ref.slice(1) : ref));
-    }
-    sandboxEntries.forEach((entry, index) => {
-        if (entry.includes('*') && !files.some((file) => sandboxPatterns[index].test(file))) {
-            errors.push(`manifest.json sandbox page pattern "${entry}" matches no packaged file`);
+    // The manifest's own paths (and sandbox page patterns that match nothing).
+    const manifestPaths = () => {
+        let refs = [];
+        try {
+            refs = manifestRefs(manifest);
+        } catch (error) {
+            errors.push(error.message);
         }
-    });
+        for (const ref of refs) {
+            // Chrome reads manifest paths literally: no URL decoding or ?/# handling.
+            note('manifest.json', posix.normalize(ref.startsWith('/') ? ref.slice(1) : ref));
+        }
+        sandboxEntries.forEach((entry, index) => {
+            if (entry.includes('*') && !files.some((file) => sandboxPatterns[index].test(file))) {
+                errors.push(`manifest.json sandbox page pattern "${entry}" matches no packaged file`);
+            }
+        });
+        return refs;
+    };
+    const refs = manifestPaths();
     // Files only never-run scripts name (nomodule, or scripting off): Chrome never fetches or
     // compiles them, so neither does this, unless something that runs imports them.
     const liveScripts = new Set([...classic, ...refs.map((ref) => posix.normalize(ref.replace(/^\//, ''))),
         ...[...results.values()].flatMap((page) => page.uses.filter((load) => load.directive === 'script-src' && !load.hint).map((load) => load.path))]);
     const inertNamed = new Set([...results.values()].flatMap((page) => page.inertScripts));
     const inertOnly = new Set([...inertNamed].filter((file) => !liveScripts.has(file)));
+    const checkIntegrity = (file, result) => {
+        for (const { path, integrity, line } of result.integrity) {
+            if (!packaged.has(path)) continue; // reported as missing above
+            const problem = servedIntegrityProblem(path, integrity);
+            if (problem) errors.push(`${file} line ${line}: integrity="${integrity}" for ${path} ${problem}`);
+        }
+    };
+    const checkInline = (file, result) => {
+        for (const item of result.inline) {
+            const blocked = policiesAt(file, item.policies).find(([pagePolicy]) => !inlineScriptAllowed(pagePolicy, item));
+            if (blocked) {
+                errors.push(`${file} ${item.desc}: the ${blocked[1]} blocks inline script (MV3 extension pages never run it); move it to a file`);
+            }
+        }
+        const blockedStyle = result.inlineStyles.map((item) => policiesAt(file, item.policies).find(([pagePolicy]) => !inlineStyleAllowed(pagePolicy, item))).find(Boolean);
+        if (blockedStyle) {
+            errors.push(`${file} uses inline styles (style= or <style>), which the ${blockedStyle[1]} blocks: style-src has no 'unsafe-inline'`);
+        }
+    };
     const processFile = (file) => {
         edges.set(file, []);
         let result = results.get(file);
@@ -1785,30 +2102,9 @@ export function checkReferences(root, files, manifest) {
         errors.push(...result.errors);
         if (result.dynamicImports > 0) usesDynamicImport.add(file);
         for (const ref of result.refs) note(file, ref);
-        for (const { path, integrity, line } of result.integrity) {
-            if (!packaged.has(path)) continue; // reported as missing above
-            const bytes = servedBytes(path);
-            const problem = bytes ? integrityProblem(integrity, bytes) : "can't be pinned: Chrome fills in the file's locale-dependent __MSG_ placeholders";
-            if (problem) errors.push(`${file} line ${line}: integrity="${integrity}" for ${path} ${problem}`);
-        }
+        checkIntegrity(file, result);
         results.set(file, result);
-        if (!isPage(file)) return;
-        for (const item of result.inline) {
-            // A javascript: navigation is checked like a script element that needs 'unsafe-hashes' for a hash.
-            const blocked = policiesAt(file, item.policies).find(([pagePolicy]) => !(item.kind === 'script'
-                ? inlineAllowed(pagePolicy, 'script-src', item)
-                : item.kind === 'navigation' ? inlineAllowed(pagePolicy, 'script-src', { text: item.text, attribute: true })
-                    : inlineAllowed(pagePolicy, 'script-src-attr', { text: item.text, attribute: true })));
-            if (blocked) {
-                errors.push(`${file} ${item.desc}: the ${blocked[1]} blocks inline script (MV3 extension pages never run it); move it to a file`);
-            }
-        }
-        const blockedStyle = result.inlineStyles.map((item) => policiesAt(file, item.policies).find(([pagePolicy]) => (item.kind === 'block'
-            ? !inlineAllowed(pagePolicy, 'style-src', item)
-            : !inlineAllowed(pagePolicy, 'style-src-attr', { text: item.text, attribute: true })))).find(Boolean);
-        if (blockedStyle) {
-            errors.push(`${file} uses inline styles (style= or <style>), which the ${blockedStyle[1]} blocks: style-src has no 'unsafe-inline'`);
-        }
+        if (isPage(file)) checkInline(file, result);
     };
     for (const file of files) {
         if (/\.(html?|m?js|css)$/i.test(file) && !inertOnly.has(file)) processFile(file);
@@ -1850,54 +2146,58 @@ export function checkReferences(root, files, manifest) {
         }
     };
     const workerFile = typeof manifest.background?.service_worker === 'string' ? posix.normalize(manifest.background.service_worker.replace(/^\//, '')) : null;
+    // One bare specifier `file` imports, through `page`'s import map: true when it adds an edge.
+    const resolveBare = (page, map, file, bare) => {
+        const fileResult = results.get(file);
+        const found = map ? resolveThroughImportMap(map, bare.specifier, bare.referrer) : null;
+        if (!found || found.blocked) {
+            errors.push(`${bare.label}: bare module specifier "${bare.specifier}" cannot be loaded by an unbundled extension (${unmappedReason(page, map, found)})`);
+            return false;
+        }
+        const load = { directive: moduleDirective(bare.type), policies: bare.policies, nonce: bare.nonce, parserInserted: false, cors: true, module: true, sandboxed: bare.sandboxed };
+        const local = urlToPath(found.url);
+        if (!local) {
+            if (/^(https?|data|blob):/i.test(found.url)) fileResult.external.push({ url: found.url, ...load });
+            else errors.push(`${bare.label}: "${bare.specifier}" maps to ${found.url} in ${page}, which Chrome can't import`);
+            return false;
+        }
+        const problem = !moduleFileOk(bare.type, local) ? `Chrome's module loader rejects (not ${bare.type ? `a ${bare.type} module` : 'JavaScript'})`
+            : !packaged.has(local) ? 'is not in the package' : null;
+        if (problem) {
+            errors.push(`${bare.label}: "${bare.specifier}" maps to ${local} in ${page}, which ${problem}`);
+            return false;
+        }
+        fileResult.uses.push({ path: local, ...load });
+        if ((edges.get(file) || []).includes(local)) return false;
+        edges.get(file)?.push(local);
+        return true;
+    };
+    // The bare imports of the files in a page's module graph, each resolved once per page.
     const resolvedBare = new Set();
-    for (let changed = true; changed;) {
-        changed = false;
+    const unresolvedBareImports = (page) => [...reachFrom([page])]
+        .flatMap((file) => (results.get(file)?.bareImports ?? []).map((bare) => ({ file, bare })))
+        .filter(({ file, bare }) => {
+            const key = `${page}\n${file}\n${bare.specifier}`;
+            return !resolvedBare.has(key) && resolvedBare.add(key);
+        });
+    // One pass over every page; true when it added an edge (a new import to follow).
+    const resolveBarePass = () => {
+        let changed = false;
         for (const page of pages) {
             const map = results.get(page).importMap;
-            for (const file of reachFrom([page])) {
-                const fileResult = results.get(file);
-                for (const bare of fileResult?.bareImports ?? []) {
-                    const key = `${page}\n${file}\n${bare.specifier}`;
-                    if (resolvedBare.has(key)) continue;
-                    resolvedBare.add(key);
-                    const found = map ? resolveThroughImportMap(map, bare.specifier, bare.referrer) : null;
-                    if (!found || found.blocked) {
-                        errors.push(`${bare.label}: bare module specifier "${bare.specifier}" cannot be loaded by an unbundled extension (${!map ? `${page} has no import map`
-                            : found ? `the import map of ${page} blocks it` : `the import map of ${page} doesn't map it`})`);
-                        continue;
-                    }
-                    const directive = bare.type === 'json' ? 'connect-src' : bare.type === 'css' ? 'style-src' : 'script-src';
-                    const load = { directive, policies: bare.policies, nonce: bare.nonce, parserInserted: false, cors: true, module: true, sandboxed: bare.sandboxed };
-                    const local = urlToPath(found.url);
-                    if (!local) {
-                        if (/^(https?|data|blob):/i.test(found.url)) fileResult.external.push({ url: found.url, ...load });
-                        else errors.push(`${bare.label}: "${bare.specifier}" maps to ${found.url} in ${page}, which Chrome can't import`);
-                        continue;
-                    }
-                    const expected = bare.type === 'json' ? /\.json$/i : bare.type === 'css' ? /\.css$/i : /\.m?js$/i;
-                    if (!expected.test(local)) {
-                        errors.push(`${bare.label}: "${bare.specifier}" maps to ${local} in ${page}, which Chrome's module loader rejects (not ${bare.type ? `a ${bare.type} module` : 'JavaScript'})`);
-                    } else if (!packaged.has(local)) {
-                        errors.push(`${bare.label}: "${bare.specifier}" maps to ${local} in ${page}, which is not in the package`);
-                    } else {
-                        fileResult.uses.push({ path: local, ...load });
-                        if (!(edges.get(file) || []).includes(local)) {
-                            edges.get(file)?.push(local);
-                            changed = true;
-                        }
-                    }
-                }
+            for (const { file, bare } of unresolvedBareImports(page)) {
+                if (resolveBare(page, map, file, bare)) changed = true;
             }
         }
-    }
+        return changed;
+    };
+    while (resolveBarePass());
     const pageReached = new Set(pages.flatMap((page) => [...reachFrom([page])]));
     const workerGraph = workerFile && edges.has(workerFile) ? reachFrom([workerFile]) : new Set();
     for (const [file, fileResult] of results) {
-        if (!fileResult.bareImports?.length) continue;
         const where = workerGraph.has(file) ? 'the service worker has no import map' : !pageReached.has(file) ? 'no page loads this module' : null;
-        if (where) {
-            for (const bare of fileResult.bareImports) errors.push(`${bare.label}: bare module specifier "${bare.specifier}" cannot be loaded by an unbundled extension (${where})`);
+        for (const bare of where ? fileResult.bareImports ?? [] : []) {
+            errors.push(`${bare.label}: bare module specifier "${bare.specifier}" cannot be loaded by an unbundled extension (${where})`);
         }
     }
     const documents = new Map(); // page -> { normal, opaque, inert, all }
@@ -1915,28 +2215,25 @@ export function checkReferences(root, files, manifest) {
         }
         return documents.get(page);
     };
-    for (const page of pages) {
-        const result = results.get(page);
-        const { normal } = documentOf(page);
-        // Every load in this document, with the file that makes it (a page's own carry their order).
-        const loads = [...normal].flatMap((file) => (results.get(file)?.uses ?? []).map((load) => ({ ...load, from: file })));
-        // A preload's integrity applies where the page then uses the preloaded response: a later
-        // script or stylesheet of that URL with the same CORS mode and no integrity of its own, an
-        // import, or a font.
+    // A preload's integrity applies where the page then uses the preloaded response: a later
+    // script or stylesheet of that URL with the same CORS mode and no integrity of its own, an
+    // import, or a font.
+    const checkPreloads = (page, result, loads) => {
         for (const preload of result.preloads) {
             const consumed = loads.some((load) => load.path === preload.path && !load.hint &&
                 (load.from !== page || load.order == null || load.order > preload.order) && (preload.as === 'font'
                 ? load.directive === 'font-src' && preload.cors
                 : load.directive === (preload.as === 'script' ? 'script-src' : 'style-src') && Boolean(load.cors) === preload.cors && !load.ownIntegrity));
             if (!consumed || !packaged.has(preload.path)) continue;
-            const bytes = servedBytes(preload.path);
-            const problem = bytes ? integrityProblem(preload.integrity, bytes) : "can't be pinned: Chrome fills in the file's locale-dependent __MSG_ placeholders";
+            const problem = servedIntegrityProblem(preload.path, preload.integrity);
             if (problem) errors.push(`${page} line ${preload.line}: preload integrity="${preload.integrity}" for ${preload.path} ${problem}`);
         }
-        // An import map's integrity entry applies to module fetches of that URL with no integrity
-        // attribute of their own: module scripts, modulepreloads and imports (not classic scripts).
-        // A module script or modulepreload with its own integrity attribute fetches the URL once for
-        // the page's module map, so the map's entry for it is never used.
+    };
+    // An import map's integrity entry applies to module fetches of that URL with no integrity
+    // attribute of their own: module scripts, modulepreloads and imports (not classic scripts).
+    // A module script or modulepreload with its own integrity attribute fetches the URL once for
+    // the page's module map, so the map's entry for it is never used.
+    const checkMapIntegrity = (page, result, loads) => {
         const moduleFetched = new Set(loads.filter((load) => load.module && !load.mapAddress).map((load) => load.path));
         const ownIntegrity = new Set(result.uses.filter((load) => load.module && load.integrityAttr).map((load) => load.path));
         for (const entry of result.mapIntegrity) {
@@ -1944,6 +2241,14 @@ export function checkReferences(root, files, manifest) {
             const problem = integrityProblem(entry.integrity, readFileSync(join(root, entry.path)));
             if (problem) errors.push(`${page} line ${entry.line}: import map integrity "${entry.integrity}" for ${entry.path} ${problem}`);
         }
+    };
+    for (const page of pages) {
+        const result = results.get(page);
+        const { normal } = documentOf(page);
+        // Every load in this document, with the file that makes it (a page's own carry their order).
+        const loads = [...normal].flatMap((file) => (results.get(file)?.uses ?? []).map((load) => ({ ...load, from: file })));
+        checkPreloads(page, result, loads);
+        checkMapIntegrity(page, result, loads);
     }
     // url()s in custom properties resolve where var() finally substitutes the property, following
     // chains (--b: var(--a)), within one document: a page with the stylesheets it loads, or a
@@ -1954,23 +2259,37 @@ export function checkReferences(root, files, manifest) {
     // is its own document: the stylesheets it links plus its inline styles (resolved at the page).
     const member = (file) => ({ file, ...results.get(file) });
     const cssSheets = (roots) => [...reachFrom(roots)].filter((file) => /\.css$/i.test(file));
+    const pageCssDocuments = (page) => {
+        const result = results.get(page);
+        const fromSrcdoc = new Set(result.srcdocRefs.map((ref) => ref.path));
+        const pageRoots = (edges.get(page) || []).filter((path) => !isPage(path) && !(fromSrcdoc.has(path) &&
+            (edges.get(page) || []).filter((ref) => ref === path).length <= result.srcdocRefs.filter((ref) => ref.path === path).length));
+        return [
+            [member(page), ...cssSheets(pageRoots).map(member)],
+            ...result.srcdocs.map((srcdoc) => [
+                { file: page, varUses: srcdoc.varUses, varChains: srcdoc.varChains, registeredUrls: srcdoc.registeredUrls, customRefs: [] },
+                ...cssSheets(result.srcdocRefs.filter((ref) => ref.id === srcdoc.id).map((ref) => ref.path)).map(member)
+            ])
+        ];
+    };
     const cssDocuments = [
-        ...pages.flatMap((page) => {
-            const result = results.get(page);
-            const fromSrcdoc = new Set(result.srcdocRefs.map((ref) => ref.path));
-            const pageRoots = (edges.get(page) || []).filter((path) => !isPage(path) && !(fromSrcdoc.has(path) &&
-                (edges.get(page) || []).filter((ref) => ref === path).length <= result.srcdocRefs.filter((ref) => ref.path === path).length));
-            return [
-                [member(page), ...cssSheets(pageRoots).map(member)],
-                ...result.srcdocs.map((srcdoc) => [
-                    { file: page, varUses: srcdoc.varUses, varChains: srcdoc.varChains, registeredUrls: srcdoc.registeredUrls, customRefs: [] },
-                    ...cssSheets(result.srcdocRefs.filter((ref) => ref.id === srcdoc.id).map((ref) => ref.path)).map(member)
-                ])
-            ];
-        }),
+        ...pages.flatMap(pageCssDocuments),
         ...files.filter((file) => /\.css$/i.test(file) && results.has(file) && !reachedSheets.has(file)).map((file) => [member(file)])
     ];
-    for (const members of cssDocuments) {
+    // One custom url() from `file`, resolved at `site` (a file that reads its property).
+    const resolveCustomRef = (file, ref, site) => {
+        const siteResult = results.get(site);
+        const base = siteResult.documentBase;
+        const located = base?.externalBase ? locator(site, extensionId).locate(ref.url, base) : { local: resolveRef(base ? posix.join(base.localDir, '_') : site, ref.url) };
+        const where = site === file ? `${file}: url(${ref.url}) in ${ref.name}` : `${site} uses ${ref.name} from ${file}: url(${ref.url})`;
+        if (located.local) {
+            if (!packaged.has(located.local)) errors.push(`${where} resolves to ${located.local}, which is not in the package`);
+            else edges.get(site)?.push(located.local);
+        } else if (located.external) {
+            siteResult.external.push({ url: located.external, directive: ref.directive, policies: siteResult.policies, nonce: null, parserInserted: false });
+        }
+    };
+    const resolveCustomRefs = (members) => {
         // @property registrations count only within their own document.
         const registeredUrls = new Set(members.flatMap((entry) => entry.registeredUrls ?? []));
         const readersOf = (property, seen = new Set()) => {
@@ -1984,21 +2303,12 @@ export function checkReferences(root, files, manifest) {
         };
         for (const { file, customRefs = [] } of members) {
             for (const ref of customRefs) {
-                for (const site of registeredUrls.has(ref.name) ? [file] : readersOf(ref.name)) {
-                    const siteResult = results.get(site);
-                    const base = siteResult.documentBase;
-                    const located = base?.externalBase ? locator(site, extensionId).locate(ref.url, base) : { local: resolveRef(base ? posix.join(base.localDir, '_') : site, ref.url) };
-                    const where = site === file ? `${file}: url(${ref.url}) in ${ref.name}` : `${site} uses ${ref.name} from ${file}: url(${ref.url})`;
-                    if (located.local) {
-                        if (!packaged.has(located.local)) errors.push(`${where} resolves to ${located.local}, which is not in the package`);
-                        else edges.get(site)?.push(located.local);
-                    } else if (located.external) {
-                        siteResult.external.push({ url: located.external, directive: ref.directive, policies: siteResult.policies, nonce: null, parserInserted: false });
-                    }
-                }
+                const sites = registeredUrls.has(ref.name) ? [file] : readersOf(ref.name);
+                sites.forEach((site) => resolveCustomRef(file, ref, site));
             }
         }
-    }
+    };
+    cssDocuments.forEach(resolveCustomRefs);
     // Each file's loads are checked under the policies of every page context that reaches it.
     // A page's own loads: its CSP plus the <meta> CSPs in effect where each appears. The
     // stylesheets and modules a page loads: its CSP plus all its <meta> CSPs (they load after
@@ -2008,7 +2318,7 @@ export function checkReferences(root, files, manifest) {
     // extension_pages. A module graph inherits the nonce of the script element (or import) that
     // roots it.
     const contexts = new Map(); // file -> Map(page -> { policies, nonces, sandbox })
-    for (const page of pages) {
+    const addPageContexts = (page) => {
         const result = results.get(page);
         const { normal, opaque, inert } = documentOf(page);
         const policies = policiesAt(page, result.policies);
@@ -2034,144 +2344,58 @@ export function checkReferences(root, files, manifest) {
                 contexts.get(file)?.set(`${page}#${srcdoc.id}`, { policies: policiesAt(page, srcdoc.policies), nonces: [], sandbox: isSandboxPage(page) || srcdoc.opaque });
             }
         }
-    }
+    };
+    pages.forEach(addPageContexts);
     const extensionContext = { policies: [[csp, 'manifest CSP'], ...minimum], nonces: [], sandbox: false };
-    for (const [file, result] of results) {
-        for (const load of [...result.external, ...result.uses]) {
-            if (load.url && !/^(https?|wss?|data|blob|chrome-extension):/i.test(load.url)) continue;
-            const pageContexts = isPage(file)
-                ? [{ policies: policiesAt(file, load.policies), nonces: [], sandbox: isSandboxPage(file) }]
-                : [...(contexts.get(file)?.values() ?? [extensionContext])];
-            // Chrome exempts chrome-extension: URLs from CSP, except scripts on (non-sandbox,
-            // non-opaque) extension pages.
-            const extensionUrl = load.path !== undefined || /^chrome-extension:/i.test(load.url);
-            for (const context of pageContexts) {
-                if (extensionUrl && (load.directive !== 'script-src' || context.sandbox || load.sandboxed)) continue;
-                const blocked = context.policies.find(([loadPolicy]) => !loadAllowed(loadPolicy, load, extensionId) &&
-                    // An import inherits the nonce of the script that roots its module graph.
-                    !(load.directive === 'script-src' && !load.parserInserted && context.nonces.some((nonce) => loadAllowed(loadPolicy, { ...load, nonce }, extensionId))));
-                if (!blocked) continue;
-                const reason = load.directive === 'script-src' && load.parserInserted && sourcesFor(blocked[0], 'script-src')?.includes("'strict-dynamic'")
-                    ? "script-src has 'strict-dynamic', so a <script> in the markup needs a matching nonce"
-                    : load.url ? load.directive : `${load.directive} doesn't allow 'self'`;
-                errors.push(`${file} loads ${load.url ?? load.path}, which the ${blocked[1]} blocks (${reason})`);
-            }
+    // One load by `file`, under each page context that reaches it.
+    const checkLoad = (file, load) => {
+        if (load.url && !/^(https?|wss?|data|blob|chrome-extension):/i.test(load.url)) return;
+        const pageContexts = isPage(file)
+            ? [{ policies: policiesAt(file, load.policies), nonces: [], sandbox: isSandboxPage(file) }]
+            : [...(contexts.get(file)?.values() ?? [extensionContext])];
+        // Chrome exempts chrome-extension: URLs from CSP, except scripts on (non-sandbox,
+        // non-opaque) extension pages.
+        const extensionUrl = load.path !== undefined || /^chrome-extension:/i.test(load.url);
+        for (const context of pageContexts) {
+            if (extensionUrl && (load.directive !== 'script-src' || context.sandbox || load.sandboxed)) continue;
+            const blocked = context.policies.find(([loadPolicy]) => loadBlocked(loadPolicy, load, context.nonces, extensionId));
+            if (blocked) errors.push(`${file} loads ${load.url ?? load.path}, which the ${blocked[1]} blocks (${blockedReason(blocked[0], load)})`);
         }
+    };
+    for (const [file, result] of results) {
+        for (const load of [...result.external, ...result.uses]) checkLoad(file, load);
     }
     // Static declarativeNetRequest rulesets: Chrome silently ignores invalid rules in a packed
     // extension, so check each file's shape (JSON array of rules with unique positive integer
     // ids, an action with a known type and a condition object).
-    const RULE_ACTIONS = new Set(['block', 'redirect', 'allow', 'upgradeScheme', 'modifyHeaders', 'allowAllRequests']);
-    for (const resource of Array.isArray(manifest.declarative_net_request?.rule_resources) ? manifest.declarative_net_request.rule_resources : []) {
-        if (typeof resource?.path !== 'string') continue;
-        const path = posix.normalize(resource.path.replace(/^\//, ''));
-        if (!packaged.has(path)) continue; // reported as a missing reference above
+    const checkRuleset = (path) => {
         let rules;
         try {
             rules = JSON.parse(read(path));
         } catch (error) {
             errors.push(`${path}: declarativeNetRequest ruleset is not valid JSON (${error.message})`);
-            continue;
+            return;
         }
         if (!Array.isArray(rules)) {
             errors.push(`${path}: declarativeNetRequest ruleset must be a JSON array of rules`);
-            continue;
+            return;
         }
         const ruleIds = new Set();
-        rules.forEach((rule, index) => {
-            const where = `${path} rule ${index}`;
-            if (!rule || typeof rule !== 'object' || Array.isArray(rule)) return errors.push(`${where}: must be an object`);
-            if (!Number.isInteger(rule.id) || rule.id < 1) errors.push(`${where}: id must be a positive integer`);
-            else if (ruleIds.has(rule.id)) errors.push(`${where}: duplicate id ${rule.id}`);
-            else ruleIds.add(rule.id);
-            if ('priority' in rule && (!Number.isInteger(rule.priority) || rule.priority < 1)) errors.push(`${where}: priority must be a positive integer`);
-            if (!rule.action || typeof rule.action !== 'object' || !RULE_ACTIONS.has(rule.action.type)) errors.push(`${where}: action.type must be one of ${[...RULE_ACTIONS].join(', ')}`);
-            if (!rule.condition || typeof rule.condition !== 'object' || Array.isArray(rule.condition)) errors.push(`${where}: condition must be an object`);
-            // The fields each action type needs (Chrome drops a static rule without them).
-            const action = rule.action && typeof rule.action === 'object' ? rule.action : {};
-            if (action.type === 'redirect') {
-                // Chrome uses the first of url, extensionPath, transform and regexSubstitution present.
-                const redirect = action.redirect && typeof action.redirect === 'object' ? action.redirect : null;
-                const field = redirect && ['url', 'extensionPath', 'transform', 'regexSubstitution'].find((key) => key in redirect);
-                if (!field) {
-                    errors.push(`${where}: a redirect action needs action.redirect with url, extensionPath, transform or regexSubstitution`);
-                } else if (field === 'url') {
-                    let scheme = null;
-                    try {
-                        scheme = new URL(redirect.url).protocol;
-                    } catch {
-                        // reported below
-                    }
-                    if (!scheme || scheme === 'javascript:') errors.push(`${where}: action.redirect.url must be a valid URL other than javascript:`);
-                } else if (field === 'extensionPath') {
-                    if (!(typeof redirect.extensionPath === 'string' && redirect.extensionPath.startsWith('/'))) {
-                        errors.push(`${where}: action.redirect.extensionPath must be a path starting with "/"`);
-                    } else {
-                        const target = resolveRef('manifest.json', redirect.extensionPath);
-                        if (target && !packaged.has(target)) errors.push(`${where}: action.redirect.extensionPath ${redirect.extensionPath} is not in the package`);
-                    }
-                } else if (field === 'regexSubstitution') {
-                    if (typeof redirect.regexSubstitution !== 'string' || !redirect.regexSubstitution) errors.push(`${where}: action.redirect.regexSubstitution must be a non-empty string`);
-                    else if (typeof rule.condition?.regexFilter !== 'string') errors.push(`${where}: action.redirect.regexSubstitution needs condition.regexFilter`);
-                }
-            } else if (action.type === 'modifyHeaders') {
-                const lists = ['requestHeaders', 'responseHeaders'].filter((key) => key in action);
-                if (!lists.length) errors.push(`${where}: a modifyHeaders action needs requestHeaders or responseHeaders`);
-                for (const key of lists) {
-                    if (!Array.isArray(action[key]) || !action[key].length) {
-                        errors.push(`${where}: action.${key} must be a non-empty list`);
-                        continue;
-                    }
-                    action[key].forEach((info, n) => {
-                        const operation = info?.operation;
-                        // An HTTP token for the name; no CR, LF or NUL in a value (as Chrome checks them).
-                        if (!info || typeof info.header !== 'string' || !/^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/.test(info.header) || !['append', 'set', 'remove'].includes(operation)) {
-                            errors.push(`${where}: action.${key}[${n}] needs a valid header name and an operation of append, set or remove`);
-                        } else if (operation === 'remove' ? 'value' in info : typeof info.value !== 'string') {
-                            errors.push(`${where}: action.${key}[${n}] ${operation === 'remove' ? "can't have a value with remove" : `needs a string value with ${operation}`}`);
-                        } else if (typeof info.value === 'string' && /[\r\n\0]/.test(info.value)) {
-                            errors.push(`${where}: action.${key}[${n}] has a value with CR, LF or NUL`);
-                        }
-                    });
-                }
-            } else if (action.type === 'allowAllRequests') {
-                const types = rule.condition?.resourceTypes;
-                if (!Array.isArray(types) || !types.length || types.some((type) => type !== 'main_frame' && type !== 'sub_frame')) {
-                    errors.push(`${where}: an allowAllRequests action needs condition.resourceTypes of main_frame and/or sub_frame only`);
-                }
-            }
-            return undefined;
-        });
+        rules.forEach((rule, index) => errors.push(...ruleProblems(rule, ruleIds, packaged).map((problem) => `${path} rule ${index}: ${problem}`)));
+    };
+    const rulesets = Array.isArray(manifest.declarative_net_request?.rule_resources) ? manifest.declarative_net_request.rule_resources : [];
+    for (const resource of rulesets) {
+        if (typeof resource?.path !== 'string') continue;
+        const path = posix.normalize(resource.path.replace(/^\//, ''));
+        if (packaged.has(path)) checkRuleset(path); // a missing one is reported as a missing reference above
     }
     // Extension service workers don't support import(); check the worker's whole module graph.
-    const worker = typeof manifest.background?.service_worker === 'string'
-        ? posix.normalize(manifest.background.service_worker.replace(/^\//, ''))
-        : null;
-    if (worker && edges.has(worker)) {
-        const graph = new Set([worker]);
-        const pending = [worker];
-        while (pending.length) {
-            for (const next of edges.get(pending.shift()) || []) {
-                if (!graph.has(next)) {
-                    graph.add(next);
-                    pending.push(next);
-                }
-            }
-        }
-        for (const file of [...graph].filter((f) => usesDynamicImport.has(f)).sort()) {
-            errors.push(`${file} uses import(), which the extension service worker (${worker}) can't run; use a static import`);
+    if (workerFile && edges.has(workerFile)) {
+        for (const file of [...reachableFrom(edges, [workerFile])].filter((f) => usesDynamicImport.has(f)).sort()) {
+            errors.push(`${file} uses import(), which the extension service worker (${workerFile}) can't run; use a static import`);
         }
     }
-    const reached = new Set(['manifest.json']);
-    const queue = ['manifest.json'];
-    while (queue.length) {
-        for (const next of edges.get(queue.shift()) || []) {
-            if (!reached.has(next)) {
-                reached.add(next);
-                queue.push(next);
-            }
-        }
-    }
+    const reached = reachableFrom(edges, ['manifest.json']);
     const warnings = files.filter((file) => !reached.has(file) && !inertNamed.has(file)).map((file) => `${file} is packaged but nothing references it`);
     return { errors: [...new Set(errors)], warnings };
 }
