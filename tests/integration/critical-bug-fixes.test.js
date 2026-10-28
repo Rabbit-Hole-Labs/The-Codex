@@ -28,7 +28,7 @@ global.chrome = {
 };
 
 // Mock the imported modules
-jest.unstable_mockModule('../javascript/core-systems/storageManager.js', () => ({
+jest.unstable_mockModule('../../javascript/core-systems/storageManager.js', () => ({
   loadLinks: jest.fn().mockResolvedValue({ 
     links: [], 
     theme: 'dark', 
@@ -48,7 +48,7 @@ jest.unstable_mockModule('../javascript/core-systems/storageManager.js', () => (
   saveSettings: jest.fn().mockResolvedValue(true)
 }));
 
-jest.unstable_mockModule('../javascript/core-systems/stateManager.js', () => ({
+jest.unstable_mockModule('../../javascript/core-systems/stateManager.js', () => ({
   safeUpdateState: jest.fn().mockImplementation(async (updates, options) => {
     // Simulate successful update for valid data, failure for invalid
     if (updates.links && !Array.isArray(updates.links)) {
@@ -70,7 +70,7 @@ jest.unstable_mockModule('../javascript/core-systems/stateManager.js', () => ({
   })
 }));
 
-jest.unstable_mockModule('../javascript/entry-points/script.js', () => ({
+jest.unstable_mockModule('../../javascript/entry-points/script.js', () => ({
   initializeState: jest.fn().mockResolvedValue()
 }));
 
