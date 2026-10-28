@@ -151,18 +151,51 @@ const validMatchPattern = (pattern) => {
     return port === undefined || port === '*' || (scheme !== '*' && Number(port) <= 65535);
 };
 
-/** Checks the manifest fields Chrome and the Web Store validate on upload. */
-export function validateManifest(manifest) {
-    const errors = [];
-    if (manifest.manifest_version !== 3) errors.push('manifest_version must be 3');
-    if (typeof manifest.name !== 'string' || !manifest.name.trim()) {
-        errors.push('name is required');
-    } else if (manifest.name.length > MAX_NAME_LENGTH) {
-        errors.push(`name is ${manifest.name.length} characters; Chrome allows ${MAX_NAME_LENGTH}`);
+const isPlainObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
+
+/** Content-script match patterns and paths: a non-empty array of non-empty strings. */
+const nonEmptyStrings = (value) => Array.isArray(value) && value.length > 0 && value.every((item) => typeof item === 'string' && item);
+
+/** Why one content_scripts entry is malformed, in the order Chrome would complain. */
+function contentScriptProblems(entry, index) {
+    if (!isPlainObject(entry)) return [`content_scripts[${index}] must be an object`];
+    const problems = [];
+    if (!nonEmptyStrings(entry.matches)) problems.push(`content_scripts[${index}].matches must be a non-empty array of match patterns`);
+    for (const key of ['js', 'css']) {
+        if (key in entry && !nonEmptyStrings(entry[key])) problems.push(`content_scripts[${index}].${key} must be a non-empty array of paths`);
     }
-    if (typeof manifest.version !== 'string') {
-        errors.push('version must be a string');
-    } else {
+    if (!('js' in entry) && !('css' in entry)) problems.push(`content_scripts[${index}] needs js or css`);
+    for (const key of ['matches', 'exclude_matches']) {
+        if (!Array.isArray(entry[key])) continue;
+        entry[key].forEach((pattern, n) => {
+            if (typeof pattern === 'string' && !validMatchPattern(pattern)) {
+                problems.push(`content_scripts[${index}].${key}[${n}] "${pattern}" isn't a match pattern (<scheme>://<host><path> or <all_urls>)`);
+            }
+        });
+    }
+    return problems;
+}
+
+/**
+ * The manifest checks, in the order their errors are reported. Each pushes what it finds onto
+ * `errors`; they are independent of one another.
+ */
+const MANIFEST_RULES = [
+    function manifestVersion(manifest, errors) {
+        if (manifest.manifest_version !== 3) errors.push('manifest_version must be 3');
+    },
+    function name(manifest, errors) {
+        if (typeof manifest.name !== 'string' || !manifest.name.trim()) {
+            errors.push('name is required');
+        } else if (manifest.name.length > MAX_NAME_LENGTH) {
+            errors.push(`name is ${manifest.name.length} characters; Chrome allows ${MAX_NAME_LENGTH}`);
+        }
+    },
+    function version(manifest, errors) {
+        if (typeof manifest.version !== 'string') {
+            errors.push('version must be a string');
+            return;
+        }
         const parts = manifest.version.split('.');
         const valid = parts.length <= 4 &&
             parts.every((part) => /^(0|[1-9]\d*)$/.test(part) && Number(part) <= 65535) &&
@@ -170,22 +203,24 @@ export function validateManifest(manifest) {
         if (!valid) {
             errors.push(`version "${manifest.version}" must be 1-4 dot-separated integers 0-65535, no leading zeros, not all zero`);
         }
-    }
-    if ('description' in manifest && typeof manifest.description !== 'string') {
-        errors.push('description must be a string');
-    } else if (typeof manifest.description === 'string' && manifest.description.length > MAX_DESCRIPTION_LENGTH) {
-        errors.push(`description is ${manifest.description.length} characters; the Web Store allows ${MAX_DESCRIPTION_LENGTH}`);
-    }
-    for (const [key, shape] of Object.entries(FIELD_SHAPES)) {
-        if (!(key in manifest)) continue;
-        const value = manifest[key];
-        const ok = shape === 'array' ? Array.isArray(value)
-            : shape === 'string' ? typeof value === 'string'
-                : value !== null && typeof value === 'object' && !Array.isArray(value);
-        if (!ok) errors.push(`${key} must be ${shape === 'array' ? 'an array' : shape === 'string' ? 'a string' : 'an object'}`);
-    }
-    const options = manifest.options_ui;
-    if (options && typeof options === 'object' && !Array.isArray(options)) {
+    },
+    function description(manifest, errors) {
+        if ('description' in manifest && typeof manifest.description !== 'string') {
+            errors.push('description must be a string');
+        } else if (typeof manifest.description === 'string' && manifest.description.length > MAX_DESCRIPTION_LENGTH) {
+            errors.push(`description is ${manifest.description.length} characters; the Web Store allows ${MAX_DESCRIPTION_LENGTH}`);
+        }
+    },
+    function fieldShapes(manifest, errors) {
+        const checks = { array: [Array.isArray, 'an array'], string: [(value) => typeof value === 'string', 'a string'], object: [isPlainObject, 'an object'] };
+        for (const [key, shape] of Object.entries(FIELD_SHAPES)) {
+            const [ok, expected] = checks[shape];
+            if (key in manifest && !ok(manifest[key])) errors.push(`${key} must be ${expected}`);
+        }
+    },
+    function optionsUi(manifest, errors) {
+        const options = manifest.options_ui;
+        if (!isPlainObject(options)) return;
         // Chrome drops a malformed options_ui (an install warning), falling back to options_page if any;
         // a well-formed one may not have chrome_style at all in MV3 (even false).
         const broken = typeof options.page !== 'string' || !options.page.trim() ? 'has no page'
@@ -197,8 +232,9 @@ export function validateManifest(manifest) {
         } else if (broken && !(typeof manifest.options_page === 'string' && manifest.options_page.trim())) {
             errors.push(`options_ui ${broken}, so Chrome ignores it and the extension has no options page`);
         }
-    }
-    if (manifest.manifest_version === 3) {
+    },
+    function mv2Leftovers(manifest, errors) {
+        if (manifest.manifest_version !== 3) return;
         const background = manifest.background && typeof manifest.background === 'object' ? manifest.background : {};
         for (const field of ['scripts', 'page']) {
             if (field in background) errors.push(`background.${field} is MV2-only; MV3 uses background.service_worker`);
@@ -206,8 +242,9 @@ export function validateManifest(manifest) {
         for (const key of ['browser_action', 'page_action']) {
             if (key in manifest) errors.push(`${key} is MV2-only; MV3 uses action`);
         }
-    }
-    if ('key' in manifest) {
+    },
+    function key(manifest, errors) {
+        if (!('key' in manifest)) return;
         // The Web Store's public key: strict base64 of a DER SubjectPublicKeyInfo.
         let validKey = typeof manifest.key === 'string' && manifest.key.length % 4 === 0 && /^[A-Za-z0-9+/]+={0,2}$/.test(manifest.key);
         if (validKey) {
@@ -218,18 +255,20 @@ export function validateManifest(manifest) {
             }
         }
         if (!validKey) errors.push('key must be the base64 public key from the Chrome Web Store dashboard');
-    }
-    const overrides = manifest.chrome_url_overrides;
-    if (overrides && typeof overrides === 'object' && !Array.isArray(overrides)) {
+    },
+    function urlOverrides(manifest, errors) {
+        const overrides = manifest.chrome_url_overrides;
+        if (!isPlainObject(overrides)) return;
         const keys = Object.keys(overrides);
         if (keys.length !== 1 || !['newtab', 'history', 'bookmarks'].includes(keys[0])) {
             errors.push('chrome_url_overrides must override exactly one of newtab, history or bookmarks');
         } else if (typeof overrides[keys[0]] !== 'string' || !overrides[keys[0]].trim()) {
             errors.push(`chrome_url_overrides.${keys[0]} must be the path of the override page`);
         }
-    }
-    const cspField = manifest.content_security_policy;
-    if (cspField && typeof cspField === 'object' && !Array.isArray(cspField)) {
+    },
+    function cspMembers(manifest, errors) {
+        const cspField = manifest.content_security_policy;
+        if (!isPlainObject(cspField)) return;
         for (const [member, value] of Object.entries(cspField)) {
             if (!['extension_pages', 'sandbox'].includes(member)) {
                 errors.push(`content_security_policy.${member} is not an MV3 member (use extension_pages or sandbox)`);
@@ -240,61 +279,48 @@ export function validateManifest(manifest) {
                 errors.push(`content_security_policy.${member} contains a character Chrome rejects (only tab, form feed and printable ASCII other than "," are allowed)`);
             }
         }
-    }
-    if (typeof cspField?.sandbox === 'string') {
+    },
+    function sandboxCsp(manifest, errors) {
+        const policy = manifest.content_security_policy?.sandbox;
+        if (typeof policy !== 'string') return;
         // Chrome requires a custom sandbox policy to keep the sandbox directive, without allow-same-origin.
-        const sandboxDirectives = parseCsp(cspField.sandbox);
+        const sandboxDirectives = parseCsp(policy);
         if (!sandboxDirectives.has('sandbox')) {
             errors.push('content_security_policy.sandbox must include the sandbox directive');
         } else if (sandboxDirectives.get('sandbox').includes('allow-same-origin')) {
             errors.push('content_security_policy.sandbox may not use allow-same-origin');
         }
-    }
-    for (const key of ['permissions', 'optional_permissions', 'host_permissions', 'optional_host_permissions']) {
-        if (key in manifest && !(Array.isArray(manifest[key]) && manifest[key].every((item) => typeof item === 'string' && item))) {
-            errors.push(`${key} must be an array of strings`);
+    },
+    function permissions(manifest, errors) {
+        for (const key of ['permissions', 'optional_permissions', 'host_permissions', 'optional_host_permissions']) {
+            if (key in manifest && !(Array.isArray(manifest[key]) && manifest[key].every((item) => typeof item === 'string' && item))) {
+                errors.push(`${key} must be an array of strings`);
+            }
         }
-    }
-    const dnr = manifest.declarative_net_request;
-    if (dnr && typeof dnr === 'object' && !Array.isArray(dnr)) {
+    },
+    function ruleResources(manifest, errors) {
+        const dnr = manifest.declarative_net_request;
+        if (!isPlainObject(dnr)) return;
         const resources = dnr.rule_resources;
         if (!Array.isArray(resources)) {
             errors.push('declarative_net_request.rule_resources must be an array');
-        } else {
-            const ids = new Set();
-            resources.forEach((resource, index) => {
-                const ok = resource && typeof resource === 'object' && typeof resource.id === 'string' && resource.id &&
-                    typeof resource.enabled === 'boolean' && typeof resource.path === 'string' && resource.path;
-                if (!ok) errors.push(`declarative_net_request.rule_resources[${index}] needs a string id, a boolean enabled and a string path`);
-                else if (ids.has(resource.id)) errors.push(`declarative_net_request.rule_resources[${index}] repeats the ruleset id "${resource.id}"`);
-                else ids.add(resource.id);
-            });
+            return;
         }
-    }
-    if (Array.isArray(manifest.content_scripts)) {
-        const strings = (value) => Array.isArray(value) && value.length > 0 && value.every((item) => typeof item === 'string' && item);
-        manifest.content_scripts.forEach((entry, index) => {
-            if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
-                errors.push(`content_scripts[${index}] must be an object`);
-                return;
-            }
-            if (!strings(entry.matches)) errors.push(`content_scripts[${index}].matches must be a non-empty array of match patterns`);
-            for (const key of ['js', 'css']) {
-                if (key in entry && !strings(entry[key])) errors.push(`content_scripts[${index}].${key} must be a non-empty array of paths`);
-            }
-            if (!('js' in entry) && !('css' in entry)) errors.push(`content_scripts[${index}] needs js or css`);
-            for (const key of ['matches', 'exclude_matches']) {
-                if (!Array.isArray(entry[key])) continue;
-                entry[key].forEach((pattern, n) => {
-                    if (typeof pattern === 'string' && !validMatchPattern(pattern)) {
-                        errors.push(`content_scripts[${index}].${key}[${n}] "${pattern}" isn't a match pattern (<scheme>://<host><path> or <all_urls>)`);
-                    }
-                });
-            }
+        const ids = new Set();
+        resources.forEach((resource, index) => {
+            const ok = resource && typeof resource === 'object' && typeof resource.id === 'string' && resource.id &&
+                typeof resource.enabled === 'boolean' && typeof resource.path === 'string' && resource.path;
+            if (!ok) errors.push(`declarative_net_request.rule_resources[${index}] needs a string id, a boolean enabled and a string path`);
+            else if (ids.has(resource.id)) errors.push(`declarative_net_request.rule_resources[${index}] repeats the ruleset id "${resource.id}"`);
+            else ids.add(resource.id);
         });
-    }
-    const policy = manifest.content_security_policy?.extension_pages;
-    if (manifest.manifest_version === 3 && typeof policy === 'string') {
+    },
+    function contentScripts(manifest, errors) {
+        if (Array.isArray(manifest.content_scripts)) errors.push(...manifest.content_scripts.flatMap(contentScriptProblems));
+    },
+    function extensionPagesCsp(manifest, errors) {
+        const policy = manifest.content_security_policy?.extension_pages;
+        if (manifest.manifest_version !== 3 || typeof policy !== 'string') return;
         // MV3 can't relax extension pages' script/object/worker sources beyond these.
         const directives = parseCsp(policy);
         for (const directive of ['script-src', 'object-src', 'worker-src']) {
@@ -306,22 +332,34 @@ export function validateManifest(manifest) {
                 errors.push(`content_security_policy.extension_pages ${directive} allows ${disallowed.join(' ')}; MV3 only permits 'self', 'none', 'wasm-unsafe-eval' and localhost there`);
             }
         }
-    }
-    if (manifest.manifest_version === 3 && manifest.background && typeof manifest.background === 'object' &&
-        !Array.isArray(manifest.background) && !(typeof manifest.background.service_worker === 'string' && manifest.background.service_worker.trim())) {
-        errors.push('background.service_worker is required in MV3 (a non-empty path)');
-    }
-    if (manifest.background?.service_worker && manifest.background.type !== 'module') {
-        errors.push('background.type must be "module": the packager checks JS files as ES modules');
-    }
-    if ('default_locale' in manifest || /__MSG_\w+__/.test(JSON.stringify(manifest))) {
-        errors.push('default_locale/__MSG_ strings are not supported by the packager yet (_locales/ is not packaged)');
-    }
-    for (const key of Object.keys(manifest)) {
-        if (!(key in PATH_FIELDS) && !NON_PATH_KEYS.has(key)) {
-            errors.push(`manifest key "${key}" is not understood by the packager; add it to PATH_FIELDS or NON_PATH_KEYS in scripts/package-extension.js`);
+    },
+    function serviceWorker(manifest, errors) {
+        if (manifest.manifest_version === 3 && isPlainObject(manifest.background) &&
+            !(typeof manifest.background.service_worker === 'string' && manifest.background.service_worker.trim())) {
+            errors.push('background.service_worker is required in MV3 (a non-empty path)');
+        }
+        if (manifest.background?.service_worker && manifest.background.type !== 'module') {
+            errors.push('background.type must be "module": the packager checks JS files as ES modules');
+        }
+    },
+    function locales(manifest, errors) {
+        if ('default_locale' in manifest || /__MSG_\w+__/.test(JSON.stringify(manifest))) {
+            errors.push('default_locale/__MSG_ strings are not supported by the packager yet (_locales/ is not packaged)');
+        }
+    },
+    function unknownKeys(manifest, errors) {
+        for (const key of Object.keys(manifest)) {
+            if (!(key in PATH_FIELDS) && !NON_PATH_KEYS.has(key)) {
+                errors.push(`manifest key "${key}" is not understood by the packager; add it to PATH_FIELDS or NON_PATH_KEYS in scripts/package-extension.js`);
+            }
         }
     }
+];
+
+/** Checks the manifest fields Chrome and the Web Store validate on upload. */
+export function validateManifest(manifest) {
+    const errors = [];
+    for (const rule of MANIFEST_RULES) rule(manifest, errors);
     return errors;
 }
 
