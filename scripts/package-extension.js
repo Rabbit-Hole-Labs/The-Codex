@@ -620,6 +620,56 @@ const SVG_NS = 'http://www.w3.org/2000/svg';
 /** Elements parse5 keeps inside <select>: its legacy "in select" mode drops all others. */
 const SELECT_KEPT = new Set(['option', 'optgroup', 'hr', 'script', 'template', 'select']);
 
+/** One parse5 element as a scanHtml tag, its source location shifted into the whole document's. */
+function tagRecord(child, parent, context) {
+    const name = child.tagName.toLowerCase(); // parse5 keeps SVG's camelCase names (foreignObject)
+    const location = child.sourceCodeLocation;
+    const attrs = new Map();
+    for (const attr of child.attrs) attrs.set((attr.prefix ? `${attr.prefix}:${attr.name}` : attr.name).toLowerCase(), attr.value);
+    const ns = child.namespaceURI === HTML_NS ? 'html' : child.namespaceURI === SVG_NS ? 'svg' : 'math';
+    return {
+        name,
+        attrs,
+        ns,
+        foreign: ns !== 'html',
+        line: location ? location.startLine + context.lineDelta : context.line,
+        offset: location ? location.startOffset + context.offsetDelta : context.offset,
+        text: child.childNodes.filter((n) => n.nodeName === '#text').map((n) => n.value).join(''),
+        inHead: context.inHead,
+        inTemplate: context.inTemplate,
+        parent: parent.tagName?.toLowerCase() ?? null
+    };
+}
+
+/**
+ * What scanHtml walks below one element: its children (a <template>'s live in its content
+ * fragment), and for a <select> its source parsed again, minus the elements parse5 kept.
+ */
+function childWork(child, tag, context, source, options) {
+    const location = child.sourceCodeLocation;
+    const inner = { ...context, line: tag.line, offset: tag.offset, inHead: context.inHead || tag.name === 'head' };
+    const work = [];
+    if (child.content) {
+        if (!context.skip) work.push({ node: child.content, context: { ...inner, inTemplate: true } });
+    } else {
+        work.push({ node: child, context: inner });
+    }
+    if (tag.name === 'select' && tag.ns === 'html' && location?.startTag && !context.skip) {
+        const start = location.startTag.endOffset;
+        const end = location.endTag?.startOffset ?? location.endOffset;
+        work.push({
+            node: parseFragment(source.slice(start, end), options),
+            context: {
+                ...inner,
+                skip: SELECT_KEPT, // already in the tree (their descendants are not)
+                offsetDelta: context.offsetDelta + start,
+                lineDelta: context.lineDelta + location.startTag.endLine - 1
+            }
+        });
+    }
+    return work;
+}
+
 /**
  * The elements of an HTML document in source order, as parse5 (the HTML
  * Standard's parser, which browsers implement) builds them: character
@@ -642,45 +692,9 @@ export function scanHtml(html, { scripting = true } = {}) {
         const work = [];
         for (const child of node.childNodes ?? []) {
             if (!child.tagName) continue;
-            const name = child.tagName.toLowerCase(); // parse5 keeps SVG's camelCase names (foreignObject)
-            const location = child.sourceCodeLocation;
-            const attrs = new Map();
-            for (const attr of child.attrs) attrs.set((attr.prefix ? `${attr.prefix}:${attr.name}` : attr.name).toLowerCase(), attr.value);
-            const ns = child.namespaceURI === HTML_NS ? 'html' : child.namespaceURI === SVG_NS ? 'svg' : 'math';
-            const line = location ? location.startLine + context.lineDelta : context.line;
-            if (!context.skip?.has(name)) {
-                tags.push({
-                    name,
-                    attrs,
-                    ns,
-                    foreign: ns !== 'html',
-                    line,
-                    offset: location ? location.startOffset + context.offsetDelta : context.offset,
-                    text: child.childNodes.filter((n) => n.nodeName === '#text').map((n) => n.value).join(''),
-                    inHead: context.inHead,
-                    inTemplate: context.inTemplate,
-                    parent: node.tagName?.toLowerCase() ?? null
-                });
-            }
-            const inner = { ...context, line, offset: location ? location.startOffset + context.offsetDelta : context.offset, inHead: context.inHead || name === 'head' };
-            if (child.content) {
-                if (!context.skip) work.push({ node: child.content, context: { ...inner, inTemplate: true } }); // a <template>'s children live in its content fragment
-            } else {
-                work.push({ node: child, context: inner });
-            }
-            if (name === 'select' && ns === 'html' && location?.startTag && !context.skip) {
-                const start = location.startTag.endOffset;
-                const end = location.endTag?.startOffset ?? location.endOffset;
-                work.push({
-                    node: parseFragment(source.slice(start, end), options),
-                    context: {
-                        ...inner,
-                        skip: SELECT_KEPT, // already in the tree (their descendants are not)
-                        offsetDelta: context.offsetDelta + start,
-                        lineDelta: context.lineDelta + location.startTag.endLine - 1
-                    }
-                });
-            }
+            const tag = tagRecord(child, node, context);
+            if (!context.skip?.has(tag.name)) tags.push(tag);
+            work.push(...childWork(child, tag, context, source, options));
         }
         stack.push(...work.reverse());
     }
