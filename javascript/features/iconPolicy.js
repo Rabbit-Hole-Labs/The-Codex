@@ -6,7 +6,7 @@
 
 // Hosts allowed for user-provided custom icons (besides data: URIs). Kept in
 // lockstep with the manifest CSP img-src.
-export const ALLOWED_ICON_HOSTS = ['cdn.jsdelivr.net', 'selfh.st'];
+const ALLOWED_ICON_HOSTS = ['cdn.jsdelivr.net', 'selfh.st'];
 
 /**
  * Validates an icon value before it is persisted on a link. This is the single
@@ -21,6 +21,17 @@ export const ALLOWED_ICON_HOSTS = ['cdn.jsdelivr.net', 'selfh.st'];
  *   valid:true with the normalized value to store ('default' for empty), or
  *   valid:false with a user-facing reason.
  */
+/**
+ * Whether a parsed URL is https on an allowed icon host (or a subdomain of one).
+ * @param {URL} url
+ * @returns {boolean}
+ */
+export function isAllowedIconUrl(url) {
+    const host = url.hostname.toLowerCase();
+    return url.protocol === 'https:' &&
+        ALLOWED_ICON_HOSTS.some(h => host === h || host.endsWith('.' + h));
+}
+
 export function validateIconValue(value) {
     const trimmed = String(value ?? '').trim();
 
@@ -42,10 +53,8 @@ export function validateIconValue(value) {
         return { valid: false, reason: 'Icon must be a full https:// URL or a data: image URI.' };
     }
 
-    const host = url.hostname.toLowerCase();
-    const hostAllowed = url.protocol === 'https:' &&
-        ALLOWED_ICON_HOSTS.some(h => host === h || host.endsWith('.' + h));
-    if (!hostAllowed) {
+    if (!isAllowedIconUrl(url)) {
+        const host = url.hostname.toLowerCase();
         return {
             valid: false,
             reason: `Icons can only load from selfh.st or jsDelivr — "${host}" would be blocked by the extension's security policy. Use the Icon picker, or paste a data: image URI.`

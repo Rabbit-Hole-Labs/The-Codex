@@ -1,5 +1,5 @@
 // Data Verification and Inspection Utility
-import { escapeHtml } from './utils.js';
+import { escapeHtml, downloadJsonFile } from './utils.js';
 import { syncGet } from '../core-systems/syncStorage.js';
 
 class DataVerification {
@@ -656,17 +656,7 @@ ${crossVal.warnings.map(warn => `• ${escapeHtml(warn)}`).join('\n')}
     exportCurrentData() {
         const content = document.getElementById('data-content');
         if (content) {
-            const dataStr = content.textContent;
-            const blob = new Blob([dataStr], { type: 'application/json' });
-            const url = URL.createObjectURL(blob);
-
-            const link = document.createElement('a');
-            link.href = url;
-            link.download = `codex-data-${Date.now()}.json`;
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-            URL.revokeObjectURL(url);
+            downloadJsonFile(content.textContent, `codex-data-${Date.now()}.json`);
         }
     }
 

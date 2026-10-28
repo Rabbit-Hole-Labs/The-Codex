@@ -8,6 +8,7 @@ import {
     SYNC_CLEARED_AT_KEY, SYNC_RESOLVED_AT_KEY, STORED_SETTING_DEFAULTS
 } from './storageFormat.js';
 import { syncGet, syncGetChecked, syncSet, readSyncLinks, isLinkStorageKey, linksChanged } from './syncStorage.js';
+import { downloadJsonFile } from '../features/utils.js';
 
 // Confirm-dialog text for the destructive manual sync actions, shared by the
 // new-tab pill and the manage page's Sync tab so both describe the same thing.
@@ -963,15 +964,7 @@ export class SyncManager {
     // can't be started; a cancelled or blocked one can't be detected.
     downloadBackupFile(backup) {
         try {
-            const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = `the-codex-backup-${new Date().toISOString().slice(0, 10)}.json`;
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            URL.revokeObjectURL(url);
+            downloadJsonFile(JSON.stringify(backup, null, 2), `the-codex-backup-${new Date().toISOString().slice(0, 10)}.json`);
             return true;
         } catch (error) {
             debugWarn('Could not download the backup file:', error);
@@ -1011,26 +1004,6 @@ export class SyncManager {
             ]);
         } catch (error) {
             debugWarn('Failed to clear pending-sync markers:', error);
-        }
-    }
-
-    // Resolve conflicts between local and remote data
-    async resolveConflict(localData, syncData, metadata, strategy) {
-        debug(`Resolving conflict with strategy: ${strategy}`);
-
-        switch (strategy) {
-            case 'local':
-                // Local data wins
-                return localData;
-
-            case 'remote':
-                // Remote data wins
-                return syncData;
-
-            case 'merge':
-            default:
-                // Merge both datasets
-                return this.mergeData(localData, syncData, metadata);
         }
     }
 

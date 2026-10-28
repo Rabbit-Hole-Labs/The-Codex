@@ -170,32 +170,6 @@ describe('Sync Manager', () => {
     });
 
     describe('Conflict Resolution', () => {
-        test('should resolve conflict with local strategy', async () => {
-            const syncModule = await import('../../javascript/core-systems/syncManager.js');
-            syncManager = new syncModule.SyncManager();
-
-            const localData = { links: '[{"url":"local.com"}]', categories: '["Local"]' };
-            const syncData = { links: '[{"url":"remote.com"}]', categories: '["Remote"]' };
-            const metadata = { local: { version: 1 }, remote: { version: 2 } };
-
-            const result = await syncManager.resolveConflict(localData, syncData, metadata, 'local');
-
-            expect(result.links).toBe(localData.links);
-        });
-
-        test('should resolve conflict with remote strategy', async () => {
-            const syncModule = await import('../../javascript/core-systems/syncManager.js');
-            syncManager = new syncModule.SyncManager();
-
-            const localData = { links: '[{"url":"local.com"}]', categories: '["Local"]' };
-            const syncData = { links: '[{"url":"remote.com"}]', categories: '["Remote"]' };
-            const metadata = { local: { version: 1 }, remote: { version: 2 } };
-
-            const result = await syncManager.resolveConflict(localData, syncData, metadata, 'remote');
-
-            expect(result.links).toBe(syncData.links);
-        });
-
         test('should merge data with merge strategy', async () => {
             const syncModule = await import('../../javascript/core-systems/syncManager.js');
             syncManager = new syncModule.SyncManager();

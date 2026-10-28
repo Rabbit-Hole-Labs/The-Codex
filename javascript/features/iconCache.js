@@ -5,7 +5,7 @@
 
 import { debug } from '../core-systems/debug.js';
 import { loadStoredIcon } from './iconStore.js';
-import { ALLOWED_ICON_HOSTS, validateDataUrl, validateIconValue } from './iconPolicy.js';
+import { isAllowedIconUrl, validateDataUrl, validateIconValue } from './iconPolicy.js';
 import {
     GENERATED_SOURCE, iconCacheKey, rememberIconSource,
     resolveCachedIcons as resolveRememberedIcons
@@ -179,11 +179,8 @@ async function loadCustomIcon(iconUrl, timeout) {
         // Arbitrary external hosts are rejected so the CSP can drop the
         // img-src wildcard; users wanting a bespoke icon can paste a data: URI.
         const url = new URL(trimmed);
-        const host = url.hostname.toLowerCase();
-        const hostAllowed = url.protocol === 'https:' &&
-            ALLOWED_ICON_HOSTS.some(h => host === h || host.endsWith('.' + h));
-        if (!hostAllowed) {
-            console.warn('Custom icon rejected — only data: URIs and selfh.st/jsDelivr URLs are allowed:', host);
+        if (!isAllowedIconUrl(url)) {
+            console.warn('Custom icon rejected — only data: URIs and selfh.st/jsDelivr URLs are allowed:', url.hostname.toLowerCase());
             return null;
         }
 
@@ -397,7 +394,7 @@ function createSVGIcon(initials, backgroundColor) {
  * @param {string} text - Text to generate initials from
  * @returns {string} - Generated initials
  */
-function generateInitials(text) {
+export function generateInitials(text) {
     if (!text || !text.trim()) return '?';
 
     const words = text.trim().split(/\s+/);

@@ -224,10 +224,8 @@ input::placeholder, textarea::placeholder {
 }
 
 /* Flat buttons (no shimmer sheen, no lift). .btn-danger is unused. */
-.btn-primary {
-  background: var(--primary-color) !important;
-  color: white !important;
-  border: 1px solid var(--primary-color) !important;
+.btn-primary,
+.btn-secondary {
   padding: 6px 13px;
   border-radius: 7px;
   cursor: pointer;
@@ -238,6 +236,12 @@ input::placeholder, textarea::placeholder {
   align-items: center;
   justify-content: center;
   gap: var(--space-2);
+}
+
+.btn-primary {
+  background: var(--primary-color) !important;
+  color: white !important;
+  border: 1px solid var(--primary-color) !important;
 }
 
 .btn-primary:hover {
@@ -249,16 +253,6 @@ input::placeholder, textarea::placeholder {
   background: var(--surface-elevated) !important;
   color: var(--on-surface) !important;
   border: 1px solid var(--border-color) !important;
-  padding: 6px 13px;
-  border-radius: 7px;
-  cursor: pointer;
-  font-weight: 550;
-  font-size: 13px;
-  transition: background 0.15s ease, border-color 0.15s ease;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: var(--space-2);
 }
 
 .btn-secondary:hover {

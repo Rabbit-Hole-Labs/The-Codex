@@ -9,7 +9,7 @@ import { getState, addStateChangeListener, safeUpdateState } from '../core-syste
 import { getPerformanceMetrics, resetPerformanceMetrics } from '../features/domOptimizer.js';
 import { createCategorySection, renderNoResults } from '../core-systems/tileRenderer.js';
 import { handleError, safeAsync, registerErrorHandler } from '../features/errorHandler.js';
-import { loadIconWithCache, getCacheStats, resolveCachedIcons, refreshCachedIcon } from '../features/iconCache.js';
+import { loadIconWithCache, getCacheStats, resolveCachedIcons, refreshCachedIcon, generateInitials } from '../features/iconCache.js';
 import { syncStatusIndicator } from '../features/syncStatusIndicator.js';
 import '../features/consoleCommands.js';
 import { debug } from '../core-systems/debug.js';
@@ -862,37 +862,9 @@ function handleDrop(e) {
         const dropCategory = this.dataset.category;
         const dropIndex = parseInt(this.dataset.linkIndex);
 
-        // Remove the dragged link from its original position
-        const draggedLinkIndex = currentState.links.findIndex(link =>
-            link === currentState.draggedLink
-        );
-
-        // Also try finding by name and url as fallback (in case reference was lost)
-        const fallbackIndex = draggedLinkIndex === -1 ?
-            currentState.links.findIndex(link =>
-                link.name === currentState.draggedLink?.name &&
-                link.url === currentState.draggedLink?.url
-            ) : draggedLinkIndex;
-
-        const finalIndex = fallbackIndex !== -1 ? fallbackIndex : draggedLinkIndex;
-
-        if (finalIndex !== -1) {
-            // Create new links array with the link moved
-            const newLinks = [...currentState.links];
-            const [removedLink] = newLinks.splice(finalIndex, 1);
-
-            // Update the category if moving between categories
-            const updatedLink = { ...removedLink, category: dropCategory };
-
-            // Find the target position in the global links array
-            const targetIndex = findGlobalIndexForCategoryPosition(dropCategory, dropIndex);
-
-            // Insert the link at the new position
-            newLinks.splice(targetIndex, 0, updatedLink);
-
-            // Update state, re-render, and save the move onto stored links
-            persistDrop(newLinks, removedLink, updatedLink);
-        }
+        // Insert at the drop tile's position in the global links array
+        moveDraggedLink(currentState, dropCategory,
+            () => findGlobalIndexForCategoryPosition(dropCategory, dropIndex));
     }
 
     return false;
@@ -961,6 +933,33 @@ function handleGridDragLeave(e) {
     }
 }
 
+// Index of the dragged link in state.links: by reference first, then by
+// name and url (reference equality fails due to deep cloning in getState).
+// -1 when it isn't there.
+function findDraggedLinkIndex(currentState) {
+    const byReference = currentState.links.findIndex(link => link === currentState.draggedLink);
+    if (byReference !== -1) return byReference;
+    return currentState.links.findIndex(link =>
+        link.name === currentState.draggedLink?.name &&
+        link.url === currentState.draggedLink?.url
+    );
+}
+
+// Move the dragged link into dropCategory: remove it from its position, set
+// its category, and insert it at insertIndexFor(linksWithoutIt). Then update
+// state, re-render, and save the move onto stored links. No-op when the
+// dragged link isn't in state.links.
+function moveDraggedLink(currentState, dropCategory, insertIndexFor) {
+    const finalIndex = findDraggedLinkIndex(currentState);
+    if (finalIndex === -1) return;
+
+    const newLinks = [...currentState.links];
+    const [removedLink] = newLinks.splice(finalIndex, 1);
+    const updatedLink = { ...removedLink, category: dropCategory };
+    newLinks.splice(insertIndexFor(newLinks), 0, updatedLink);
+    persistDrop(newLinks, removedLink, updatedLink);
+}
+
 function handleGridDrop(e) {
     if (e.stopPropagation) {
         e.stopPropagation();
@@ -970,29 +969,8 @@ function handleGridDrop(e) {
     if (currentState.isDragging && currentState.draggedLink) {
         const dropCategory = this.dataset.category;
 
-        // Find link by reference first, then by name/url as fallback
-        const draggedLinkIndex = currentState.links.findIndex(link =>
-            link === currentState.draggedLink
-        );
-
-        // Fallback: find by name and url (reference equality fails due to deep cloning in getState)
-        const fallbackIndex = draggedLinkIndex === -1 ?
-            currentState.links.findIndex(link =>
-                link.name === currentState.draggedLink?.name &&
-                link.url === currentState.draggedLink?.url
-            ) : draggedLinkIndex;
-
-        const finalIndex = fallbackIndex !== -1 ? fallbackIndex : draggedLinkIndex;
-
-        if (finalIndex !== -1) {
-            // Create new links array with the link moved
-            const newLinks = [...currentState.links];
-            const [removedLink] = newLinks.splice(finalIndex, 1);
-
-            // Update the category
-            const updatedLink = { ...removedLink, category: dropCategory };
-
-            // Find where to insert in the target category (at the end)
+        // Insert at the end of the target category
+        moveDraggedLink(currentState, dropCategory, newLinks => {
             let insertIndex = newLinks.length;
             for (let i = newLinks.length - 1; i >= 0; i--) {
                 if (newLinks[i].category === dropCategory) {
@@ -1000,13 +978,8 @@ function handleGridDrop(e) {
                     break;
                 }
             }
-
-            // Insert the link at the end of the target category
-            newLinks.splice(insertIndex, 0, updatedLink);
-
-            // Update state, re-render, and save the move onto stored links
-            persistDrop(newLinks, removedLink, updatedLink);
-        }
+            return insertIndex;
+        });
     }
 
     // Remove drag classes
@@ -1443,20 +1416,4 @@ async function loadTileIcon(link, iconElement, cached) {
         console.warn(`Failed to load icon for ${link.name}:`, error);
         if (!cached) showIconPlaceholder(iconElement, link);
     }
-}
-
-/**
- * Generates initials from text for fallback icons
- * @param {string} text - Text to generate initials from
- * @returns {string} - Generated initials
- */
-function generateInitials(text) {
-    if (!text || !text.trim()) return '?';
-
-    const words = text.trim().split(/\s+/);
-    if (words.length === 1) {
-        return words[0].substring(0, 2).toUpperCase();
-    }
-
-    return words.slice(0, 2).map(word => word[0]).join('').toUpperCase();
 }

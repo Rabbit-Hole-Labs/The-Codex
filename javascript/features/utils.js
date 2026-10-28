@@ -145,3 +145,20 @@ export function extractDomain(url) {
         return '';
     }
 }
+/**
+ * Offers a JSON string as a downloaded file through a blob URL and a
+ * temporary <a download> click. Throws if the download can't be started;
+ * a cancelled or blocked download can't be detected.
+ * @param {string} json - File contents
+ * @param {string} filename - Suggested file name
+ */
+export function downloadJsonFile(json, filename) {
+    const url = URL.createObjectURL(new Blob([json], { type: 'application/json' }));
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+}
