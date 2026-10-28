@@ -18,15 +18,11 @@
  */
 
 import { debug } from '../core-systems/debug.js';
-import { saveLinks } from '../core-systems/storageManager.js';
-import { readSyncLinks } from '../core-systems/syncStorage.js';
-import { parseStoredArray, pendingSyncKey } from '../core-systems/storageFormat.js';
-import { withStorageLock } from '../core-systems/storageLock.js';
+import { updateSyncedLinks } from '../core-systems/storageManager.js';
+import { pendingSyncKey } from '../core-systems/storageFormat.js';
 import { validateIconValue } from './iconPolicy.js';
 
 const FLUSH_DELAY_MS = 2000; // one save for a page of tiles
-// Two new tabs flushing at once read and write the links one after the other.
-const AUTO_ICONS_LOCK = 'codex-auto-icons';
 
 let pending = new Map(); // link id -> { name, url, icon }
 let flushTimer = null;
@@ -62,26 +58,27 @@ export async function flushAutoIcons() {
     pending = new Map();
     if (matches.size === 0) return 0;
     try {
-        return await withStorageLock(AUTO_ICONS_LOCK, async () => {
+        // Read, changed and written with no other save from this browser in
+        // between (updateSyncedLinks), so the older list read here can never
+        // overwrite an edit; two new tabs flush one after the other. An edit
+        // queued behind the flush is saved after it, from the page's own list:
+        // it wins, and a match it drops is queued again by a later new tab.
+        let changed = 0;
+        const saved = await updateSyncedLinks(async (links) => {
             const markerKey = pendingSyncKey('links');
             const { [markerKey]: marker } = await chrome.storage.local.get(markerKey);
-            if (marker) return 0;
-            const { value, consistent } = await readSyncLinks();
-            const links = consistent ? parseStoredArray(value) : null;
-            if (!links) return 0;
-
-            let changed = 0;
+            if (marker) return null;
             const updated = links.map(link => {
                 const match = link && matches.get(link.id);
                 if (!match || link.name !== match.name || link.url !== match.url || !hasAutomaticIcon(link)) return link;
                 changed++;
                 return { ...link, icon: match.icon };
             });
-            if (changed === 0) return 0;
-            if (!await saveLinks(updated, { fallback: false })) return 0;
-            debug(`Saved ${changed} automatic icon match(es) to their links`);
-            return changed;
+            return changed > 0 ? updated : null;
         });
+        if (!saved) return 0;
+        debug(`Saved ${changed} automatic icon match(es) to their links`);
+        return changed;
     } catch (error) {
         debug('Could not save automatic icon matches:', error);
         return 0;

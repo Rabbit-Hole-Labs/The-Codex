@@ -115,6 +115,38 @@ describe('automatic icon matches are saved to their links', () => {
         expect(fake.dump('local')['pendingSyncSince.links']).toBeUndefined();
     });
 
+    test('an edit saved while the flush is between its read and its write is not overwritten', async () => {
+        const { saveLinks } = await import('../../javascript/core-systems/storageManager.js');
+        seedCloud([link('Sonarr'), link('Radarr')]);
+        // The flush reads the links, then is held before it writes.
+        const realGet = chrome.storage.sync.get;
+        let release;
+        const held = new Promise((resolve) => { release = resolve; });
+        let reached;
+        const reading = new Promise((resolve) => { reached = resolve; });
+        chrome.storage.sync.get = jest.fn(async (keys) => {
+            chrome.storage.sync.get = realGet;
+            const read = await realGet(keys);
+            reached();
+            await held;
+            return read;
+        });
+        auto.queueAutoIcon(link('Sonarr'), iconUrl('sonarr'));
+        const flushing = auto.flushAutoIcons();
+        await reading;
+
+        // The user picks Sonarr's icon and deletes Radarr meanwhile.
+        const picked = 'https://cdn.jsdelivr.net/gh/selfhst/icons/svg/sonarr-light.svg';
+        const editing = saveLinks([link('Sonarr', { icon: picked })]);
+        // Unguarded, the edit completes here; guarded, it waits for the flush.
+        await Promise.race([editing, new Promise((resolve) => setTimeout(resolve, 50))]);
+        release();
+        await flushing;
+        await editing;
+
+        expect(cloudLinks()).toEqual([link('Sonarr', { icon: picked })]);
+    });
+
     test('a match for a link that already has a picked icon is not queued', () => {
         expect(auto.hasAutomaticIcon(link('A', { icon: iconUrl('a') }))).toBe(false);
         expect(auto.hasAutomaticIcon(link('A', { icon: 'default' }))).toBe(true);

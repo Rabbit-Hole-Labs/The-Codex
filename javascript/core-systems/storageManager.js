@@ -5,9 +5,9 @@ import { validateAndSanitizeUrl, downloadJsonFile } from '../features/utils.js';
 import { sanitizeUserInput } from '../features/securityUtils.js';
 import { validateIconValue } from '../features/iconCache.js';
 import { debug, debugWarn, debugError } from './debug.js';
-import { pendingSyncKey, cloudValueFingerprint, SYNC_CLEARED_AT_KEY, coerceSettings, backfillLinkIds, SETTING_ENUMS } from './storageFormat.js';
-import { withPendingSyncLock } from './storageLock.js';
-import { syncGet, syncSet } from './syncStorage.js';
+import { pendingSyncKey, cloudValueFingerprint, SYNC_CLEARED_AT_KEY, coerceSettings, backfillLinkIds, SETTING_ENUMS, parseStoredArray } from './storageFormat.js';
+import { withPendingSyncLock, withLinksWriteLock } from './storageLock.js';
+import { syncGet, syncSet, readSyncLinks } from './syncStorage.js';
 const { ERROR_TYPES, ERROR_SEVERITY } = errorHandler;
 
 // The cloud values a save is based on, read BEFORE its sync write: if that
@@ -251,7 +251,29 @@ export async function loadLinks() {
  * @param {{ fallback?: boolean }} [options]
  * @returns {Promise<boolean>} whether the links were saved
  */
-export async function saveLinks(links, { fallback = true } = {}) {
+export function saveLinks(links, options) {
+    return withLinksWriteLock(() => writeLinks(links, options));
+}
+
+/**
+ * Change the synced links in one step: read them, let `transform` return the
+ * new list (or null for no change), and save it — with no other save from
+ * this browser in between. Never falls back to local storage.
+ * @param {(links: Object[]) => (Object[]|null|Promise<Object[]|null>)} transform
+ * @returns {Promise<boolean>} whether a changed list was saved
+ */
+export function updateSyncedLinks(transform) {
+    return withLinksWriteLock(async () => {
+        const { value, consistent } = await readSyncLinks();
+        const links = consistent ? parseStoredArray(value) : null;
+        if (!links) return false;
+        const updated = await transform(links);
+        return updated ? writeLinks(updated, { fallback: false }) : false;
+    });
+}
+
+// saveLinks without the links-write lock (its callers hold it).
+async function writeLinks(links, { fallback = true } = {}) {
     try {
         // Validate links is an array before saving
         if (!Array.isArray(links)) {
