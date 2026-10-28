@@ -1813,6 +1813,102 @@ export function extractRefs(file, text, { classic = false, csp = null, scripting
     return result;
 }
 
+// declarativeNetRequest ------------------------------------------------------------
+
+const RULE_ACTIONS = new Set(['block', 'redirect', 'allow', 'upgradeScheme', 'modifyHeaders', 'allowAllRequests']);
+
+/** Checks of a redirect action by the field Chrome uses: the first of url, extensionPath, transform and regexSubstitution present. */
+const REDIRECT_CHECKS = {
+    url: (redirect) => {
+        let scheme = null;
+        try {
+            scheme = new URL(redirect.url).protocol;
+        } catch {
+            // reported below
+        }
+        return !scheme || scheme === 'javascript:' ? ['action.redirect.url must be a valid URL other than javascript:'] : [];
+    },
+    extensionPath: (redirect, rule, packaged) => {
+        if (!(typeof redirect.extensionPath === 'string' && redirect.extensionPath.startsWith('/'))) {
+            return ['action.redirect.extensionPath must be a path starting with "/"'];
+        }
+        const target = resolveRef('manifest.json', redirect.extensionPath);
+        return target && !packaged.has(target) ? [`action.redirect.extensionPath ${redirect.extensionPath} is not in the package`] : [];
+    },
+    transform: () => [],
+    regexSubstitution: (redirect, rule) => {
+        if (typeof redirect.regexSubstitution !== 'string' || !redirect.regexSubstitution) return ['action.redirect.regexSubstitution must be a non-empty string'];
+        return typeof rule.condition?.regexFilter !== 'string' ? ['action.redirect.regexSubstitution needs condition.regexFilter'] : [];
+    }
+};
+
+/** Why Chrome rejects one modifyHeaders entry: an HTTP token for the name; no CR, LF or NUL in a value (as Chrome checks them). */
+const headerProblem = (info) => {
+    const operation = info?.operation;
+    if (!info || typeof info.header !== 'string' || !/^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/.test(info.header) || !['append', 'set', 'remove'].includes(operation)) {
+        return 'needs a valid header name and an operation of append, set or remove';
+    }
+    if (operation === 'remove' ? 'value' in info : typeof info.value !== 'string') {
+        return operation === 'remove' ? "can't have a value with remove" : `needs a string value with ${operation}`;
+    }
+    return typeof info.value === 'string' && /[\r\n\0]/.test(info.value) ? 'has a value with CR, LF or NUL' : null;
+};
+
+/** The fields each action type needs (Chrome drops a static rule without them). */
+const RULE_ACTION_CHECKS = {
+    redirect: (rule, action, packaged) => {
+        const redirect = action.redirect && typeof action.redirect === 'object' ? action.redirect : null;
+        const field = redirect && Object.keys(REDIRECT_CHECKS).find((key) => key in redirect);
+        if (!field) return ['a redirect action needs action.redirect with url, extensionPath, transform or regexSubstitution'];
+        return REDIRECT_CHECKS[field](redirect, rule, packaged);
+    },
+    modifyHeaders: (rule, action) => {
+        const lists = ['requestHeaders', 'responseHeaders'].filter((key) => key in action);
+        const problems = lists.length ? [] : ['a modifyHeaders action needs requestHeaders or responseHeaders'];
+        for (const key of lists) {
+            if (!Array.isArray(action[key]) || !action[key].length) {
+                problems.push(`action.${key} must be a non-empty list`);
+                continue;
+            }
+            action[key].forEach((info, n) => {
+                const problem = headerProblem(info);
+                if (problem) problems.push(`action.${key}[${n}] ${problem}`);
+            });
+        }
+        return problems;
+    },
+    allowAllRequests: (rule) => {
+        const types = rule.condition?.resourceTypes;
+        return !Array.isArray(types) || !types.length || types.some((type) => type !== 'main_frame' && type !== 'sub_frame')
+            ? ['an allowAllRequests action needs condition.resourceTypes of main_frame and/or sub_frame only'] : [];
+    }
+};
+
+/**
+ * Why Chrome would drop one static rule (none when it is valid): unique positive integer ids
+ * (tracked in `ruleIds`), an action with a known type and what that type needs, a condition object.
+ */
+function ruleProblems(rule, ruleIds, packaged) {
+    if (!isPlainObject(rule)) return ['must be an object'];
+    const action = rule.action && typeof rule.action === 'object' ? rule.action : {};
+    const actionCheck = typeof action.type === 'string' && Object.hasOwn(RULE_ACTION_CHECKS, action.type) ? RULE_ACTION_CHECKS[action.type] : () => [];
+    return [
+        ruleIdProblem(rule.id, ruleIds),
+        'priority' in rule && (!Number.isInteger(rule.priority) || rule.priority < 1) ? 'priority must be a positive integer' : null,
+        !rule.action || typeof rule.action !== 'object' || !RULE_ACTIONS.has(rule.action.type) ? `action.type must be one of ${[...RULE_ACTIONS].join(', ')}` : null,
+        !isPlainObject(rule.condition) ? 'condition must be an object' : null,
+        ...actionCheck(rule, action, packaged)
+    ].filter(Boolean);
+}
+
+/** Why a rule id is refused: not a positive integer, or already used in the ruleset (ids so far in `ruleIds`). */
+function ruleIdProblem(id, ruleIds) {
+    if (!Number.isInteger(id) || id < 1) return 'id must be a positive integer';
+    if (ruleIds.has(id)) return `duplicate id ${id}`;
+    ruleIds.add(id);
+    return null;
+}
+
 /**
  * Checks every reference made by the manifest and every packaged page, module
  * and stylesheet. Returns errors for references that are not in the package,
@@ -2190,7 +2286,6 @@ export function checkReferences(root, files, manifest) {
     // Static declarativeNetRequest rulesets: Chrome silently ignores invalid rules in a packed
     // extension, so check each file's shape (JSON array of rules with unique positive integer
     // ids, an action with a known type and a condition object).
-    const RULE_ACTIONS = new Set(['block', 'redirect', 'allow', 'upgradeScheme', 'modifyHeaders', 'allowAllRequests']);
     for (const resource of Array.isArray(manifest.declarative_net_request?.rule_resources) ? manifest.declarative_net_request.rule_resources : []) {
         if (typeof resource?.path !== 'string') continue;
         const path = posix.normalize(resource.path.replace(/^\//, ''));
@@ -2207,70 +2302,7 @@ export function checkReferences(root, files, manifest) {
             continue;
         }
         const ruleIds = new Set();
-        rules.forEach((rule, index) => {
-            const where = `${path} rule ${index}`;
-            if (!rule || typeof rule !== 'object' || Array.isArray(rule)) return errors.push(`${where}: must be an object`);
-            if (!Number.isInteger(rule.id) || rule.id < 1) errors.push(`${where}: id must be a positive integer`);
-            else if (ruleIds.has(rule.id)) errors.push(`${where}: duplicate id ${rule.id}`);
-            else ruleIds.add(rule.id);
-            if ('priority' in rule && (!Number.isInteger(rule.priority) || rule.priority < 1)) errors.push(`${where}: priority must be a positive integer`);
-            if (!rule.action || typeof rule.action !== 'object' || !RULE_ACTIONS.has(rule.action.type)) errors.push(`${where}: action.type must be one of ${[...RULE_ACTIONS].join(', ')}`);
-            if (!rule.condition || typeof rule.condition !== 'object' || Array.isArray(rule.condition)) errors.push(`${where}: condition must be an object`);
-            // The fields each action type needs (Chrome drops a static rule without them).
-            const action = rule.action && typeof rule.action === 'object' ? rule.action : {};
-            if (action.type === 'redirect') {
-                // Chrome uses the first of url, extensionPath, transform and regexSubstitution present.
-                const redirect = action.redirect && typeof action.redirect === 'object' ? action.redirect : null;
-                const field = redirect && ['url', 'extensionPath', 'transform', 'regexSubstitution'].find((key) => key in redirect);
-                if (!field) {
-                    errors.push(`${where}: a redirect action needs action.redirect with url, extensionPath, transform or regexSubstitution`);
-                } else if (field === 'url') {
-                    let scheme = null;
-                    try {
-                        scheme = new URL(redirect.url).protocol;
-                    } catch {
-                        // reported below
-                    }
-                    if (!scheme || scheme === 'javascript:') errors.push(`${where}: action.redirect.url must be a valid URL other than javascript:`);
-                } else if (field === 'extensionPath') {
-                    if (!(typeof redirect.extensionPath === 'string' && redirect.extensionPath.startsWith('/'))) {
-                        errors.push(`${where}: action.redirect.extensionPath must be a path starting with "/"`);
-                    } else {
-                        const target = resolveRef('manifest.json', redirect.extensionPath);
-                        if (target && !packaged.has(target)) errors.push(`${where}: action.redirect.extensionPath ${redirect.extensionPath} is not in the package`);
-                    }
-                } else if (field === 'regexSubstitution') {
-                    if (typeof redirect.regexSubstitution !== 'string' || !redirect.regexSubstitution) errors.push(`${where}: action.redirect.regexSubstitution must be a non-empty string`);
-                    else if (typeof rule.condition?.regexFilter !== 'string') errors.push(`${where}: action.redirect.regexSubstitution needs condition.regexFilter`);
-                }
-            } else if (action.type === 'modifyHeaders') {
-                const lists = ['requestHeaders', 'responseHeaders'].filter((key) => key in action);
-                if (!lists.length) errors.push(`${where}: a modifyHeaders action needs requestHeaders or responseHeaders`);
-                for (const key of lists) {
-                    if (!Array.isArray(action[key]) || !action[key].length) {
-                        errors.push(`${where}: action.${key} must be a non-empty list`);
-                        continue;
-                    }
-                    action[key].forEach((info, n) => {
-                        const operation = info?.operation;
-                        // An HTTP token for the name; no CR, LF or NUL in a value (as Chrome checks them).
-                        if (!info || typeof info.header !== 'string' || !/^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/.test(info.header) || !['append', 'set', 'remove'].includes(operation)) {
-                            errors.push(`${where}: action.${key}[${n}] needs a valid header name and an operation of append, set or remove`);
-                        } else if (operation === 'remove' ? 'value' in info : typeof info.value !== 'string') {
-                            errors.push(`${where}: action.${key}[${n}] ${operation === 'remove' ? "can't have a value with remove" : `needs a string value with ${operation}`}`);
-                        } else if (typeof info.value === 'string' && /[\r\n\0]/.test(info.value)) {
-                            errors.push(`${where}: action.${key}[${n}] has a value with CR, LF or NUL`);
-                        }
-                    });
-                }
-            } else if (action.type === 'allowAllRequests') {
-                const types = rule.condition?.resourceTypes;
-                if (!Array.isArray(types) || !types.length || types.some((type) => type !== 'main_frame' && type !== 'sub_frame')) {
-                    errors.push(`${where}: an allowAllRequests action needs condition.resourceTypes of main_frame and/or sub_frame only`);
-                }
-            }
-            return undefined;
-        });
+        rules.forEach((rule, index) => errors.push(...ruleProblems(rule, ruleIds, packaged).map((problem) => `${path} rule ${index}: ${problem}`)));
     }
     // Extension service workers don't support import(); check the worker's whole module graph.
     const worker = typeof manifest.background?.service_worker === 'string'
