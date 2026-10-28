@@ -1909,6 +1909,88 @@ function ruleIdProblem(id, ruleIds) {
     return null;
 }
 
+// Reference check ------------------------------------------------------------------
+
+/**
+ * The CSPs the extension's pages run under. sandbox.pages entries are paths, or patterns where
+ * '*' matches anything: those pages get the sandbox CSP, every other page extension_pages.
+ * policiesAt gives a page's policies at one point: its own CSP plus the <meta> CSPs in effect
+ * there (and the MV3 minimum CSP on non-sandbox pages).
+ */
+function pagePolicies(manifest) {
+    const policy = manifest.content_security_policy?.extension_pages;
+    const csp = withMinimumCsp(parseCsp(typeof policy === 'string' ? policy : DEFAULT_MV3_CSP));
+    const sandboxPolicy = manifest.content_security_policy?.sandbox;
+    const sandboxCsp = parseCsp(typeof sandboxPolicy === 'string' ? sandboxPolicy : DEFAULT_SANDBOX_CSP);
+    const sandboxEntries = (Array.isArray(manifest.sandbox?.pages) ? manifest.sandbox.pages : [])
+        .filter((page) => typeof page === 'string')
+        .map((page) => posix.normalize(page.replace(/^\//, '')));
+    const sandboxPatterns = sandboxEntries.map((page) => new RegExp(`^${page.split('*').map((part) => part.replace(/[.+?^${}()|[\]\\]/g, '\\$&')).join('.*')}$`));
+    const isSandboxPage = (file) => sandboxPatterns.some((pattern) => pattern.test(file));
+    const cspFor = (file) => (isSandboxPage(file) ? sandboxCsp : csp);
+    const policyNameFor = (file) => (isSandboxPage(file) ? 'sandbox CSP' : 'manifest CSP');
+    const minimum = manifest.manifest_version === 3 ? [[parseCsp(MINIMUM_MV3_CSP), "MV3 minimum CSP (script-src 'self')"]] : [];
+    const policiesAt = (page, metas) => [[cspFor(page), policyNameFor(page)], ...(isSandboxPage(page) ? [] : minimum),
+        ...metas.map((meta) => [parseMetaCsp(meta), `<meta> CSP in ${page}`])];
+    // Scripting is on in sandbox pages unless their CSP's sandbox directive omits allow-scripts.
+    const scriptingFor = (file) => !isSandboxPage(file) || !sandboxCsp.has('sandbox') || sandboxCsp.get('sandbox').includes('allow-scripts');
+    return { csp, sandboxEntries, sandboxPatterns, isSandboxPage, cspFor, minimum, policiesAt, scriptingFor };
+}
+
+/** Scripts that run as classic scripts: those the pages load without type="module", and content scripts. */
+function classicScriptFiles(pageResults, manifest) {
+    const classic = new Set([...pageResults.values()].flatMap((page) => page.classicScripts));
+    if (Array.isArray(manifest.content_scripts)) {
+        for (const script of manifest.content_scripts) {
+            for (const js of Array.isArray(script?.js) ? script.js : []) {
+                if (typeof js === 'string') classic.add(posix.normalize(js.replace(/^\//, '')));
+            }
+        }
+    }
+    return classic;
+}
+
+/** Every file reachable from `roots` along `edges`, the roots included. */
+function reachableFrom(edges, roots) {
+    const seen = new Set(roots);
+    const queue = [...roots];
+    while (queue.length) {
+        for (const next of edges.get(queue.shift()) || []) {
+            if (!seen.has(next)) {
+                seen.add(next);
+                queue.push(next);
+            }
+        }
+    }
+    return seen;
+}
+
+/** Whether a page's inline script (an element, a javascript: navigation or an on* handler) may run under `policy`. */
+const inlineScriptAllowed = (policy, item) => (item.kind === 'script'
+    ? inlineAllowed(policy, 'script-src', item)
+    // A javascript: navigation is checked like a script element that needs 'unsafe-hashes' for a hash.
+    : item.kind === 'navigation' ? inlineAllowed(policy, 'script-src', { text: item.text, attribute: true })
+        : inlineAllowed(policy, 'script-src-attr', { text: item.text, attribute: true }));
+
+/** Whether a page's inline style (a <style> block or a style attribute) applies under `policy`. */
+const inlineStyleAllowed = (policy, item) => (item.kind === 'block'
+    ? inlineAllowed(policy, 'style-src', item)
+    : inlineAllowed(policy, 'style-src-attr', { text: item.text, attribute: true }));
+
+/** Why a page's import map leaves a bare specifier unresolved (`found` is its result, if any). */
+const unmappedReason = (page, map, found) => (!map ? `${page} has no import map`
+    : found ? `the import map of ${page} blocks it` : `the import map of ${page} doesn't map it`);
+
+/** Whether `policy` blocks a load in a context whose module graph inherits `nonces`. */
+const loadBlocked = (policy, load, nonces, extensionId) => !loadAllowed(policy, load, extensionId) &&
+    // An import inherits the nonce of the script that roots its module graph.
+    !(load.directive === 'script-src' && !load.parserInserted && nonces.some((nonce) => loadAllowed(policy, { ...load, nonce }, extensionId)));
+
+/** What a blocked load's message names: the directive, or why a markup <script> fails 'strict-dynamic'. */
+const blockedReason = (policy, load) => (load.directive === 'script-src' && load.parserInserted && sourcesFor(policy, 'script-src')?.includes("'strict-dynamic'")
+    ? "script-src has 'strict-dynamic', so a <script> in the markup needs a matching nonce"
+    : load.url ? load.directive : `${load.directive} doesn't allow 'self'`);
+
 /**
  * Checks every reference made by the manifest and every packaged page, module
  * and stylesheet. Returns errors for references that are not in the package,
@@ -1920,25 +2002,7 @@ export function checkReferences(root, files, manifest) {
     const errors = [];
     const edges = new Map([['manifest.json', []]]);
     const usesDynamicImport = new Set();
-    const policy = manifest.content_security_policy?.extension_pages;
-    const csp = withMinimumCsp(parseCsp(typeof policy === 'string' ? policy : DEFAULT_MV3_CSP));
-    const sandboxPolicy = manifest.content_security_policy?.sandbox;
-    const sandboxCsp = parseCsp(typeof sandboxPolicy === 'string' ? sandboxPolicy : DEFAULT_SANDBOX_CSP);
-    // sandbox.pages entries are paths, or patterns where '*' matches anything.
-    const sandboxEntries = (Array.isArray(manifest.sandbox?.pages) ? manifest.sandbox.pages : [])
-        .filter((page) => typeof page === 'string')
-        .map((page) => posix.normalize(page.replace(/^\//, '')));
-    const sandboxPatterns = sandboxEntries.map((page) => new RegExp(`^${page.split('*').map((part) => part.replace(/[.+?^${}()|[\]\\]/g, '\\$&')).join('.*')}$`));
-    const isSandboxPage = (file) => sandboxPatterns.some((pattern) => pattern.test(file));
-    // Sandboxed pages get their own CSP; every other page runs under extension_pages.
-    const cspFor = (file) => (isSandboxPage(file) ? sandboxCsp : csp);
-    const policyNameFor = (file) => (isSandboxPage(file) ? 'sandbox CSP' : 'manifest CSP');
-    // A page's policies at one point: its own CSP plus the <meta> CSPs in effect there.
-    const minimum = manifest.manifest_version === 3 ? [[parseCsp(MINIMUM_MV3_CSP), "MV3 minimum CSP (script-src 'self')"]] : [];
-    const policiesAt = (page, metas) => [[cspFor(page), policyNameFor(page)], ...(isSandboxPage(page) ? [] : minimum),
-        ...metas.map((meta) => [parseMetaCsp(meta), `<meta> CSP in ${page}`])];
-    // Scripting is on in sandbox pages unless their CSP's sandbox directive omits allow-scripts.
-    const scriptingFor = (file) => !isSandboxPage(file) || !sandboxCsp.has('sandbox') || sandboxCsp.get('sandbox').includes('allow-scripts');
+    const { csp, sandboxEntries, sandboxPatterns, isSandboxPage, cspFor, minimum, policiesAt, scriptingFor } = pagePolicies(manifest);
     const isPage = (file) => /\.html?$/i.test(file);
     const extensionId = extensionIdFromKey(manifest.key);
     const read = (file) => readFileSync(join(root, file), 'utf8');
@@ -1953,20 +2017,17 @@ export function checkReferences(root, files, manifest) {
         if (!extensionId || placeholders.some((placeholder) => placeholder !== '__MSG_@@extension_id__')) return null;
         return Buffer.from(latin1.replaceAll('__MSG_@@extension_id__', extensionId), 'latin1');
     };
+    const servedIntegrityProblem = (path, integrity) => {
+        const bytes = servedBytes(path);
+        return bytes ? integrityProblem(integrity, bytes) : "can't be pinned: Chrome fills in the file's locale-dependent __MSG_ placeholders";
+    };
 
     // Pages first: they decide which scripts run as classic scripts.
     const results = new Map();
     for (const file of files.filter(isPage)) {
         results.set(file, extractRefs(file, read(file), { csp: cspFor(file), scripting: scriptingFor(file), extensionId }));
     }
-    const classic = new Set([...results.values()].flatMap((page) => page.classicScripts));
-    if (Array.isArray(manifest.content_scripts)) {
-        for (const script of manifest.content_scripts) {
-            for (const js of Array.isArray(script?.js) ? script.js : []) {
-                if (typeof js === 'string') classic.add(posix.normalize(js.replace(/^\//, '')));
-            }
-        }
-    }
+    const classic = classicScriptFiles(results, manifest);
 
     const note = (from, ref) => {
         if (packaged.has(ref)) {
@@ -1975,27 +2036,51 @@ export function checkReferences(root, files, manifest) {
             errors.push(`${from} references ${ref}, which is not in the package`);
         }
     };
-    let refs = [];
-    try {
-        refs = manifestRefs(manifest);
-    } catch (error) {
-        errors.push(error.message);
-    }
-    for (const ref of refs) {
-        // Chrome reads manifest paths literally: no URL decoding or ?/# handling.
-        note('manifest.json', posix.normalize(ref.startsWith('/') ? ref.slice(1) : ref));
-    }
-    sandboxEntries.forEach((entry, index) => {
-        if (entry.includes('*') && !files.some((file) => sandboxPatterns[index].test(file))) {
-            errors.push(`manifest.json sandbox page pattern "${entry}" matches no packaged file`);
+    // The manifest's own paths (and sandbox page patterns that match nothing).
+    const manifestPaths = () => {
+        let refs = [];
+        try {
+            refs = manifestRefs(manifest);
+        } catch (error) {
+            errors.push(error.message);
         }
-    });
+        for (const ref of refs) {
+            // Chrome reads manifest paths literally: no URL decoding or ?/# handling.
+            note('manifest.json', posix.normalize(ref.startsWith('/') ? ref.slice(1) : ref));
+        }
+        sandboxEntries.forEach((entry, index) => {
+            if (entry.includes('*') && !files.some((file) => sandboxPatterns[index].test(file))) {
+                errors.push(`manifest.json sandbox page pattern "${entry}" matches no packaged file`);
+            }
+        });
+        return refs;
+    };
+    const refs = manifestPaths();
     // Files only never-run scripts name (nomodule, or scripting off): Chrome never fetches or
     // compiles them, so neither does this, unless something that runs imports them.
     const liveScripts = new Set([...classic, ...refs.map((ref) => posix.normalize(ref.replace(/^\//, ''))),
         ...[...results.values()].flatMap((page) => page.uses.filter((load) => load.directive === 'script-src' && !load.hint).map((load) => load.path))]);
     const inertNamed = new Set([...results.values()].flatMap((page) => page.inertScripts));
     const inertOnly = new Set([...inertNamed].filter((file) => !liveScripts.has(file)));
+    const checkIntegrity = (file, result) => {
+        for (const { path, integrity, line } of result.integrity) {
+            if (!packaged.has(path)) continue; // reported as missing above
+            const problem = servedIntegrityProblem(path, integrity);
+            if (problem) errors.push(`${file} line ${line}: integrity="${integrity}" for ${path} ${problem}`);
+        }
+    };
+    const checkInline = (file, result) => {
+        for (const item of result.inline) {
+            const blocked = policiesAt(file, item.policies).find(([pagePolicy]) => !inlineScriptAllowed(pagePolicy, item));
+            if (blocked) {
+                errors.push(`${file} ${item.desc}: the ${blocked[1]} blocks inline script (MV3 extension pages never run it); move it to a file`);
+            }
+        }
+        const blockedStyle = result.inlineStyles.map((item) => policiesAt(file, item.policies).find(([pagePolicy]) => !inlineStyleAllowed(pagePolicy, item))).find(Boolean);
+        if (blockedStyle) {
+            errors.push(`${file} uses inline styles (style= or <style>), which the ${blockedStyle[1]} blocks: style-src has no 'unsafe-inline'`);
+        }
+    };
     const processFile = (file) => {
         edges.set(file, []);
         let result = results.get(file);
@@ -2010,30 +2095,9 @@ export function checkReferences(root, files, manifest) {
         errors.push(...result.errors);
         if (result.dynamicImports > 0) usesDynamicImport.add(file);
         for (const ref of result.refs) note(file, ref);
-        for (const { path, integrity, line } of result.integrity) {
-            if (!packaged.has(path)) continue; // reported as missing above
-            const bytes = servedBytes(path);
-            const problem = bytes ? integrityProblem(integrity, bytes) : "can't be pinned: Chrome fills in the file's locale-dependent __MSG_ placeholders";
-            if (problem) errors.push(`${file} line ${line}: integrity="${integrity}" for ${path} ${problem}`);
-        }
+        checkIntegrity(file, result);
         results.set(file, result);
-        if (!isPage(file)) return;
-        for (const item of result.inline) {
-            // A javascript: navigation is checked like a script element that needs 'unsafe-hashes' for a hash.
-            const blocked = policiesAt(file, item.policies).find(([pagePolicy]) => !(item.kind === 'script'
-                ? inlineAllowed(pagePolicy, 'script-src', item)
-                : item.kind === 'navigation' ? inlineAllowed(pagePolicy, 'script-src', { text: item.text, attribute: true })
-                    : inlineAllowed(pagePolicy, 'script-src-attr', { text: item.text, attribute: true })));
-            if (blocked) {
-                errors.push(`${file} ${item.desc}: the ${blocked[1]} blocks inline script (MV3 extension pages never run it); move it to a file`);
-            }
-        }
-        const blockedStyle = result.inlineStyles.map((item) => policiesAt(file, item.policies).find(([pagePolicy]) => (item.kind === 'block'
-            ? !inlineAllowed(pagePolicy, 'style-src', item)
-            : !inlineAllowed(pagePolicy, 'style-src-attr', { text: item.text, attribute: true })))).find(Boolean);
-        if (blockedStyle) {
-            errors.push(`${file} uses inline styles (style= or <style>), which the ${blockedStyle[1]} blocks: style-src has no 'unsafe-inline'`);
-        }
+        if (isPage(file)) checkInline(file, result);
     };
     for (const file of files) {
         if (/\.(html?|m?js|css)$/i.test(file) && !inertOnly.has(file)) processFile(file);
@@ -2075,54 +2139,58 @@ export function checkReferences(root, files, manifest) {
         }
     };
     const workerFile = typeof manifest.background?.service_worker === 'string' ? posix.normalize(manifest.background.service_worker.replace(/^\//, '')) : null;
+    // One bare specifier `file` imports, through `page`'s import map: true when it adds an edge.
+    const resolveBare = (page, map, file, bare) => {
+        const fileResult = results.get(file);
+        const found = map ? resolveThroughImportMap(map, bare.specifier, bare.referrer) : null;
+        if (!found || found.blocked) {
+            errors.push(`${bare.label}: bare module specifier "${bare.specifier}" cannot be loaded by an unbundled extension (${unmappedReason(page, map, found)})`);
+            return false;
+        }
+        const load = { directive: moduleDirective(bare.type), policies: bare.policies, nonce: bare.nonce, parserInserted: false, cors: true, module: true, sandboxed: bare.sandboxed };
+        const local = urlToPath(found.url);
+        if (!local) {
+            if (/^(https?|data|blob):/i.test(found.url)) fileResult.external.push({ url: found.url, ...load });
+            else errors.push(`${bare.label}: "${bare.specifier}" maps to ${found.url} in ${page}, which Chrome can't import`);
+            return false;
+        }
+        const problem = !moduleFileOk(bare.type, local) ? `Chrome's module loader rejects (not ${bare.type ? `a ${bare.type} module` : 'JavaScript'})`
+            : !packaged.has(local) ? 'is not in the package' : null;
+        if (problem) {
+            errors.push(`${bare.label}: "${bare.specifier}" maps to ${local} in ${page}, which ${problem}`);
+            return false;
+        }
+        fileResult.uses.push({ path: local, ...load });
+        if ((edges.get(file) || []).includes(local)) return false;
+        edges.get(file)?.push(local);
+        return true;
+    };
+    // The bare imports of the files in a page's module graph, each resolved once per page.
     const resolvedBare = new Set();
-    for (let changed = true; changed;) {
-        changed = false;
+    const unresolvedBareImports = (page) => [...reachFrom([page])]
+        .flatMap((file) => (results.get(file)?.bareImports ?? []).map((bare) => ({ file, bare })))
+        .filter(({ file, bare }) => {
+            const key = `${page}\n${file}\n${bare.specifier}`;
+            return !resolvedBare.has(key) && resolvedBare.add(key);
+        });
+    // One pass over every page; true when it added an edge (a new import to follow).
+    const resolveBarePass = () => {
+        let changed = false;
         for (const page of pages) {
             const map = results.get(page).importMap;
-            for (const file of reachFrom([page])) {
-                const fileResult = results.get(file);
-                for (const bare of fileResult?.bareImports ?? []) {
-                    const key = `${page}\n${file}\n${bare.specifier}`;
-                    if (resolvedBare.has(key)) continue;
-                    resolvedBare.add(key);
-                    const found = map ? resolveThroughImportMap(map, bare.specifier, bare.referrer) : null;
-                    if (!found || found.blocked) {
-                        errors.push(`${bare.label}: bare module specifier "${bare.specifier}" cannot be loaded by an unbundled extension (${!map ? `${page} has no import map`
-                            : found ? `the import map of ${page} blocks it` : `the import map of ${page} doesn't map it`})`);
-                        continue;
-                    }
-                    const directive = bare.type === 'json' ? 'connect-src' : bare.type === 'css' ? 'style-src' : 'script-src';
-                    const load = { directive, policies: bare.policies, nonce: bare.nonce, parserInserted: false, cors: true, module: true, sandboxed: bare.sandboxed };
-                    const local = urlToPath(found.url);
-                    if (!local) {
-                        if (/^(https?|data|blob):/i.test(found.url)) fileResult.external.push({ url: found.url, ...load });
-                        else errors.push(`${bare.label}: "${bare.specifier}" maps to ${found.url} in ${page}, which Chrome can't import`);
-                        continue;
-                    }
-                    const expected = bare.type === 'json' ? /\.json$/i : bare.type === 'css' ? /\.css$/i : /\.m?js$/i;
-                    if (!expected.test(local)) {
-                        errors.push(`${bare.label}: "${bare.specifier}" maps to ${local} in ${page}, which Chrome's module loader rejects (not ${bare.type ? `a ${bare.type} module` : 'JavaScript'})`);
-                    } else if (!packaged.has(local)) {
-                        errors.push(`${bare.label}: "${bare.specifier}" maps to ${local} in ${page}, which is not in the package`);
-                    } else {
-                        fileResult.uses.push({ path: local, ...load });
-                        if (!(edges.get(file) || []).includes(local)) {
-                            edges.get(file)?.push(local);
-                            changed = true;
-                        }
-                    }
-                }
+            for (const { file, bare } of unresolvedBareImports(page)) {
+                if (resolveBare(page, map, file, bare)) changed = true;
             }
         }
-    }
+        return changed;
+    };
+    while (resolveBarePass());
     const pageReached = new Set(pages.flatMap((page) => [...reachFrom([page])]));
     const workerGraph = workerFile && edges.has(workerFile) ? reachFrom([workerFile]) : new Set();
     for (const [file, fileResult] of results) {
-        if (!fileResult.bareImports?.length) continue;
         const where = workerGraph.has(file) ? 'the service worker has no import map' : !pageReached.has(file) ? 'no page loads this module' : null;
-        if (where) {
-            for (const bare of fileResult.bareImports) errors.push(`${bare.label}: bare module specifier "${bare.specifier}" cannot be loaded by an unbundled extension (${where})`);
+        for (const bare of where ? fileResult.bareImports ?? [] : []) {
+            errors.push(`${bare.label}: bare module specifier "${bare.specifier}" cannot be loaded by an unbundled extension (${where})`);
         }
     }
     const documents = new Map(); // page -> { normal, opaque, inert, all }
@@ -2140,28 +2208,25 @@ export function checkReferences(root, files, manifest) {
         }
         return documents.get(page);
     };
-    for (const page of pages) {
-        const result = results.get(page);
-        const { normal } = documentOf(page);
-        // Every load in this document, with the file that makes it (a page's own carry their order).
-        const loads = [...normal].flatMap((file) => (results.get(file)?.uses ?? []).map((load) => ({ ...load, from: file })));
-        // A preload's integrity applies where the page then uses the preloaded response: a later
-        // script or stylesheet of that URL with the same CORS mode and no integrity of its own, an
-        // import, or a font.
+    // A preload's integrity applies where the page then uses the preloaded response: a later
+    // script or stylesheet of that URL with the same CORS mode and no integrity of its own, an
+    // import, or a font.
+    const checkPreloads = (page, result, loads) => {
         for (const preload of result.preloads) {
             const consumed = loads.some((load) => load.path === preload.path && !load.hint &&
                 (load.from !== page || load.order == null || load.order > preload.order) && (preload.as === 'font'
                 ? load.directive === 'font-src' && preload.cors
                 : load.directive === (preload.as === 'script' ? 'script-src' : 'style-src') && Boolean(load.cors) === preload.cors && !load.ownIntegrity));
             if (!consumed || !packaged.has(preload.path)) continue;
-            const bytes = servedBytes(preload.path);
-            const problem = bytes ? integrityProblem(preload.integrity, bytes) : "can't be pinned: Chrome fills in the file's locale-dependent __MSG_ placeholders";
+            const problem = servedIntegrityProblem(preload.path, preload.integrity);
             if (problem) errors.push(`${page} line ${preload.line}: preload integrity="${preload.integrity}" for ${preload.path} ${problem}`);
         }
-        // An import map's integrity entry applies to module fetches of that URL with no integrity
-        // attribute of their own: module scripts, modulepreloads and imports (not classic scripts).
-        // A module script or modulepreload with its own integrity attribute fetches the URL once for
-        // the page's module map, so the map's entry for it is never used.
+    };
+    // An import map's integrity entry applies to module fetches of that URL with no integrity
+    // attribute of their own: module scripts, modulepreloads and imports (not classic scripts).
+    // A module script or modulepreload with its own integrity attribute fetches the URL once for
+    // the page's module map, so the map's entry for it is never used.
+    const checkMapIntegrity = (page, result, loads) => {
         const moduleFetched = new Set(loads.filter((load) => load.module && !load.mapAddress).map((load) => load.path));
         const ownIntegrity = new Set(result.uses.filter((load) => load.module && load.integrityAttr).map((load) => load.path));
         for (const entry of result.mapIntegrity) {
@@ -2169,6 +2234,14 @@ export function checkReferences(root, files, manifest) {
             const problem = integrityProblem(entry.integrity, readFileSync(join(root, entry.path)));
             if (problem) errors.push(`${page} line ${entry.line}: import map integrity "${entry.integrity}" for ${entry.path} ${problem}`);
         }
+    };
+    for (const page of pages) {
+        const result = results.get(page);
+        const { normal } = documentOf(page);
+        // Every load in this document, with the file that makes it (a page's own carry their order).
+        const loads = [...normal].flatMap((file) => (results.get(file)?.uses ?? []).map((load) => ({ ...load, from: file })));
+        checkPreloads(page, result, loads);
+        checkMapIntegrity(page, result, loads);
     }
     // url()s in custom properties resolve where var() finally substitutes the property, following
     // chains (--b: var(--a)), within one document: a page with the stylesheets it loads, or a
@@ -2179,23 +2252,37 @@ export function checkReferences(root, files, manifest) {
     // is its own document: the stylesheets it links plus its inline styles (resolved at the page).
     const member = (file) => ({ file, ...results.get(file) });
     const cssSheets = (roots) => [...reachFrom(roots)].filter((file) => /\.css$/i.test(file));
+    const pageCssDocuments = (page) => {
+        const result = results.get(page);
+        const fromSrcdoc = new Set(result.srcdocRefs.map((ref) => ref.path));
+        const pageRoots = (edges.get(page) || []).filter((path) => !isPage(path) && !(fromSrcdoc.has(path) &&
+            (edges.get(page) || []).filter((ref) => ref === path).length <= result.srcdocRefs.filter((ref) => ref.path === path).length));
+        return [
+            [member(page), ...cssSheets(pageRoots).map(member)],
+            ...result.srcdocs.map((srcdoc) => [
+                { file: page, varUses: srcdoc.varUses, varChains: srcdoc.varChains, registeredUrls: srcdoc.registeredUrls, customRefs: [] },
+                ...cssSheets(result.srcdocRefs.filter((ref) => ref.id === srcdoc.id).map((ref) => ref.path)).map(member)
+            ])
+        ];
+    };
     const cssDocuments = [
-        ...pages.flatMap((page) => {
-            const result = results.get(page);
-            const fromSrcdoc = new Set(result.srcdocRefs.map((ref) => ref.path));
-            const pageRoots = (edges.get(page) || []).filter((path) => !isPage(path) && !(fromSrcdoc.has(path) &&
-                (edges.get(page) || []).filter((ref) => ref === path).length <= result.srcdocRefs.filter((ref) => ref.path === path).length));
-            return [
-                [member(page), ...cssSheets(pageRoots).map(member)],
-                ...result.srcdocs.map((srcdoc) => [
-                    { file: page, varUses: srcdoc.varUses, varChains: srcdoc.varChains, registeredUrls: srcdoc.registeredUrls, customRefs: [] },
-                    ...cssSheets(result.srcdocRefs.filter((ref) => ref.id === srcdoc.id).map((ref) => ref.path)).map(member)
-                ])
-            ];
-        }),
+        ...pages.flatMap(pageCssDocuments),
         ...files.filter((file) => /\.css$/i.test(file) && results.has(file) && !reachedSheets.has(file)).map((file) => [member(file)])
     ];
-    for (const members of cssDocuments) {
+    // One custom url() from `file`, resolved at `site` (a file that reads its property).
+    const resolveCustomRef = (file, ref, site) => {
+        const siteResult = results.get(site);
+        const base = siteResult.documentBase;
+        const located = base?.externalBase ? locator(site, extensionId).locate(ref.url, base) : { local: resolveRef(base ? posix.join(base.localDir, '_') : site, ref.url) };
+        const where = site === file ? `${file}: url(${ref.url}) in ${ref.name}` : `${site} uses ${ref.name} from ${file}: url(${ref.url})`;
+        if (located.local) {
+            if (!packaged.has(located.local)) errors.push(`${where} resolves to ${located.local}, which is not in the package`);
+            else edges.get(site)?.push(located.local);
+        } else if (located.external) {
+            siteResult.external.push({ url: located.external, directive: ref.directive, policies: siteResult.policies, nonce: null, parserInserted: false });
+        }
+    };
+    const resolveCustomRefs = (members) => {
         // @property registrations count only within their own document.
         const registeredUrls = new Set(members.flatMap((entry) => entry.registeredUrls ?? []));
         const readersOf = (property, seen = new Set()) => {
@@ -2209,21 +2296,12 @@ export function checkReferences(root, files, manifest) {
         };
         for (const { file, customRefs = [] } of members) {
             for (const ref of customRefs) {
-                for (const site of registeredUrls.has(ref.name) ? [file] : readersOf(ref.name)) {
-                    const siteResult = results.get(site);
-                    const base = siteResult.documentBase;
-                    const located = base?.externalBase ? locator(site, extensionId).locate(ref.url, base) : { local: resolveRef(base ? posix.join(base.localDir, '_') : site, ref.url) };
-                    const where = site === file ? `${file}: url(${ref.url}) in ${ref.name}` : `${site} uses ${ref.name} from ${file}: url(${ref.url})`;
-                    if (located.local) {
-                        if (!packaged.has(located.local)) errors.push(`${where} resolves to ${located.local}, which is not in the package`);
-                        else edges.get(site)?.push(located.local);
-                    } else if (located.external) {
-                        siteResult.external.push({ url: located.external, directive: ref.directive, policies: siteResult.policies, nonce: null, parserInserted: false });
-                    }
-                }
+                const sites = registeredUrls.has(ref.name) ? [file] : readersOf(ref.name);
+                sites.forEach((site) => resolveCustomRef(file, ref, site));
             }
         }
-    }
+    };
+    cssDocuments.forEach(resolveCustomRefs);
     // Each file's loads are checked under the policies of every page context that reaches it.
     // A page's own loads: its CSP plus the <meta> CSPs in effect where each appears. The
     // stylesheets and modules a page loads: its CSP plus all its <meta> CSPs (they load after
@@ -2233,7 +2311,7 @@ export function checkReferences(root, files, manifest) {
     // extension_pages. A module graph inherits the nonce of the script element (or import) that
     // roots it.
     const contexts = new Map(); // file -> Map(page -> { policies, nonces, sandbox })
-    for (const page of pages) {
+    const addPageContexts = (page) => {
         const result = results.get(page);
         const { normal, opaque, inert } = documentOf(page);
         const policies = policiesAt(page, result.policies);
@@ -2259,80 +2337,58 @@ export function checkReferences(root, files, manifest) {
                 contexts.get(file)?.set(`${page}#${srcdoc.id}`, { policies: policiesAt(page, srcdoc.policies), nonces: [], sandbox: isSandboxPage(page) || srcdoc.opaque });
             }
         }
-    }
+    };
+    pages.forEach(addPageContexts);
     const extensionContext = { policies: [[csp, 'manifest CSP'], ...minimum], nonces: [], sandbox: false };
-    for (const [file, result] of results) {
-        for (const load of [...result.external, ...result.uses]) {
-            if (load.url && !/^(https?|wss?|data|blob|chrome-extension):/i.test(load.url)) continue;
-            const pageContexts = isPage(file)
-                ? [{ policies: policiesAt(file, load.policies), nonces: [], sandbox: isSandboxPage(file) }]
-                : [...(contexts.get(file)?.values() ?? [extensionContext])];
-            // Chrome exempts chrome-extension: URLs from CSP, except scripts on (non-sandbox,
-            // non-opaque) extension pages.
-            const extensionUrl = load.path !== undefined || /^chrome-extension:/i.test(load.url);
-            for (const context of pageContexts) {
-                if (extensionUrl && (load.directive !== 'script-src' || context.sandbox || load.sandboxed)) continue;
-                const blocked = context.policies.find(([loadPolicy]) => !loadAllowed(loadPolicy, load, extensionId) &&
-                    // An import inherits the nonce of the script that roots its module graph.
-                    !(load.directive === 'script-src' && !load.parserInserted && context.nonces.some((nonce) => loadAllowed(loadPolicy, { ...load, nonce }, extensionId))));
-                if (!blocked) continue;
-                const reason = load.directive === 'script-src' && load.parserInserted && sourcesFor(blocked[0], 'script-src')?.includes("'strict-dynamic'")
-                    ? "script-src has 'strict-dynamic', so a <script> in the markup needs a matching nonce"
-                    : load.url ? load.directive : `${load.directive} doesn't allow 'self'`;
-                errors.push(`${file} loads ${load.url ?? load.path}, which the ${blocked[1]} blocks (${reason})`);
-            }
+    // One load by `file`, under each page context that reaches it.
+    const checkLoad = (file, load) => {
+        if (load.url && !/^(https?|wss?|data|blob|chrome-extension):/i.test(load.url)) return;
+        const pageContexts = isPage(file)
+            ? [{ policies: policiesAt(file, load.policies), nonces: [], sandbox: isSandboxPage(file) }]
+            : [...(contexts.get(file)?.values() ?? [extensionContext])];
+        // Chrome exempts chrome-extension: URLs from CSP, except scripts on (non-sandbox,
+        // non-opaque) extension pages.
+        const extensionUrl = load.path !== undefined || /^chrome-extension:/i.test(load.url);
+        for (const context of pageContexts) {
+            if (extensionUrl && (load.directive !== 'script-src' || context.sandbox || load.sandboxed)) continue;
+            const blocked = context.policies.find(([loadPolicy]) => loadBlocked(loadPolicy, load, context.nonces, extensionId));
+            if (blocked) errors.push(`${file} loads ${load.url ?? load.path}, which the ${blocked[1]} blocks (${blockedReason(blocked[0], load)})`);
         }
+    };
+    for (const [file, result] of results) {
+        for (const load of [...result.external, ...result.uses]) checkLoad(file, load);
     }
     // Static declarativeNetRequest rulesets: Chrome silently ignores invalid rules in a packed
     // extension, so check each file's shape (JSON array of rules with unique positive integer
     // ids, an action with a known type and a condition object).
-    for (const resource of Array.isArray(manifest.declarative_net_request?.rule_resources) ? manifest.declarative_net_request.rule_resources : []) {
-        if (typeof resource?.path !== 'string') continue;
-        const path = posix.normalize(resource.path.replace(/^\//, ''));
-        if (!packaged.has(path)) continue; // reported as a missing reference above
+    const checkRuleset = (path) => {
         let rules;
         try {
             rules = JSON.parse(read(path));
         } catch (error) {
             errors.push(`${path}: declarativeNetRequest ruleset is not valid JSON (${error.message})`);
-            continue;
+            return;
         }
         if (!Array.isArray(rules)) {
             errors.push(`${path}: declarativeNetRequest ruleset must be a JSON array of rules`);
-            continue;
+            return;
         }
         const ruleIds = new Set();
         rules.forEach((rule, index) => errors.push(...ruleProblems(rule, ruleIds, packaged).map((problem) => `${path} rule ${index}: ${problem}`)));
+    };
+    const rulesets = Array.isArray(manifest.declarative_net_request?.rule_resources) ? manifest.declarative_net_request.rule_resources : [];
+    for (const resource of rulesets) {
+        if (typeof resource?.path !== 'string') continue;
+        const path = posix.normalize(resource.path.replace(/^\//, ''));
+        if (packaged.has(path)) checkRuleset(path); // a missing one is reported as a missing reference above
     }
     // Extension service workers don't support import(); check the worker's whole module graph.
-    const worker = typeof manifest.background?.service_worker === 'string'
-        ? posix.normalize(manifest.background.service_worker.replace(/^\//, ''))
-        : null;
-    if (worker && edges.has(worker)) {
-        const graph = new Set([worker]);
-        const pending = [worker];
-        while (pending.length) {
-            for (const next of edges.get(pending.shift()) || []) {
-                if (!graph.has(next)) {
-                    graph.add(next);
-                    pending.push(next);
-                }
-            }
-        }
-        for (const file of [...graph].filter((f) => usesDynamicImport.has(f)).sort()) {
-            errors.push(`${file} uses import(), which the extension service worker (${worker}) can't run; use a static import`);
+    if (workerFile && edges.has(workerFile)) {
+        for (const file of [...reachableFrom(edges, [workerFile])].filter((f) => usesDynamicImport.has(f)).sort()) {
+            errors.push(`${file} uses import(), which the extension service worker (${workerFile}) can't run; use a static import`);
         }
     }
-    const reached = new Set(['manifest.json']);
-    const queue = ['manifest.json'];
-    while (queue.length) {
-        for (const next of edges.get(queue.shift()) || []) {
-            if (!reached.has(next)) {
-                reached.add(next);
-                queue.push(next);
-            }
-        }
-    }
+    const reached = reachableFrom(edges, ['manifest.json']);
     const warnings = files.filter((file) => !reached.has(file) && !inertNamed.has(file)).map((file) => `${file} is packaged but nothing references it`);
     return { errors: [...new Set(errors)], warnings };
 }
