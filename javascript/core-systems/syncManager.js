@@ -689,133 +689,9 @@ export class SyncManager {
         this.notifyListeners('syncStart', { time: Date.now() });
 
         try {
-            debug('Starting sync operation...');
-
-            // Validate Chrome storage availability
-            if (!chrome.storage || !chrome.storage.local || !chrome.storage.sync) {
-                throw new Error('Chrome storage API not available');
-            }
-
-            // Read both storages. Abort if either fails: without knowing what
-            // the cloud holds, any write could wipe it.
-            let inputs;
-            try {
-                inputs = await this.readSyncInputs();
-            } catch (readError) {
-                debugError('Failed to read storage for sync:', readError);
-                this.reportSyncError(readError, readError.area === 'local'
-                    ? {
-                        type: 'local_storage_error',
-                        message: 'Failed to read local storage data.',
-                        details: readError.message
-                    }
-                    : syncStorageErrorEvent(readError.message));
-                throw readError;
-            }
-            const { metadata } = inputs;
-
-            // Determine sync strategy (this device's saved choice)
-            const strategy = forceStrategy || await this.getConflictResolutionStrategy();
-            const resolution = this.resolveSyncData(inputs, { forceStrategy, strategy });
-            const resolvedData = resolution.data;
-
-            // Validate resolved data before saving with enhanced error handling
-            const validationResult = this.validateSyncData(resolvedData);
-            if (!validationResult.valid) {
-                const validationError = new Error(`Data validation failed: ${validationResult.errors.join(', ')}`);
-                debugError('Sync data validation failed:', {
-                    errors: validationResult.errors,
-                    data: resolvedData
-                });
-                this.reportSyncError(validationError, {
-                    type: 'validation_error',
-                    message: 'Sync data validation failed',
-                    details: validationResult.errors,
-                    recommendation: 'Please check your data and try again. If the problem persists, contact support.'
-                });
-                throw validationError;
-            }
-
-            // Nothing changes until the cloud has accepted this sync. Local
-            // entries the cloud lacks that are dropped without being uploaded are
-            // downloaded first (no backup, no replacement). Then the changed
-            // fields and the new version go to sync in ONE write, which Chrome
-            // applies all-or-nothing: a rejected write (quota, rate limit) leaves
-            // both areas as they were. Only then is this device's copy updated.
-            const parkedSetAside = resolution.setAside
-                ? await this.prepareSetAside(resolution.setAside, inputs, resolvedData)
-                : null;
-
-            // A Force pull from a cloud that holds only settings changes no
-            // lists and records no sync (no new version on either side): a
-            // never-synced device then still merges its lists on its next sync.
-            const now = Date.now();
-            const newMetadata = resolution.keepLocalLists
-                ? null
-                : { version: now, lastModified: now, deviceId: inputs.local.deviceId ?? newDeviceId() };
-            if (newMetadata || resolution.syncItems) {
-                const cloudResult = await this.writeCloud(resolution.syncItems, newMetadata);
-                if (!cloudResult.syncSaved) {
-                    // Already reported: fail, with nothing changed.
-                    throw Object.assign(new Error(cloudResult.error), { reported: true });
-                }
-            }
-
-            // From here on the cloud has this sync: record it locally first
-            // (the version on its own, then the kept lists), so a later local
-            // failure can't leave this device looking unsynced — a first sync
-            // would then merge again and bring back links deleted since.
-            // Pushed, superseded or set-aside fields stop being pending.
-            const markerKeys = PENDING_SYNC_FIELDS.map(pendingSyncKey);
-            await this.writeLocal(resolvedData, newMetadata, {
-                readMarkers: pick(inputs.local, markerKeys),
-                cloudRead: inputs.cloud,
-                pushed: resolution.syncItems ?? {},
-                keepLocalLists: resolution.keepLocalLists,
-                settle: [
-                    ...(resolution.keepLocalLists ? [] : ['links', 'categories']),
-                    ...resolution.settled,
-                    ...Object.keys(resolution.syncItems ?? {})
-                ]
-            });
-            // Then keep the set-aside copy on this device. It was already
-            // downloaded (and parked) before the cloud write, so a failure here
-            // is logged and doesn't fail the sync. With no set-aside this time,
-            // a copy parked by an earlier attempt is kept if that attempt got
-            // past the cloud write (afterCloud), else dropped.
-            let setAsideKept = false;
-            if (parkedSetAside) {
-                setAsideKept = await this.commitSetAside(parkedSetAside);
-            } else {
-                await this.settleParkedSetAside();
-            }
-
-            const syncedItemsCount = (parseStoredArray(resolvedData.links) ?? []).length;
-            const warning = resolution.setAside
-                ? `${resolution.setAside.reason} A copy was ${setAsideKept ? 'saved on this device and ' : ''}`
-                    + 'downloaded as a backup file (restore it with Import on the Manage page).'
-                : undefined;
-
-            this.notifyListeners('syncComplete', {
-                time: this.lastSyncTime,
-                itemsSynced: syncedItemsCount,
-                strategy: strategy,
-                metadata: metadata,
-                warning
-            });
-
-            debug(`Sync completed successfully. Synced ${syncedItemsCount} items.`);
-
-            const result = { success: true, time: this.lastSyncTime, itemsSynced: syncedItemsCount, warning };
-
-            // Process queued sync requests
-            while (this.syncQueue.length > 0) {
-                const resolve = this.syncQueue.shift();
-                resolve(result);
-            }
-
+            const result = await this.runSync(forceStrategy);
+            this.resolveQueuedSyncs(result);
             return result;
-
         } catch (error) {
             debugError('Sync failed:', error);
 
@@ -831,17 +707,156 @@ export class SyncManager {
                 });
             }
 
-            // Process queued sync requests with error
-            while (this.syncQueue.length > 0) {
-                const resolve = this.syncQueue.shift();
-                resolve({ success: false, error: error.message, timestamp: Date.now() });
-            }
-
-            return { success: false, error: error.message, timestamp: Date.now() };
+            const failure = { success: false, error: error.message, timestamp: Date.now() };
+            this.resolveQueuedSyncs(failure);
+            return failure;
         } finally {
             this.syncInProgress = false;
             debug('Sync operation completed');
         }
+    }
+
+    // Answer the sync requests that queued behind the one that just finished.
+    resolveQueuedSyncs(result) {
+        while (this.syncQueue.length > 0) {
+            const resolve = this.syncQueue.shift();
+            resolve(result);
+        }
+    }
+
+    // One sync: read both areas, decide, validate, write, then tell listeners.
+    // Throws on failure; an error with reported set was already reported.
+    async runSync(forceStrategy) {
+        debug('Starting sync operation...');
+
+        // Validate Chrome storage availability
+        if (!chrome.storage || !chrome.storage.local || !chrome.storage.sync) {
+            throw new Error('Chrome storage API not available');
+        }
+
+        const inputs = await this.readSyncInputsOrReport();
+        const { metadata } = inputs;
+
+        // Determine sync strategy (this device's saved choice)
+        const strategy = forceStrategy || await this.getConflictResolutionStrategy();
+        const resolution = this.resolveSyncData(inputs, { forceStrategy, strategy });
+        const resolvedData = resolution.data;
+
+        this.assertValidSyncData(resolvedData);
+        const setAsideKept = await this.commitResolution(resolution, inputs);
+
+        const syncedItemsCount = (parseStoredArray(resolvedData.links) ?? []).length;
+        const warning = resolution.setAside
+            ? `${resolution.setAside.reason} A copy was ${setAsideKept ? 'saved on this device and ' : ''}`
+                + 'downloaded as a backup file (restore it with Import on the Manage page).'
+            : undefined;
+
+        this.notifyListeners('syncComplete', {
+            time: this.lastSyncTime,
+            itemsSynced: syncedItemsCount,
+            strategy: strategy,
+            metadata: metadata,
+            warning
+        });
+
+        debug(`Sync completed successfully. Synced ${syncedItemsCount} items.`);
+
+        return { success: true, time: this.lastSyncTime, itemsSynced: syncedItemsCount, warning };
+    }
+
+    // Read both storages. Abort if either fails: without knowing what the
+    // cloud holds, any write could wipe it. The failure is reported here.
+    async readSyncInputsOrReport() {
+        try {
+            return await this.readSyncInputs();
+        } catch (readError) {
+            debugError('Failed to read storage for sync:', readError);
+            this.reportSyncError(readError, readError.area === 'local'
+                ? {
+                    type: 'local_storage_error',
+                    message: 'Failed to read local storage data.',
+                    details: readError.message
+                }
+                : syncStorageErrorEvent(readError.message));
+            throw readError;
+        }
+    }
+
+    // Validate resolved data before saving; a failure is reported and thrown.
+    assertValidSyncData(resolvedData) {
+        const validationResult = this.validateSyncData(resolvedData);
+        if (validationResult.valid) return;
+        const validationError = new Error(`Data validation failed: ${validationResult.errors.join(', ')}`);
+        debugError('Sync data validation failed:', {
+            errors: validationResult.errors,
+            data: resolvedData
+        });
+        this.reportSyncError(validationError, {
+            type: 'validation_error',
+            message: 'Sync data validation failed',
+            details: validationResult.errors,
+            recommendation: 'Please check your data and try again. If the problem persists, contact support.'
+        });
+        throw validationError;
+    }
+
+    // Write what resolveSyncData decided. Resolves to whether a set-aside copy
+    // was kept on this device.
+    async commitResolution(resolution, inputs) {
+        const resolvedData = resolution.data;
+
+        // Nothing changes until the cloud has accepted this sync. Local
+        // entries the cloud lacks that are dropped without being uploaded are
+        // downloaded first (no backup, no replacement). Then the changed
+        // fields and the new version go to sync in ONE write, which Chrome
+        // applies all-or-nothing: a rejected write (quota, rate limit) leaves
+        // both areas as they were. Only then is this device's copy updated.
+        const parkedSetAside = resolution.setAside
+            ? await this.prepareSetAside(resolution.setAside, inputs, resolvedData)
+            : null;
+
+        // A Force pull from a cloud that holds only settings changes no
+        // lists and records no sync (no new version on either side): a
+        // never-synced device then still merges its lists on its next sync.
+        const now = Date.now();
+        const newMetadata = resolution.keepLocalLists
+            ? null
+            : { version: now, lastModified: now, deviceId: inputs.local.deviceId ?? newDeviceId() };
+        if (newMetadata || resolution.syncItems) {
+            const cloudResult = await this.writeCloud(resolution.syncItems, newMetadata);
+            if (!cloudResult.syncSaved) {
+                // Already reported: fail, with nothing changed.
+                throw Object.assign(new Error(cloudResult.error), { reported: true });
+            }
+        }
+
+        // From here on the cloud has this sync: record it locally first
+        // (the version on its own, then the kept lists), so a later local
+        // failure can't leave this device looking unsynced — a first sync
+        // would then merge again and bring back links deleted since.
+        // Pushed, superseded or set-aside fields stop being pending.
+        const markerKeys = PENDING_SYNC_FIELDS.map(pendingSyncKey);
+        await this.writeLocal(resolvedData, newMetadata, {
+            readMarkers: pick(inputs.local, markerKeys),
+            cloudRead: inputs.cloud,
+            pushed: resolution.syncItems ?? {},
+            keepLocalLists: resolution.keepLocalLists,
+            settle: [
+                ...(resolution.keepLocalLists ? [] : ['links', 'categories']),
+                ...resolution.settled,
+                ...Object.keys(resolution.syncItems ?? {})
+            ]
+        });
+        // Then keep the set-aside copy on this device. It was already
+        // downloaded (and parked) before the cloud write, so a failure here
+        // is logged and doesn't fail the sync. With no set-aside this time,
+        // a copy parked by an earlier attempt is kept if that attempt got
+        // past the cloud write (afterCloud), else dropped.
+        if (parkedSetAside) {
+            return this.commitSetAside(parkedSetAside);
+        }
+        await this.settleParkedSetAside();
+        return false;
     }
 
     // Read everything a sync decision needs in one read per area: this device's
