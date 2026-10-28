@@ -1,6 +1,17 @@
 import * as LinkManager from './linkManager.js';
 import { escapeHtml, validateAndSanitizeUrl } from '../features/utils.js';
 import { debug } from './debug.js';
+import { safeUpdateState } from './stateManager.js';
+
+// The page is passed a snapshot (getState() returns a copy). What it shows —
+// the filtered list and the page — is written back to the page's state too:
+// the next getState() must agree with the screen, or the next page change
+// starts from the old page ("Page 0 of 2") and the bulk actions, which read
+// filteredLinks from a fresh getState(), act on rows other than the ones shown.
+function keepView(state) {
+    safeUpdateState({ filteredLinks: state.filteredLinks, currentPage: state.currentPage },
+        { validate: false, skipPersistence: true });
+}
 
 export function getElements() {
     return {
@@ -146,6 +157,7 @@ export function filterLinks(state) {
         : state.links.filter(link => link.category === selectedCategory);
     state.currentPage = 1;
     debug('Filtered links:', state.filteredLinks);
+    keepView(state);
     renderLinks(state);
 }
 
@@ -158,7 +170,9 @@ export function updatePaginationControls(state) {
 }
 
 export function changePage(state, direction) {
-    state.currentPage += direction;
+    const lastPage = Math.max(1, Math.ceil(state.filteredLinks.length / state.linksPerPage));
+    state.currentPage = Math.min(Math.max(1, state.currentPage + direction), lastPage);
+    keepView(state);
     renderLinks(state);
 }
 

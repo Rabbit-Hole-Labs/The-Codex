@@ -153,6 +153,36 @@ describe('uiManager', () => {
             expect(document.getElementById('nextPage').disabled).toBe(true);
         });
 
+        // The page always passes getState(), a copy: the page change has to
+        // reach the real state, or Previous after Next lands on "Page 0 of 2".
+        test('Next then Previous, through getState() snapshots, returns to page 1', async () => {
+            const { getState, safeUpdateState } = await import('../../javascript/core-systems/stateManager.js');
+            const links = createLinks(25);
+            safeUpdateState({ links, filteredLinks: [...links], currentPage: 1 }, { validate: false, skipPersistence: true });
+
+            UIManager.changePage(getState(), 1);
+            expect(document.getElementById('pageInfo').textContent).toBe('Page 2 of 2');
+            UIManager.changePage(getState(), -1);
+            expect(document.getElementById('pageInfo').textContent).toBe('Page 1 of 2');
+            expect(getState().currentPage).toBe(1);
+            UIManager.changePage(getState(), -1);
+            expect(getState().currentPage).toBe(1);
+        });
+
+        test('a bulk action after filtering acts on the rows shown, not the unfiltered list', async () => {
+            const { getState, safeUpdateState } = await import('../../javascript/core-systems/stateManager.js');
+            const links = [...createLinks(3, 'Work'), ...createLinks(2, 'Home').map((l, i) => ({ ...l, id: `home-${i}`, name: `Home ${i}` }))];
+            safeUpdateState({ links, filteredLinks: [...links], currentPage: 1 }, { validate: false, skipPersistence: true });
+            const filter = document.getElementById('filterCategory');
+            filter.appendChild(Object.assign(document.createElement('option'), { value: 'Home' }));
+            filter.value = 'Home';
+
+            UIManager.filterLinks(getState());
+            document.querySelector('.link-checkbox').checked = true; // first row shown: Home 0
+            const [index] = UIManager.getSelectedIndices(getState());
+            expect(getState().filteredLinks[index].name).toBe('Home 0');
+        });
+
         test('changePage increments currentPage', () => {
             const state = makeState({ filteredLinks: createLinks(30), linksPerPage: 10, currentPage: 1 });
             UIManager.changePage(state, 1);
