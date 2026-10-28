@@ -2,6 +2,7 @@
 import { syncManager, SYNC_CONFIRMATIONS } from '../core-systems/syncManager.js';
 import { dataVerification } from './dataVerification.js';
 import { getCapturedErrors, clearCapturedErrors, formatCapturedErrors } from './errorCapture.js';
+import { downloadJsonFile } from './utils.js';
 
 export class SyncSettingsController {
     constructor() {
@@ -412,17 +413,7 @@ export class SyncSettingsController {
                 chromeVersion: chrome?.runtime?.getManifest?.()?.version || 'unknown'
             };
 
-            const dataStr = JSON.stringify(diagnostics, null, 2);
-            const dataBlob = new Blob([dataStr], { type: 'application/json' });
-            const url = URL.createObjectURL(dataBlob);
-
-            const link = document.createElement('a');
-            link.href = url;
-            link.download = `codex-sync-diagnostics-${Date.now()}.json`;
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-            URL.revokeObjectURL(url);
+            downloadJsonFile(JSON.stringify(diagnostics, null, 2), `codex-sync-diagnostics-${Date.now()}.json`);
 
             this.addLogEntry('info', 'Diagnostics exported successfully');
         } catch (error) {

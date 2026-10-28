@@ -1,5 +1,5 @@
 // Data Verification and Inspection Utility
-import { escapeHtml } from './utils.js';
+import { escapeHtml, downloadJsonFile } from './utils.js';
 import { syncGetChecked } from '../core-systems/syncStorage.js';
 import { PENDING_SYNC_FIELDS, pendingSyncKey, markerStillPending, parseStoredArray } from '../core-systems/storageFormat.js';
 
@@ -51,7 +51,7 @@ class DataVerification {
             processed.summary.linksConsistent = consistent;
             return processed;
         } catch (error) {
-            throw new Error(`Failed to get cloud data: ${error.message}`);
+            throw new Error(`Failed to get cloud data: ${error.message}`, { cause: error });
         }
     }
 
@@ -61,7 +61,7 @@ class DataVerification {
             const data = await chrome.storage.local.get(null);
             return this.processStorageData(data, 'local');
         } catch (error) {
-            throw new Error(`Failed to get local data: ${error.message}`);
+            throw new Error(`Failed to get local data: ${error.message}`, { cause: error });
         }
     }
 
@@ -148,7 +148,7 @@ class DataVerification {
 
             return comparison;
         } catch (error) {
-            throw new Error(`Failed to compare data: ${error.message}`);
+            throw new Error(`Failed to compare data: ${error.message}`, { cause: error });
         }
     }
 
@@ -335,7 +335,7 @@ class DataVerification {
 
             return validation;
         } catch (error) {
-            throw new Error(`Failed to validate data integrity: ${error.message}`);
+            throw new Error(`Failed to validate data integrity: ${error.message}`, { cause: error });
         }
     }
 
@@ -515,8 +515,7 @@ class DataVerification {
         this._viewer = { data, type };
         this.isFormatted = false;
 
-        let content = '';
-
+        let content;
         if (type === 'comparison') {
             content = this.renderComparison(data);
         } else if (type === 'validation') {
@@ -766,17 +765,7 @@ ${crossVal.warnings.map(warn => `• ${escapeHtml(warn)}`).join('\n')}
     exportCurrentData() {
         const content = document.getElementById('data-content');
         if (content) {
-            const dataStr = content.textContent;
-            const blob = new Blob([dataStr], { type: 'application/json' });
-            const url = URL.createObjectURL(blob);
-
-            const link = document.createElement('a');
-            link.href = url;
-            link.download = `codex-data-${Date.now()}.json`;
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-            URL.revokeObjectURL(url);
+            downloadJsonFile(content.textContent, `codex-data-${Date.now()}.json`);
         }
     }
 

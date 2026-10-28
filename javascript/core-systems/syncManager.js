@@ -9,6 +9,7 @@ import {
     sameStoredValue, markerMatchesCloud, markerStillPending
 } from './storageFormat.js';
 import { syncGet, syncGetChecked, syncSet, readSyncLinks, isLinkStorageKey, linksChanged } from './syncStorage.js';
+import { downloadJsonFile } from '../features/utils.js';
 
 // Confirm-dialog text for the destructive manual sync actions, shared by the
 // new-tab pill and the manage page's Sync tab so both describe the same thing.
@@ -932,15 +933,7 @@ export class SyncManager {
     // can't be started; a cancelled or blocked one can't be detected.
     downloadBackupFile(backup) {
         try {
-            const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = `the-codex-backup-${new Date().toISOString().slice(0, 10)}.json`;
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            URL.revokeObjectURL(url);
+            downloadJsonFile(JSON.stringify(backup, null, 2), `the-codex-backup-${new Date().toISOString().slice(0, 10)}.json`);
             return true;
         } catch (error) {
             debugWarn('Could not download the backup file:', error);
@@ -980,26 +973,6 @@ export class SyncManager {
             ]);
         } catch (error) {
             debugWarn('Failed to clear pending-sync markers:', error);
-        }
-    }
-
-    // Resolve conflicts between local and remote data
-    async resolveConflict(localData, syncData, metadata, strategy) {
-        debug(`Resolving conflict with strategy: ${strategy}`);
-
-        switch (strategy) {
-            case 'local':
-                // Local data wins
-                return localData;
-
-            case 'remote':
-                // Remote data wins
-                return syncData;
-
-            case 'merge':
-            default:
-                // Merge both datasets
-                return this.mergeData(localData, syncData, metadata);
         }
     }
 
@@ -1317,7 +1290,7 @@ export class SyncManager {
             inputs = await this.readSyncInputs();
         } catch (error) {
             const reason = error.area === 'sync' ? syncStorageErrorEvent(error.message).message : 'Could not read local storage.';
-            throw new Error(`${reason} Sync data was not cleared (${error.message}).`);
+            throw new Error(`${reason} Sync data was not cleared (${error.message}).`, { cause: error });
         }
         const { local, cloud } = inputs;
         const localSettings = pick(local, SETTINGS_KEYS); // only ever written by a failed save
@@ -1357,7 +1330,7 @@ export class SyncManager {
         try {
             await this.storeBackup(backup);
         } catch (error) {
-            throw new Error(`Could not save a backup on this device, so sync data was not cleared (${error.message}).`);
+            throw new Error(`Could not save a backup on this device, so sync data was not cleared (${error.message}).`, { cause: error });
         }
 
         return this.downloadBackupFile(backup);
@@ -1398,7 +1371,7 @@ export class SyncManager {
                 await syncSet(cleared);
             } catch (syncError) {
                 const event = syncStorageErrorEvent(syncError.message);
-                throw new Error(`${event.message} (${syncError.message})`);
+                throw new Error(`${event.message} (${syncError.message})`, { cause: syncError });
             }
 
             // Keys we can't reset by value (e.g. linksView): remove them, best
