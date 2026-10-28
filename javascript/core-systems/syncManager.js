@@ -302,6 +302,47 @@ export { SYNC_CLEARED_AT_KEY };
 export const SYNC_STRATEGY_KEY = 'syncConflictStrategy';
 export const SYNC_STRATEGIES = Object.freeze(['remote', 'merge', 'local']);
 
+// validateSyncData's errors for one field stored as a JSON-string array
+// (links, categories). Absent and null are acceptable. label starts each
+// message; itemErrors(item, index) returns the errors for one element.
+function jsonArrayFieldErrors(value, label, itemErrors) {
+    if (value === undefined) return [];
+    if (value === null) {
+        debug(`${label} property is null, which is acceptable`);
+        return [];
+    }
+    if (typeof value !== 'string') return [`${label} must be a JSON string, got ${typeof value}`];
+    let items;
+    try {
+        items = JSON.parse(value);
+    } catch (e) {
+        return [`${label} must be valid JSON: ${e.message}`];
+    }
+    if (!Array.isArray(items)) return [`${label} must be a valid JSON array`];
+    return items.flatMap(itemErrors);
+}
+
+function linkEntryErrors(link, i) {
+    if (!link || typeof link !== 'object') return [`Link at index ${i} must be an object`];
+    const errors = [];
+    if (!link.name || typeof link.name !== 'string') errors.push(`Link at index ${i} must have a valid name string`);
+    if (!link.url || typeof link.url !== 'string') errors.push(`Link at index ${i} must have a valid URL string`);
+    if (!link.category || typeof link.category !== 'string') errors.push(`Link at index ${i} must have a valid category string`);
+    try {
+        new URL(link.url);
+    } catch {
+        errors.push(`Link at index ${i} has an invalid URL format: ${link.url}`);
+    }
+    return errors;
+}
+
+function categoryEntryErrors(category, i) {
+    if (typeof category !== 'string') return [`Category at index ${i} must be a string`];
+    if (category.length === 0) return [`Category at index ${i} cannot be empty`];
+    if (category.length > 50) return [`Category at index ${i} exceeds maximum length of 50 characters`];
+    return [];
+}
+
 export class SyncManager {
     constructor() {
         this.syncInProgress = false;
@@ -1157,84 +1198,10 @@ export class SyncManager {
             return { valid: false, errors };
         }
 
-        // Validate links property with comprehensive checks
-        if (data.links !== undefined) {
-            if (data.links === null) {
-                // Null is acceptable for links
-                debug('Links property is null, which is acceptable');
-            } else if (typeof data.links !== 'string') {
-                errors.push(`Links must be a JSON string, got ${typeof data.links}`);
-            } else {
-                // Try to parse JSON to validate format
-                try {
-                    const links = JSON.parse(data.links);
-                    if (!Array.isArray(links)) {
-                        errors.push('Links must be a valid JSON array');
-                    } else {
-                        // Validate each link in the array
-                        for (let i = 0; i < links.length; i++) {
-                            const link = links[i];
-                            if (!link || typeof link !== 'object') {
-                                errors.push(`Link at index ${i} must be an object`);
-                                continue;
-                            }
-                            
-                            // Validate required properties
-                            if (!link.name || typeof link.name !== 'string') {
-                                errors.push(`Link at index ${i} must have a valid name string`);
-                            }
-                            if (!link.url || typeof link.url !== 'string') {
-                                errors.push(`Link at index ${i} must have a valid URL string`);
-                            }
-                            if (!link.category || typeof link.category !== 'string') {
-                                errors.push(`Link at index ${i} must have a valid category string`);
-                            }
-                            
-                            // Validate URL format
-                            try {
-                                new URL(link.url);
-                            } catch {
-                                errors.push(`Link at index ${i} has an invalid URL format: ${link.url}`);
-                            }
-                        }
-                    }
-                } catch (e) {
-                    errors.push(`Links must be valid JSON: ${e.message}`);
-                }
-            }
-        }
-
-        // Validate categories property with comprehensive checks
-        if (data.categories !== undefined) {
-            if (data.categories === null) {
-                // Null is acceptable for categories
-                debug('Categories property is null, which is acceptable');
-            } else if (typeof data.categories !== 'string') {
-                errors.push(`Categories must be a JSON string, got ${typeof data.categories}`);
-            } else {
-                // Try to parse JSON to validate format
-                try {
-                    const categories = JSON.parse(data.categories);
-                    if (!Array.isArray(categories)) {
-                        errors.push('Categories must be a valid JSON array');
-                    } else {
-                        // Validate each category in the array
-                        for (let i = 0; i < categories.length; i++) {
-                            const category = categories[i];
-                            if (typeof category !== 'string') {
-                                errors.push(`Category at index ${i} must be a string`);
-                            } else if (category.length === 0) {
-                                errors.push(`Category at index ${i} cannot be empty`);
-                            } else if (category.length > 50) {
-                                errors.push(`Category at index ${i} exceeds maximum length of 50 characters`);
-                            }
-                        }
-                    }
-                } catch (e) {
-                    errors.push(`Categories must be valid JSON: ${e.message}`);
-                }
-            }
-        }
+        errors.push(
+            ...jsonArrayFieldErrors(data.links, 'Links', linkEntryErrors),
+            ...jsonArrayFieldErrors(data.categories, 'Categories', categoryEntryErrors)
+        );
 
         // Additional content structure validation
         const validProperties = ['links', 'categories'];
