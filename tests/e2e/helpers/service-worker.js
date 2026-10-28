@@ -1,3 +1,4 @@
+// fallow-ignore-file unused-file -- Playwright helpers kept for E2E specs that do not exist yet (playwright.config.js testDir).
 /**
  * Service Worker initialization guard for E2E tests.
  * Ensures the extension's service worker has completed onInstalled

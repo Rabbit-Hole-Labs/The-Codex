@@ -161,6 +161,9 @@ CodexConsole.localData() // View raw local data
 - Jest with jsdom environment; suites live in `tests/unit/` and `tests/integration/` (the two scripts together cover everything `npm test` runs)
 - [tests/setup.js](tests/setup.js) only exposes `jest` as a global — it does not mock Chrome APIs; each suite stubs `global.chrome` itself
 - Test files follow `*.test.js` naming
-- Real Chrome tests in [tests/real-chrome-tests/](tests/real-chrome-tests/) directory (manual harness; not run by npm scripts or CI)
 - ESLint ([eslint.config.mjs](eslint.config.mjs)) uses per-directory globals — extension pages: browser + `chrome`; service worker: serviceworker + `chrome`; tests: jest + browser + node; root tooling: node — and ignores `.claude/**` so nested worktrees are never linted
-- CI ([.github/workflows/ci.yml](.github/workflows/ci.yml)) runs `npm ci`, `npm run lint` and `npm test -- --ci --coverage` on every PR and push to `main`, and fails a PR whose `manifest.json` version is not greater than the base branch's. A separate job runs `npm run package` (manifest, reference and CSP checks), tests the zip with `unzip -t` and uploads `the-codex-<version>.zip` as the run's artifact
+- CI ([.github/workflows/ci.yml](.github/workflows/ci.yml)) runs `npm ci`, `npm run lint` and `npm test -- --ci --coverage` on every PR and push to `main`, and fails a PR whose `manifest.json` version is not greater than the base branch's. A PR-only job runs `fallow audit` (config in [.fallowrc.json](.fallowrc.json); `npm run fallow:audit` locally), which fails only on findings the PR introduces. A separate job runs `npm run package` (manifest, reference and CSP checks), tests the zip with `unzip -t` and uploads `the-codex-<version>.zip` as the run's artifact
+
+<!-- fallow:agent-install v1 claude-import:start -->
+@AGENTS.md
+<!-- fallow:agent-install v1 claude-import:end -->

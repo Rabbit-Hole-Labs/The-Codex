@@ -1,3 +1,4 @@
+// fallow-ignore-file unused-file -- Playwright helpers kept for E2E specs that do not exist yet (playwright.config.js testDir).
 /**
  * Storage reset utilities for Playwright E2E tests.
  * Ensures clean state between tests by clearing chrome.storage.

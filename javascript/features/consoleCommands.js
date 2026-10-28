@@ -50,9 +50,11 @@ const CodexConsole = {
             // Summary output
             console.log('\n=== COMPARISON SUMMARY ===');
             console.log(`In Sync: ${comparison.summary.isInSync}`);
+            comparison.summary.differences.forEach(reason => console.log(`  - ${reason}`));
             console.log(`Link Count Difference: ${comparison.summary.linkCountDifference}`);
             console.log(`Category Count Difference: ${comparison.summary.categoryCountDifference}`);
-            console.log(`Size Difference: ${comparison.summary.sizeDifference} bytes`);
+            console.log(`Synced Data Size Difference: ${comparison.summary.sizeDifference} bytes`);
+            console.log(`Device-only data (never synced): ${(comparison.summary.deviceOnly.size / 1024).toFixed(2)} KB`);
 
             return comparison;
         } catch (error) {
@@ -422,5 +424,3 @@ await CodexConsole.iconStats()
 // CodexConsole.help() — intentionally no load-time greeting, to keep the
 // console quiet on every page load.
 window.CodexConsole = CodexConsole;
-
-export default CodexConsole;

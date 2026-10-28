@@ -586,32 +586,3 @@ export function sanitizeUserInput(input, options = {}) {
 
     return sanitized;
 }
-
-/**
- * Validates Chrome extension permissions and security settings
- * @returns {Object} - Security validation result
- */
-export function validateSecuritySettings() {
-    const issues = [];
-
-    // Check if running in secure context
-    if (!window.isSecureContext) {
-        issues.push('Not running in a secure context');
-    }
-
-    // Check Content Security Policy
-    const cspMeta = document.querySelector('meta[http-equiv="Content-Security-Policy"]');
-    if (!cspMeta) {
-        issues.push('Content Security Policy meta tag not found');
-    }
-
-    // Check for dangerous globals
-    if (window.eval || window.Function) {
-        issues.push('Dangerous global functions (eval, Function) are available');
-    }
-
-    return {
-        secure: issues.length === 0,
-        issues: issues
-    };
-}

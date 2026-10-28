@@ -14,12 +14,16 @@
     "test:watch": "node --experimental-vm-modules node_modules/.bin/jest --watch",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
-    "package": "node --experimental-vm-modules --disable-warning=ExperimentalWarning scripts/package-extension.js"
+    "package": "node --experimental-vm-modules --disable-warning=ExperimentalWarning scripts/package-extension.js",
+    "fallow": "fallow",
+    "fallow:audit": "fallow audit"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@jest/globals": "^30.5.2",
     "@playwright/test": "^1.64.1",
     "eslint": "^10.13.0",
+    "fallow": "^3.37.0",
     "globals": "^17.13.0",
     "jest": "^30.5.2",
     "jest-environment-jsdom": "^30.5.2",

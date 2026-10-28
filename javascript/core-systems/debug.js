@@ -53,11 +53,3 @@ export function debugError(...args) {
         console.error(...args);
     }
 }
-
-export default {
-    setDebugEnabled,
-    isDebugEnabled,
-    debug,
-    debugWarn,
-    debugError
-};

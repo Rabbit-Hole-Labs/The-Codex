@@ -143,7 +143,7 @@ export const SYNC_CLEARED_AT_KEY = 'syncClearedAt';
  * sync where the cloud wins writes nothing to sync and fires no sync onChanged.
  */
 export const SYNC_RESOLVED_AT_KEY = 'syncResolvedAt';
-export const PENDING_SYNC_PREFIX = 'pendingSyncSince.';
+const PENDING_SYNC_PREFIX = 'pendingSyncSince.';
 
 /** Fields that can be pending: links, categories and the synced settings. */
 export const PENDING_SYNC_FIELDS = Object.freeze(['links', 'categories', ...Object.keys(SETTING_ENUMS)]);
@@ -156,4 +156,54 @@ export function pendingSyncKey(field) {
 /** The JSON form a marker records for a cloud value (absent → 'null'). */
 export function cloudValueFingerprint(value) {
     return JSON.stringify(value ?? null);
+}
+
+// A stored value in a canonical form for comparing content: JSON-encoded
+// lists are parsed and object keys sorted, so a re-serialization with a
+// different key order still counts as the same value.
+function canonical(value) {
+    if (typeof value === 'string') {
+        const list = parseStoredArray(value);
+        if (list) return canonical(list);
+        return value;
+    }
+    if (Array.isArray(value)) return value.map(canonical);
+    if (value && typeof value === 'object') {
+        return Object.fromEntries(Object.keys(value).sort().map(key => [key, canonical(value[key])]));
+    }
+    return value ?? null;
+}
+
+/** Whether two stored values hold the same content (see canonical). */
+export function sameStoredValue(a, b) {
+    return JSON.stringify(canonical(a)) === JSON.stringify(canonical(b));
+}
+
+/**
+ * Whether the cloud still holds the value a pending-sync marker recorded.
+ * A marker without a readable recorded value can't tell, so it never matches.
+ */
+export function markerMatchesCloud(marker, cloudValue) {
+    if (typeof marker?.cloud !== 'string') return false;
+    try {
+        return sameStoredValue(JSON.parse(marker.cloud), cloudValue);
+    } catch {
+        return false;
+    }
+}
+
+/**
+ * Whether a field's pending-sync marker is still pending: the cloud holds the
+ * value it had when the save fell back and hasn't been cleared since (same
+ * clear stamp), so Sync now pushes this device's value. Otherwise the marker
+ * is superseded and Sync now sets the local value aside instead.
+ * @param {Object} marker - local `pendingSyncSince.<field>` value
+ * @param {Object} cloud - chrome.storage.sync data (links reassembled), with
+ *   the field and SYNC_CLEARED_AT_KEY
+ * @param {string} field
+ * @returns {boolean}
+ */
+export function markerStillPending(marker, cloud, field) {
+    return markerMatchesCloud(marker, cloud[field])
+        && (marker.clearedAt ?? null) === (cloud[SYNC_CLEARED_AT_KEY] ?? null);
 }
