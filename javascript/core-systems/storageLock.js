@@ -39,3 +39,16 @@ export function withStorageLock(name, task) {
 export function withPendingSyncLock(task) {
     return withStorageLock(LOCK_NAME, task);
 }
+
+/**
+ * Run `task` while holding the links-write lock. Every write of the links to
+ * chrome.storage.sync from this browser takes it, so a read-modify-write of
+ * the synced links (updateSyncedLinks) can't have a save land between its
+ * read and its write and be overwritten by the older list. Taken before the
+ * pending-sync lock, never while holding it.
+ * @param {() => Promise<*>} task
+ * @returns {Promise<*>} the task's result
+ */
+export function withLinksWriteLock(task) {
+    return withStorageLock('codex-links-write', task);
+}

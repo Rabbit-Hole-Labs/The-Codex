@@ -2,7 +2,7 @@
 // Handles conflict resolution, versioning, and improved sync strategies
 
 import { debug, debugWarn, debugError } from './debug.js';
-import { withPendingSyncLock } from './storageLock.js';
+import { withPendingSyncLock, withLinksWriteLock } from './storageLock.js';
 import {
     parseStoredArray, pendingSyncKey, cloudValueFingerprint, PENDING_SYNC_FIELDS,
     SYNC_CLEARED_AT_KEY, SYNC_RESOLVED_AT_KEY, STORED_SETTING_DEFAULTS,
@@ -1027,7 +1027,7 @@ export class SyncManager {
     // in syncItems are left as they are. Returns { syncSaved, error }.
     async writeCloud(syncItems, metadata) {
         try {
-            await syncSet({ ...pick(syncItems, Object.keys(syncItems ?? {})), syncMetadata: metadata });
+            await withLinksWriteLock(() => syncSet({ ...pick(syncItems, Object.keys(syncItems ?? {})), syncMetadata: metadata }));
             debug('Sync data and version saved to sync storage');
             return { syncSaved: true };
         } catch (syncError) {
@@ -1368,7 +1368,7 @@ export class SyncManager {
             let cloudKeys;
             try {
                 cloudKeys = Object.keys(await chrome.storage.sync.get(null));
-                await syncSet(cleared);
+                await withLinksWriteLock(() => syncSet(cleared));
             } catch (syncError) {
                 const event = syncStorageErrorEvent(syncError.message);
                 throw new Error(`${event.message} (${syncError.message})`, { cause: syncError });
@@ -1391,11 +1391,14 @@ export class SyncManager {
 
             // Drop this device's local copy too (snapshot, settings saved by a
             // failed write, pending markers, sync history), so its next Sync
-            // now starts from the cleared cloud.
-            await chrome.storage.local.remove([
+            // now starts from the cleared cloud. Under the pending-sync lock:
+            // other pages and the service worker see this clear as a remote
+            // one and rewrite the markers they read (recordRemoteClear), which
+            // must not land after this removal and bring them back.
+            await withPendingSyncLock(() => chrome.storage.local.remove([
                 'syncMetadata', 'lastSyncTime', 'links', 'categories', SYNC_SET_ASIDE_PARKED_KEY,
                 ...SETTINGS_KEYS, ...PENDING_SYNC_FIELDS.map(pendingSyncKey)
-            ]);
+            ]));
             // Every open page reloads from storage (stateManager), including
             // one that missed the storage events (e.g. mid-write).
             await withPendingSyncLock(() => writeResolvedStampLocked());

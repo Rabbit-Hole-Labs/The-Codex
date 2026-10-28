@@ -1933,14 +1933,16 @@ describe('Regression: pages, locks and the sync\'s local phase', () => {
         const g = gate('local', 'get', (k) => keysOf(k).length === 1 && keysOf(k)[0] === 'pendingSyncSince.links', 'before');
         const saveA = A.sm.saveLinks([link(1), link(2)]);
         await g.reached;
-        // C's save is rate-limited and falls back meanwhile.
+        // C's save is rate-limited and falls back. The links-write lock makes
+        // it wait for A's save to finish, so A can't drop C's marker.
         const stop = failSaveWrites();
         const saveC = Cp.sm.saveLinks([link(1), link(2), link(3)]);
         await settle(3);
-        stop();
+        expect(markers()['pendingSyncSince.links']).toBeUndefined(); // C still waiting
         g.release();
         await saveA;
         await saveC;
+        stop();
 
         expect(markers()['pendingSyncSince.links']).toBeDefined();
         await A.mgr.syncData();
