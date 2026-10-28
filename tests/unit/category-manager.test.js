@@ -31,20 +31,20 @@ const debug = jest.fn();
 const debugError = jest.fn();
 
 // Mock the modules that categoryManager depends on
-jest.unstable_mockModule('../javascript/core-systems/storageManager.js', () => ({
+jest.unstable_mockModule('../../javascript/core-systems/storageManager.js', () => ({
     loadCategories: jest.fn(),
     saveCategories: jest.fn(),
     saveLinks: jest.fn()
 }));
 
-jest.unstable_mockModule('../javascript/core-systems/uiManager.js', () => ({
+jest.unstable_mockModule('../../javascript/core-systems/uiManager.js', () => ({
     populateCategoryDropdowns: populateCategoryDropdowns,
     updateCategoryDropdowns: updateCategoryDropdowns,
     showMessage: showMessage,
     filterLinks: jest.fn()
 }));
 
-jest.unstable_mockModule('../javascript/core-systems/debug.js', () => ({
+jest.unstable_mockModule('../../javascript/core-systems/debug.js', () => ({
     debug: debug,
     debugError: debugError,
     setDebugEnabled: jest.fn(),
