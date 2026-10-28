@@ -59,6 +59,7 @@ const MINUTE_MS = 60 * 1000;
 const HOUR_MS = 60 * MINUTE_MS;
 
 /** UTF-8 byte length of a string (lone surrogates count as U+FFFD, 3 bytes). */
+// fallow-ignore-next-line code-duplication -- re-derives Chrome's quota byte math independently of syncStorage.js on purpose, so the fake can catch bugs there.
 export function utf8ByteLength(str) {
     let bytes = 0;
     for (let i = 0; i < str.length; i++) {
