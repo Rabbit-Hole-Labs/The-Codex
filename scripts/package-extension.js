@@ -1189,34 +1189,40 @@ function sourceMatches(source, parsed, directive = null) {
     }
     const hostname = parsed.hostname.toLowerCase();
     if (host.startsWith('*.') ? !hostname.endsWith(host.slice(1)) : host !== '*' && hostname !== host) return false;
-    if (port && port !== '*') {
-        const effective = parsed.port || ({ 'https:': '443', 'http:': '80', 'wss:': '443', 'ws:': '80' })[scheme] || '';
-        // With the scheme upgraded (http to https, ws to wss), Chrome matches only port 443: from a
-        // source port of 80, or of 443 for an https subresource (not a frame or form target), never
-        // from another port (http://h:8080 doesn't match https://h:8080).
-        const upgraded = upgrade && `${sourceScheme}:` !== scheme;
-        const navigation = directive === 'frame-src' || directive === 'form-action';
-        const sourcePortOk = port === '80' || (port === '443' && scheme === 'https:' && !navigation);
-        if (upgraded ? !(sourcePortOk && effective === '443') : effective !== port) return false;
-    } else if (!port && parsed.port !== '') {
-        return false; // no port in the source: only the scheme's default port matches
+    return sourcePortMatches(port, parsed, { upgraded: upgrade && `${sourceScheme}:` !== scheme, directive }) &&
+        (!path || sourcePathMatches(path, parsed.pathname));
+}
+
+/** Whether a CSP source's port (undefined when it names none) admits the URL's port. */
+function sourcePortMatches(port, parsed, { upgraded, directive }) {
+    const scheme = parsed.protocol;
+    // No port in the source: only the scheme's default port matches.
+    if (!port) return parsed.port === '';
+    if (port === '*') return true;
+    const effective = parsed.port || ({ 'https:': '443', 'http:': '80', 'wss:': '443', 'ws:': '80' })[scheme] || '';
+    if (!upgraded) return effective === port;
+    // With the scheme upgraded (http to https, ws to wss), Chrome matches only port 443: from a
+    // source port of 80, or of 443 for an https subresource (not a frame or form target), never
+    // from another port (http://h:8080 doesn't match https://h:8080).
+    const navigation = directive === 'frame-src' || directive === 'form-action';
+    const sourcePortOk = port === '80' || (port === '443' && scheme === 'https:' && !navigation);
+    return sourcePortOk && effective === '443';
+}
+
+/** Decodes percent-escapes, or keeps the text as written when an escape is malformed. */
+const decodeOrKeep = (text) => {
+    try {
+        return decodeURIComponent(text);
+    } catch {
+        return text;
     }
-    if (path) {
-        let sourcePath = path;
-        try {
-            sourcePath = decodeURIComponent(path);
-        } catch {
-            // keep the raw path
-        }
-        let pathname = parsed.pathname;
-        try {
-            pathname = decodeURIComponent(pathname);
-        } catch {
-            // a malformed escape: compare the path as written
-        }
-        if (sourcePath.endsWith('/') ? !pathname.startsWith(sourcePath) : pathname !== sourcePath) return false;
-    }
-    return true;
+};
+
+/** Whether a CSP source path matches a URL path: a "/"-ending source is a prefix, any other is exact. */
+function sourcePathMatches(path, urlPath) {
+    const sourcePath = decodeOrKeep(path);
+    const pathname = decodeOrKeep(urlPath);
+    return sourcePath.endsWith('/') ? pathname.startsWith(sourcePath) : pathname === sourcePath;
 }
 
 /**
