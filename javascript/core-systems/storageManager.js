@@ -56,8 +56,17 @@ async function writeFallback(values, fields, cloudBefore) {
 // finds the marker superseded and sets the edit aside instead of losing it.
 // For settings, a local copy left by a failed save is dropped with its marker
 // (or when unmarked: stale), so a later Force push can't upload it over this
-// newer value. Read, compare and remove happen under the pending-sync lock.
-async function clearPendingSync(fields, { localCopies = false } = {}) {
+// newer value. Lists instead pass `mirror` (field -> the value just saved to
+// sync): this device's local copy of each settled list becomes that value, so
+// it holds what the device shows rather than the snapshot of its last sync —
+// which a Force push or a merge would otherwise restore, bringing back links
+// deleted since. A field another page's marker still holds is left alone (its
+// local value is that page's unsynced edit), and so is a device that never
+// synced: its first Sync now merges local into the cloud, which would bring
+// back what other devices delete meanwhile. A sync that read the cloud before
+// this save can still write its older lists over the mirror; the next save
+// mirrors again. Read, compare and write happen under the pending-sync lock.
+async function clearPendingSync(fields, { localCopies = false, mirror = {} } = {}) {
     try {
         await withPendingSyncLock(async () => {
             const markers = await chrome.storage.local.get(fields.map(pendingSyncKey));
@@ -68,6 +77,13 @@ async function clearPendingSync(fields, { localCopies = false } = {}) {
             settled.forEach(field => knownMarkerIds.delete(field));
             if (settled.length > 0) {
                 await chrome.storage.local.remove([...settled.map(pendingSyncKey), ...(localCopies ? settled : [])]);
+            }
+            const toMirror = settled.filter(field => field in mirror);
+            if (toMirror.length > 0) {
+                const { syncMetadata } = await chrome.storage.local.get('syncMetadata');
+                if (syncMetadata?.version) {
+                    await chrome.storage.local.set(Object.fromEntries(toMirror.map(field => [field, mirror[field]])));
+                }
             }
         });
     } catch (error) {
@@ -272,7 +288,7 @@ export async function saveLinks(links) {
         const cloudBefore = await cloudBeforeSave(['links']);
         try {
             await syncSet({ links: linksString });
-            await clearPendingSync(['links']);
+            await clearPendingSync(['links'], { mirror: { links: linksString } });
         } catch (syncError) {
             debugWarn('Sync storage failed, falling back to local storage', {
                 errorMessage: syncError.message,
@@ -551,7 +567,7 @@ export async function saveCategories(categories) {
         const cloudBefore = await cloudBeforeSave(['categories']);
         try {
             await chrome.storage.sync.set({ categories: categoriesString });
-            await clearPendingSync(['categories']);
+            await clearPendingSync(['categories'], { mirror: { categories: categoriesString } });
         } catch (syncError) {
             debugWarn('Sync storage failed, falling back to local storage', {
                 errorMessage: syncError.message,
