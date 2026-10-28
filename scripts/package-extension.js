@@ -813,6 +813,7 @@ function joinBase(inherited, href) {
 
 /** Classic-script MIME types; Chrome strips whitespace (vertical tab included) around the type first. */
 const CLASSIC_JS_TYPES = /^(|(text|application)\/(x-)?(java|ecma)script|text\/(j|live)script|text\/javascript1\.[0-5])$/i;
+const trimScriptType = (type) => type.replace(/^[\t\n\v\f\r ]+|[\t\n\v\f\r ]+$/g, '');
 
 /**
  * Event-handler content attributes (on + name) that Chrome compiles as inline script: the
@@ -906,11 +907,16 @@ function htmlRefs(html, inheritedBase = null, scripting = true, inheritedPolicie
         if (!value || (/[\t\n\r]/.test(value) && value.includes('<'))) return;
         asciiTokens(value).forEach((url) => deferred.push({ url, directive: 'connect-src', ping: true }));
     };
-    const tags = scanHtml(html, { scripting });
-    for (const [position, tag] of tags.entries()) {
-        const { name, attrs, line, text } = tag;
-        const here = [...policies];
-        const nonce = attrs.get('nonce') ?? null;
+    const styleBlock = (text, nonce, here) => {
+        styles.push({ text, declarations: false });
+        styleItems.push({ kind: 'block', text, nonce, policies: here });
+    };
+
+    // Each element handler gets the tag and `at`: its position, the <meta> policies in effect
+    // there (here), and its nonce, src and href attributes.
+
+    // Attributes any element may carry: on* handlers, style=, and formaction on a submit control.
+    const anyElement = ({ name, attrs, line, foreign }, { here }) => {
         if (scripting) {
             for (const attr of attrs.keys()) {
                 if (EVENT_HANDLER_ATTRIBUTES.has(attr)) inline.push({ kind: 'handler', desc: `line ${line}: inline event handler ${attr}= on <${name}>`, text: attrs.get(attr), policies: here });
@@ -920,212 +926,226 @@ function htmlRefs(html, inheritedBase = null, scripting = true, inheritedPolicie
             styles.push({ text: attrs.get('style'), declarations: true });
             styleItems.push({ kind: 'attr', text: attrs.get('style'), policies: here });
         }
-        const src = attrs.get('src');
-        const href = attrs.get('href');
         // formaction is a submit target only on submit buttons and image/submit inputs.
         const controlType = (attrs.get('type') ?? '').toLowerCase();
         const submits = (name === 'button' && !['button', 'reset'].includes(controlType)) || (name === 'input' && ['submit', 'image'].includes(asciiTrim(controlType)));
-        if (attrs.has('formaction') && !tag.foreign && submits) add(attrs.get('formaction'), 'form-action');
-        if (tag.foreign) {
-            // SVG 2 href (or the legacy xlink:href, which href overrides): image and feImage load an
-            // image, script a classic script; use, a and the rest refer to their target. MathML
-            // elements load nothing.
-            const target = href ?? attrs.get('xlink:href');
-            const svg = tag.ns === 'svg';
-            // SVG script types read like HTML's: module exact, a classic type trimmed, others are data.
-            const svgType = attrs.get('type') ?? '';
-            const svgModule = /^module$/i.test(svgType);
-            if (svg && name === 'script' && !svgModule && !CLASSIC_JS_TYPES.test(svgType.replace(/^[\t\n\v\f\r ]+|[\t\n\v\f\r ]+$/g, ''))) continue;
-            if (svg && name === 'script') {
-                markScript(target, { classic: !svgModule && scripting, inert: !scripting });
-                if (!scripting) continue;
-                if (svgModule && firstModule === null) firstModule = line;
-                if (target === undefined && text.trim()) {
-                    problems.push(`line ${line}: inline <script> inside <svg> isn't supported by the packager; load it from a file`);
-                }
-            }
-            // Presentation attributes take CSS values: url() in them loads a resource (an image load).
-            if (svg) {
-                for (const attr of SVG_URL_ATTRIBUTES) {
-                    if (attrs.has(attr)) styles.push({ text: attrs.get(attr), declarations: false });
-                }
-            }
-            if (svg && name === 'style' && isCssType(attrs.get('type'))) {
-                styles.push({ text, declarations: false });
-                styleItems.push({ kind: 'block', text, nonce, policies: here });
-            }
-            if (target !== undefined && !urlTrim(target).startsWith('#')) {
-                if (svg && name === 'script') add(target, 'script-src', { parserInserted: true, nonce, integrity: attrs.get('integrity'), line, cors: svgModule, module: svgModule });
-                else add(target, svg && (name === 'image' || name === 'feimage') ? 'img-src' : null);
-            }
-            if (svg && name === 'a' && target !== undefined) ping(attrs.get('ping'));
-            add(src, null);
-            continue;
+        if (attrs.has('formaction') && !foreign && submits) add(attrs.get('formaction'), 'form-action');
+    };
+    // An SVG or MathML href that names a resource, not a #fragment of this document.
+    const linkTarget = (target) => target !== undefined && !urlTrim(target).startsWith('#');
+    // Presentation attributes take CSS values: url() in them loads a resource (an image load).
+    const presentationStyles = ({ attrs }) => {
+        for (const attr of SVG_URL_ATTRIBUTES) {
+            if (attrs.has(attr)) styles.push({ text: attrs.get(attr), declarations: false });
         }
-        switch (name) {
-            case 'script': {
-                // Chrome matches module/importmap exactly; a classic type may have whitespace around it.
-                const language = attrs.get('language') ?? '';
-                const type = attrs.has('type') ? attrs.get('type') : language ? `text/${language}` : '';
-                const module = /^module$/i.test(type);
-                const importmap = /^importmap$/i.test(type);
-                if (!module && !importmap && !CLASSIC_JS_TYPES.test(type.replace(/^[\t\n\v\f\r ]+|[\t\n\v\f\r ]+$/g, ''))) break; // a data block
-                if (importmap) {
-                    if (!scripting) break;
-                    if (src !== undefined) {
-                        problems.push(`line ${line}: <script type="importmap" src> is ignored by Chrome (import maps must be inline)`);
-                    } else if (text !== '') { // an empty one is skipped before anything is parsed
-                        inline.push({ kind: 'script', desc: `line ${line}: inline import map`, text, nonce, policies: here });
-                        // A module script before the map may resolve its imports first (always, when inline).
-                        if (firstModule !== null) problems.push(`line ${line}: this import map comes after the module script on line ${firstModule}, so Chrome may resolve that script's imports without it; put import maps first`);
-                        else importMaps.push({ text, line, base: currentBase() });
-                    }
-                    break;
-                }
-                if (module && scripting && firstModule === null) firstModule = line;
-                if (!scripting || (!module && attrs.has('nomodule'))) {
-                    // Never run: scripting is off (a sandbox without allow-scripts), or it is a nomodule
-                    // script, which Chrome skips because it runs modules. A classic file stays classic.
-                    markScript(src, { classic: false, inert: true });
-                    break;
-                }
-                if (src !== undefined) {
-                    add(src, 'script-src', { parserInserted: true, nonce, integrity: attrs.get('integrity'), line, cors: module || attrs.has('crossorigin'), module });
-                    if (!module) markScript(src);
-                    if (!module && !attrs.has('async') && !attrs.has('defer')) pauses.push(position);
-                } else if (text.trim()) {
-                    inline.push({ kind: 'script', desc: `line ${line}: inline <script>`, text, nonce, policies: here });
-                    inlineScripts.push({ text, module, nonce, line, base: currentBase() });
-                }
-                break;
-            }
-            case 'style':
-                if (!isCssType(attrs.get('type'))) break; // not CSS, so never applied
-                styles.push({ text, declarations: false });
-                styleItems.push({ kind: 'block', text, nonce, policies: here });
-                break;
-            case 'link': {
-                const rel = asciiTokens(attrs.get('rel')?.toLowerCase());
-                const as = asciiTrim(attrs.get('as') ?? '').toLowerCase();
-                const checked = { nonce, integrity: attrs.get('integrity'), line, cors: attrs.has('crossorigin') };
-                if (rel.includes('stylesheet')) {
-                    // Only a CSS sheet is fetched, and an integrity mismatch makes Chrome drop it.
-                    if (isCssType(attrs.get('type'), { parameters: true })) {
-                        add(href, 'style-src', checked);
-                        pauses.push(position);
-                    } else {
-                        add(href, null);
-                    }
-                } else if (rel.includes('icon') || rel.includes('apple-touch-icon')) {
-                    add(href, 'img-src');
-                } else if (rel.includes('modulepreload')) {
-                    // Fetched into the module map, so an integrity mismatch breaks later imports.
-                    if (Object.hasOwn(MODULEPRELOAD_DIRECTIVES, as)) add(href, MODULEPRELOAD_DIRECTIVES[as], { ...checked, cors: true, module: true });
-                    else add(href, null);
-                } else if (rel.includes('preload')) {
-                    // A preload's integrity counts where the page later uses the preloaded response
-                    // (a script, stylesheet or @font-face of that URL): see checkReferences.
-                    const preload = ['script', 'style', 'font'].includes(as) && attrs.has('integrity')
-                        ? { as, cors: attrs.has('crossorigin'), integrity: attrs.get('integrity'), line } : undefined;
-                    add(href, Object.hasOwn(PRELOAD_DIRECTIVES, as) ? PRELOAD_DIRECTIVES[as] : null, { nonce, preload, hint: true });
-                    // An image preload may name its candidates in imagesrcset (href is then optional).
-                    if (as === 'image') srcsetUrls(attrs.get('imagesrcset') || '').forEach((url) => add(url, 'img-src', { hint: true }));
-                } else if (rel.includes('manifest')) {
-                    add(href, 'manifest-src');
-                } else if (rel.includes('prefetch')) {
-                    add(href, 'default-src'); // CSP3 has no prefetch-src: prefetches fall under default-src
-                } else if (!rel.includes('preconnect') && !rel.includes('dns-prefetch')) {
-                    add(href, null);
-                }
-                break;
-            }
-            case 'img':
-                add(src, 'img-src');
-                srcsetUrls(attrs.get('srcset') || '').forEach((url) => add(url, 'img-src'));
-                break;
-            case 'source':
-                // Under <picture> only srcset (image candidates) counts; under <audio>/<video> only
-                // src (media); elsewhere a <source> loads nothing.
-                if (tag.parent === 'picture') srcsetUrls(attrs.get('srcset') || '').forEach((url) => add(url, 'img-src'));
-                else if (tag.parent === 'audio' || tag.parent === 'video') add(src, 'media-src');
-                break;
-            case 'video':
-            case 'audio':
-            case 'track':
-                add(src, 'media-src');
-                if (name === 'video') add(attrs.get('poster'), 'img-src'); // poster means nothing on audio or track
-                break;
-            case 'iframe':
-            case 'frame':
-                if (name === 'iframe' && attrs.has('srcdoc')) {
-                    // srcdoc wins over src (never requested). It is a nested document: it inherits this
-                    // page's policies and base URL, and runs no script when the iframe's sandbox lacks
-                    // allow-scripts.
-                    const sandbox = attrs.has('sandbox') ? asciiTokens(attrs.get('sandbox').toLowerCase()) : null;
-                    const nested = htmlRefs(attrs.get('srcdoc'), currentBase(), scripting && (!sandbox || sandbox.includes('allow-scripts')), here);
-                    // Without allow-same-origin the srcdoc's origin is opaque: Chrome exempts its own-URL scripts from CSP.
-                    const opaque = sandbox && !sandbox.includes('allow-same-origin') ? { sandboxed: true } : {};
-                    // Custom properties don't cross documents: the srcdoc's url()s in them resolve within it.
-                    const nestedRead = (property, seen = new Set()) => !seen.has(property) && (seen.add(property), nested.varUses.has(property) ||
-                        nested.varChains.some(([holder, read]) => read === property && (nested.registeredUrls.has(holder) || nestedRead(holder, seen))));
-                    const srcdoc = `${line}:${urls.length}`; // the srcdoc document's loads, for custom properties (see checkReferences)
-                    urls.push(...nested.urls.flatMap((item) => (item.custom === undefined ? [{ srcdoc, ...item, ...opaque }]
-                        : nested.registeredUrls.has(item.custom) || nestedRead(item.custom) ? [{ srcdoc, ...item, custom: undefined, ...opaque }] : [])));
-                    srcdocs.push({ id: srcdoc, varUses: [...nested.varUses], varChains: nested.varChains, registeredUrls: [...nested.registeredUrls],
-                        policies: [...nested.policies], opaque: Boolean(opaque.sandboxed) }, ...nested.srcdocs);
-                    problems.push(...nested.problems.map((item) => `line ${line} srcdoc ${item}`));
-                    inlineScripts.push(...nested.inlineScripts.map((script) => ({ ...script, ...opaque, line: `${line} srcdoc line ${script.line}` })));
-                    importMaps.push(...nested.importMaps.map((map) => ({ ...map, line: `${line} srcdoc line ${map.line}` })));
-                    classicScripts.push(...nested.classicScripts);
-                    inertScripts.push(...nested.inertScripts);
-                    inline.push(...nested.inline.map((item) => ({ ...item, desc: `line ${line} srcdoc ${item.desc}` })));
-                    styleItems.push(...nested.inlineStyles);
-                } else {
-                    add(src, 'frame-src');
-                }
-                break;
-            case 'object':
-                add(attrs.get('data'), 'object-src');
-                break;
-            case 'embed':
-                add(src, 'object-src');
-                break;
-            case 'input':
-                if (asciiTrim(attrs.get('type') ?? '').toLowerCase() === 'image') add(src, 'img-src');
-                break;
-            case 'base':
-                if (!base && href !== undefined && !tag.inTemplate) base = { href: joinBase(inheritedBase, urlTrim(href)), line, policies: here, position };
-                break;
-            case 'form':
-                add(attrs.get('action'), 'form-action');
-                break;
-            case 'meta': {
-                const equiv = (attrs.get('http-equiv') ?? '').toLowerCase(); // Chrome compares it unpadded
-                if (equiv === 'refresh') {
-                    // <meta http-equiv="refresh" content="N; url=target"> navigates to target.
-                    const m = /^\s*[\d.]*\s*[;,]?\s*(?:url\s*=\s*)?(["']?)(.*?)\1\s*$/i.exec(attrs.get('content') || '');
-                    if (m && m[2]) add(m[2], null);
-                } else if (equiv === 'content-security-policy' && tag.inHead && !tag.inTemplate && attrs.has('content')) {
-                    policies.push(attrs.get('content')); // enforced with the page's own policy from here on
-                }
-                break;
-            }
-            default:
-                // a, area and anything else: a navigation or unknown use; check local targets exist.
-                if (BACKGROUND_ELEMENTS.has(name) && urlTrim(attrs.get('background') ?? '')) {
-                    deferred.push({ url: attrs.get('background'), directive: 'img-src', line, name, elementBase: currentBase(), position });
-                }
-                add(src, null);
-                add(href, null);
-                if ((name === 'a' || name === 'area') && href !== undefined) {
-                    ping(attrs.get('ping'));
-                    // Following a javascript: link runs its code as inline script.
-                    if (scripting && /^javascript:/i.test(urlTrim(href))) {
-                        inline.push({ kind: 'navigation', desc: `line ${line}: javascript: URL in <${name} href>`, text: urlTrim(href).slice('javascript:'.length), policies: here });
-                    }
-                }
+    };
+    // SVG script types read like HTML's: module exact, a classic type trimmed, others are data.
+    const svgScript = (tag, { nonce, src }, target) => {
+        const { attrs, line, text } = tag;
+        const module = /^module$/i.test(attrs.get('type') ?? '');
+        if (!module && !CLASSIC_JS_TYPES.test(trimScriptType(attrs.get('type') ?? ''))) return;
+        markScript(target, { classic: !module && scripting, inert: !scripting });
+        if (!scripting) return;
+        if (module && firstModule === null) firstModule = line;
+        if (target === undefined && text.trim()) {
+            problems.push(`line ${line}: inline <script> inside <svg> isn't supported by the packager; load it from a file`);
         }
+        presentationStyles(tag);
+        if (linkTarget(target)) add(target, 'script-src', { parserInserted: true, nonce, integrity: attrs.get('integrity'), line, cors: module, module });
+        add(src, null);
+    };
+    const svgElement = (tag, { here, nonce, src }, target) => {
+        const { name, attrs, text } = tag;
+        presentationStyles(tag);
+        if (name === 'style' && isCssType(attrs.get('type'))) styleBlock(text, nonce, here);
+        if (linkTarget(target)) add(target, name === 'image' || name === 'feimage' ? 'img-src' : null);
+        if (name === 'a' && target !== undefined) ping(attrs.get('ping'));
+        add(src, null);
+    };
+    // SVG 2 href (or the legacy xlink:href, which href overrides): image and feImage load an
+    // image, script a classic script; use, a and the rest refer to their target. MathML
+    // elements load nothing.
+    const foreignElement = (tag, at) => {
+        const target = at.href ?? tag.attrs.get('xlink:href');
+        if (tag.ns === 'svg') {
+            (tag.name === 'script' ? svgScript : svgElement)(tag, at, target);
+        } else {
+            if (linkTarget(target)) add(target, null);
+            add(at.src, null);
+        }
+    };
+    const importMapElement = ({ line, text }, { here, nonce, src }) => {
+        if (!scripting) return;
+        if (src !== undefined) {
+            problems.push(`line ${line}: <script type="importmap" src> is ignored by Chrome (import maps must be inline)`);
+        } else if (text !== '') { // an empty one is skipped before anything is parsed
+            inline.push({ kind: 'script', desc: `line ${line}: inline import map`, text, nonce, policies: here });
+            // A module script before the map may resolve its imports first (always, when inline).
+            if (firstModule !== null) problems.push(`line ${line}: this import map comes after the module script on line ${firstModule}, so Chrome may resolve that script's imports without it; put import maps first`);
+            else importMaps.push({ text, line, base: currentBase() });
+        }
+    };
+    // A <script> that runs (module or classic): its file, or its inline text.
+    const runScript = ({ attrs, line, text }, { position, here, nonce, src }, module) => {
+        if (src !== undefined) {
+            add(src, 'script-src', { parserInserted: true, nonce, integrity: attrs.get('integrity'), line, cors: module || attrs.has('crossorigin'), module });
+            if (!module) markScript(src);
+            if (!module && !attrs.has('async') && !attrs.has('defer')) pauses.push(position);
+        } else if (text.trim()) {
+            inline.push({ kind: 'script', desc: `line ${line}: inline <script>`, text, nonce, policies: here });
+            inlineScripts.push({ text, module, nonce, line, base: currentBase() });
+        }
+    };
+    const scriptElement = (tag, at) => {
+        const { attrs, line } = tag;
+        // Chrome matches module/importmap exactly; a classic type may have whitespace around it.
+        const language = attrs.get('language') ?? '';
+        const type = attrs.has('type') ? attrs.get('type') : language ? `text/${language}` : '';
+        const module = /^module$/i.test(type);
+        if (/^importmap$/i.test(type)) {
+            importMapElement(tag, at);
+        } else if (module || CLASSIC_JS_TYPES.test(trimScriptType(type))) { // anything else is a data block
+            if (module && scripting && firstModule === null) firstModule = line;
+            // Never run: scripting is off (a sandbox without allow-scripts), or it is a nomodule
+            // script, which Chrome skips because it runs modules. A classic file stays classic.
+            if (!scripting || (!module && attrs.has('nomodule'))) markScript(at.src, { classic: false, inert: true });
+            else runScript(tag, at, module);
+        }
+    };
+    const checkedLoad = ({ attrs, line }, { nonce }) => ({ nonce, integrity: attrs.get('integrity'), line, cors: attrs.has('crossorigin') });
+    const linkAs = ({ attrs }) => asciiTrim(attrs.get('as') ?? '').toLowerCase();
+    // <link> kinds by rel token, the first that matches wins; other links are navigations.
+    const linkKinds = [
+        [['stylesheet'], (tag, at) => {
+            // Only a CSS sheet is fetched, and an integrity mismatch makes Chrome drop it.
+            const css = isCssType(tag.attrs.get('type'), { parameters: true });
+            add(at.href, css ? 'style-src' : null, css ? checkedLoad(tag, at) : {});
+            if (css) pauses.push(at.position);
+        }],
+        [['icon', 'apple-touch-icon'], (tag, { href }) => add(href, 'img-src')],
+        [['modulepreload'], (tag, at) => {
+            // Fetched into the module map, so an integrity mismatch breaks later imports.
+            const as = linkAs(tag);
+            const known = Object.hasOwn(MODULEPRELOAD_DIRECTIVES, as);
+            add(at.href, known ? MODULEPRELOAD_DIRECTIVES[as] : null, known ? { ...checkedLoad(tag, at), cors: true, module: true } : {});
+        }],
+        [['preload'], ({ attrs, line }, { nonce, href }) => {
+            // A preload's integrity counts where the page later uses the preloaded response
+            // (a script, stylesheet or @font-face of that URL): see checkReferences.
+            const as = linkAs({ attrs });
+            const preload = ['script', 'style', 'font'].includes(as) && attrs.has('integrity')
+                ? { as, cors: attrs.has('crossorigin'), integrity: attrs.get('integrity'), line } : undefined;
+            add(href, Object.hasOwn(PRELOAD_DIRECTIVES, as) ? PRELOAD_DIRECTIVES[as] : null, { nonce, preload, hint: true });
+            // An image preload may name its candidates in imagesrcset (href is then optional).
+            if (as === 'image') srcsetUrls(attrs.get('imagesrcset') || '').forEach((url) => add(url, 'img-src', { hint: true }));
+        }],
+        [['manifest'], (tag, { href }) => add(href, 'manifest-src')],
+        [['prefetch'], (tag, { href }) => add(href, 'default-src')], // CSP3 has no prefetch-src: prefetches fall under default-src
+        [['preconnect', 'dns-prefetch'], () => {}] // connection hints: nothing is fetched
+    ];
+    const linkElement = (tag, at) => {
+        const rel = asciiTokens(tag.attrs.get('rel')?.toLowerCase());
+        const kind = linkKinds.find(([tokens]) => tokens.some((token) => rel.includes(token)));
+        if (kind) kind[1](tag, at);
+        else add(at.href, null);
+    };
+    // srcdoc wins over src (never requested). It is a nested document: it inherits this page's
+    // policies and base URL, and runs no script when the iframe's sandbox lacks allow-scripts.
+    const srcdocFrame = ({ attrs, line }, here) => {
+        const sandbox = attrs.has('sandbox') ? asciiTokens(attrs.get('sandbox').toLowerCase()) : null;
+        const nested = htmlRefs(attrs.get('srcdoc'), currentBase(), scripting && (!sandbox || sandbox.includes('allow-scripts')), here);
+        // Without allow-same-origin the srcdoc's origin is opaque: Chrome exempts its own-URL scripts from CSP.
+        const opaque = sandbox && !sandbox.includes('allow-same-origin') ? { sandboxed: true } : {};
+        // Custom properties don't cross documents: the srcdoc's url()s in them resolve within it.
+        const nestedRead = (property, seen = new Set()) => !seen.has(property) && (seen.add(property), nested.varUses.has(property) ||
+            nested.varChains.some(([holder, read]) => read === property && (nested.registeredUrls.has(holder) || nestedRead(holder, seen))));
+        const srcdoc = `${line}:${urls.length}`; // the srcdoc document's loads, for custom properties (see checkReferences)
+        urls.push(...nested.urls.flatMap((item) => (item.custom === undefined ? [{ srcdoc, ...item, ...opaque }]
+            : nested.registeredUrls.has(item.custom) || nestedRead(item.custom) ? [{ srcdoc, ...item, custom: undefined, ...opaque }] : [])));
+        srcdocs.push({ id: srcdoc, varUses: [...nested.varUses], varChains: nested.varChains, registeredUrls: [...nested.registeredUrls],
+            policies: [...nested.policies], opaque: Boolean(opaque.sandboxed) }, ...nested.srcdocs);
+        problems.push(...nested.problems.map((item) => `line ${line} srcdoc ${item}`));
+        inlineScripts.push(...nested.inlineScripts.map((script) => ({ ...script, ...opaque, line: `${line} srcdoc line ${script.line}` })));
+        importMaps.push(...nested.importMaps.map((map) => ({ ...map, line: `${line} srcdoc line ${map.line}` })));
+        classicScripts.push(...nested.classicScripts);
+        inertScripts.push(...nested.inertScripts);
+        inline.push(...nested.inline.map((item) => ({ ...item, desc: `line ${line} srcdoc ${item.desc}` })));
+        styleItems.push(...nested.inlineStyles);
+    };
+    const metaElement = ({ attrs, inHead, inTemplate }) => {
+        const equiv = (attrs.get('http-equiv') ?? '').toLowerCase(); // Chrome compares it unpadded
+        if (equiv === 'refresh') {
+            // <meta http-equiv="refresh" content="N; url=target"> navigates to target.
+            const m = /^\s*[\d.]*\s*[;,]?\s*(?:url\s*=\s*)?(["']?)(.*?)\1\s*$/i.exec(attrs.get('content') || '');
+            if (m && m[2]) add(m[2], null);
+        } else if (equiv === 'content-security-policy' && inHead && !inTemplate && attrs.has('content')) {
+            policies.push(attrs.get('content')); // enforced with the page's own policy from here on
+        }
+    };
+    // a, area and anything else: a navigation or unknown use; check local targets exist.
+    const otherElement = ({ name, attrs, line }, { position, here, src, href }) => {
+        if (BACKGROUND_ELEMENTS.has(name) && urlTrim(attrs.get('background') ?? '')) {
+            deferred.push({ url: attrs.get('background'), directive: 'img-src', line, name, elementBase: currentBase(), position });
+        }
+        add(src, null);
+        add(href, null);
+        if ((name === 'a' || name === 'area') && href !== undefined) {
+            ping(attrs.get('ping'));
+            // Following a javascript: link runs its code as inline script.
+            if (scripting && /^javascript:/i.test(urlTrim(href))) {
+                inline.push({ kind: 'navigation', desc: `line ${line}: javascript: URL in <${name} href>`, text: urlTrim(href).slice('javascript:'.length), policies: here });
+            }
+        }
+    };
+    const media = ({ name, attrs }, { src }) => {
+        add(src, 'media-src');
+        if (name === 'video') add(attrs.get('poster'), 'img-src'); // poster means nothing on audio or track
+    };
+    const frame = (tag, { here, src }) => {
+        if (tag.name === 'iframe' && tag.attrs.has('srcdoc')) srcdocFrame(tag, here);
+        else add(src, 'frame-src');
+    };
+    const elements = new Map([
+        ['script', scriptElement],
+        ['style', ({ attrs, text }, { here, nonce }) => {
+            if (isCssType(attrs.get('type'))) styleBlock(text, nonce, here); // otherwise not CSS, so never applied
+        }],
+        ['link', linkElement],
+        ['img', ({ attrs }, { src }) => {
+            add(src, 'img-src');
+            srcsetUrls(attrs.get('srcset') || '').forEach((url) => add(url, 'img-src'));
+        }],
+        ['source', ({ attrs, parent }, { src }) => {
+            // Under <picture> only srcset (image candidates) counts; under <audio>/<video> only
+            // src (media); elsewhere a <source> loads nothing.
+            if (parent === 'picture') srcsetUrls(attrs.get('srcset') || '').forEach((url) => add(url, 'img-src'));
+            else if (parent === 'audio' || parent === 'video') add(src, 'media-src');
+        }],
+        ['video', media],
+        ['audio', media],
+        ['track', media],
+        ['iframe', frame],
+        ['frame', frame],
+        ['object', ({ attrs }) => add(attrs.get('data'), 'object-src')],
+        ['embed', (tag, { src }) => add(src, 'object-src')],
+        ['input', ({ attrs }, { src }) => {
+            if (asciiTrim(attrs.get('type') ?? '').toLowerCase() === 'image') add(src, 'img-src');
+        }],
+        ['base', ({ inTemplate, line }, { position, here, href }) => {
+            if (!base && href !== undefined && !inTemplate) base = { href: joinBase(inheritedBase, urlTrim(href)), line, policies: here, position };
+        }],
+        ['form', ({ attrs }) => add(attrs.get('action'), 'form-action')],
+        ['meta', metaElement]
+    ]);
+
+    for (const [position, tag] of scanHtml(html, { scripting }).entries()) {
+        const { attrs } = tag;
+        const at = { position, here: [...policies], nonce: attrs.get('nonce') ?? null, src: attrs.get('src'), href: attrs.get('href') };
+        anyElement(tag, at);
+        const handle = tag.foreign ? foreignElement : elements.get(tag.name) ?? otherElement;
+        handle(tag, at);
     }
+
     // Styles, legacy backgrounds and pings load once the page is parsed: against the document's
     // base URL, under every <meta> policy. Imports from inline modules and import maps too.
     const finalBase = currentBase();
