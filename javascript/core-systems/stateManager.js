@@ -124,100 +124,53 @@ function validateStateChanges(newState) {
  * @returns {Object} - Validation result
  */
 function validateAgainstSchema(value, schema, path = '') {
-    const errors = [];
+    if (!schema.type) return { valid: true, errors: [] };
 
-    // Type validation - handle arrays specially since typeof [] returns 'object'
-    if (schema.type) {
-        let actualType = typeof value;
-
-        // Special handling for arrays
-        if (schema.type === 'array' && Array.isArray(value)) {
-            actualType = 'array';
-        }
-
-        // Handle nullable types (array of types)
-        let validTypes = Array.isArray(schema.type) ? schema.type : [schema.type];
-
-        // Special handling for null values
-        if (value === null && validTypes.includes('null')) {
-            actualType = 'null';
-        }
-
-        // Enhanced validation for nullable types
-        if (value === null) {
-            if (!validTypes.includes('null')) {
-                errors.push(`${path}: Expected one of [${validTypes.join(', ')}], got null`);
-                return { valid: false, errors };
-            }
-            return { valid: true, errors: [] };
-        }
-
-        if (!validTypes.includes(actualType)) {
-            errors.push(`${path}: Expected one of [${validTypes.join(', ')}], got ${actualType}`);
-            return { valid: false, errors };
-        }
+    // Type validation - typeof [] is 'object', so arrays are matched explicitly
+    // (only when the schema type is exactly 'array')
+    const validTypes = Array.isArray(schema.type) ? schema.type : [schema.type];
+    if (value === null) {
+        return validTypes.includes('null')
+            ? { valid: true, errors: [] }
+            : { valid: false, errors: [`${path}: Expected one of [${validTypes.join(', ')}], got null`] };
+    }
+    const actualType = schema.type === 'array' && Array.isArray(value) ? 'array' : typeof value;
+    if (!validTypes.includes(actualType)) {
+        return { valid: false, errors: [`${path}: Expected one of [${validTypes.join(', ')}], got ${actualType}`] };
     }
 
-    // String validations
-    if (schema.type === 'string' || (Array.isArray(schema.type) && schema.type.includes('string'))) {
-        // Handle null values properly for nullable string types
-        if (value === null) {
-            if (Array.isArray(schema.type) && schema.type.includes('null')) {
-                return { valid: true, errors: [] };
-            }
-            errors.push(`${path}: Expected string, got null`);
-            return { valid: false, errors };
-        }
-
-        // Only validate string properties if value is actually a string
-        if (typeof value === 'string') {
-            if (schema.minLength && value.length < schema.minLength) {
-                errors.push(`${path}: Minimum length is ${schema.minLength}`);
-                return { valid: false, errors };
-            }
-            if (schema.maxLength && value.length > schema.maxLength) {
-                errors.push(`${path}: Maximum length is ${schema.maxLength}`);
-                return { valid: false, errors };
-            }
-            if (schema.enum && !schema.enum.includes(value)) {
-                errors.push(`${path}: Value must be one of: ${schema.enum.join(', ')}`);
-                return { valid: false, errors };
-            }
-            if (schema.format === 'uri') {
-                try {
-                    new URL(value);
-                } catch {
-                    errors.push(`${path}: Must be a valid URL`);
-                    return { valid: false, errors };
-                }
-            }
-        } else {
-            errors.push(`${path}: Expected string, got ${typeof value}`);
-            return { valid: false, errors };
-        }
+    if (validTypes.includes('string')) {
+        const error = stringSchemaError(value, schema);
+        return error
+            ? { valid: false, errors: [`${path}: ${error}`] }
+            : { valid: true, errors: [] };
     }
 
-    // Array validations
-    if (schema.type === 'array') {
-        if (!Array.isArray(value)) {
-            errors.push(`${path}: Must be an array`);
-            return { valid: false, errors };
-        }
-
-        if (schema.items) {
-            value.forEach((item, index) => {
-                const itemValidation = validateAgainstSchema(item, schema.items, `${path}[${index}]`);
-                if (!itemValidation.valid) {
-                    errors.push(...itemValidation.errors);
-                }
-            });
-        }
+    // Array items
+    if (schema.type === 'array' && schema.items) {
+        const errors = value.flatMap((item, index) =>
+            validateAgainstSchema(item, schema.items, `${path}[${index}]`).errors);
+        return { valid: errors.length === 0, errors };
     }
 
-    return {
-        valid: errors.length === 0,
-        errors: errors
-    };
+    return { valid: true, errors: [] };
+}
+
+// The first string-schema rule a value breaks (minLength, maxLength, enum,
+// format: 'uri'), as an error message; undefined when it satisfies them all.
+// A non-string value under a multi-type schema that allows strings fails here.
+function stringSchemaError(value, schema) {
+    if (typeof value !== 'string') return `Expected string, got ${typeof value}`;
+    if (schema.minLength && value.length < schema.minLength) return `Minimum length is ${schema.minLength}`;
+    if (schema.maxLength && value.length > schema.maxLength) return `Maximum length is ${schema.maxLength}`;
+    if (schema.enum && !schema.enum.includes(value)) return `Value must be one of: ${schema.enum.join(', ')}`;
+    if (schema.format === 'uri') {
+        try {
+            new URL(value);
+        } catch {
+            return 'Must be a valid URL';
+        }
+    }
 }
 
 /**

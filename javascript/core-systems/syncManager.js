@@ -272,6 +272,178 @@ export { SYNC_CLEARED_AT_KEY };
 export const SYNC_STRATEGY_KEY = 'syncConflictStrategy';
 export const SYNC_STRATEGIES = Object.freeze(['remote', 'merge', 'local']);
 
+// validateSyncData's errors for one field stored as a JSON-string array
+// (links, categories). Absent and null are acceptable. label starts each
+// message; itemErrors(item, index) returns the errors for one element.
+function jsonArrayFieldErrors(value, label, itemErrors) {
+    if (value === undefined) return [];
+    if (value === null) {
+        debug(`${label} property is null, which is acceptable`);
+        return [];
+    }
+    if (typeof value !== 'string') return [`${label} must be a JSON string, got ${typeof value}`];
+    let items;
+    try {
+        items = JSON.parse(value);
+    } catch (e) {
+        return [`${label} must be valid JSON: ${e.message}`];
+    }
+    if (!Array.isArray(items)) return [`${label} must be a valid JSON array`];
+    return items.flatMap(itemErrors);
+}
+
+function linkEntryErrors(link, i) {
+    if (!link || typeof link !== 'object') return [`Link at index ${i} must be an object`];
+    const errors = [];
+    if (!link.name || typeof link.name !== 'string') errors.push(`Link at index ${i} must have a valid name string`);
+    if (!link.url || typeof link.url !== 'string') errors.push(`Link at index ${i} must have a valid URL string`);
+    if (!link.category || typeof link.category !== 'string') errors.push(`Link at index ${i} must have a valid category string`);
+    try {
+        new URL(link.url);
+    } catch {
+        errors.push(`Link at index ${i} has an invalid URL format: ${link.url}`);
+    }
+    return errors;
+}
+
+function categoryEntryErrors(category, i) {
+    if (typeof category !== 'string') return [`Category at index ${i} must be a string`];
+    if (category.length === 0) return [`Category at index ${i} cannot be empty`];
+    if (category.length > 50) return [`Category at index ${i} exceeds maximum length of 50 characters`];
+    return [];
+}
+
+// Marked fields (saves that fell back to local), split into those still
+// pending (see markerStillPending) and stale ones.
+function classifyMarkers(local, cloud) {
+    const pendingFields = [];
+    const staleFields = [];
+    for (const field of PENDING_SYNC_FIELDS) {
+        const marker = local[pendingSyncKey(field)];
+        if (!marker) continue;
+        (markerStillPending(marker, cloud, field) ? pendingFields : staleFields).push(field);
+    }
+    return { pendingFields, staleFields };
+}
+
+// Collects the fields whose local entries the cloud lacks and a sync drops
+// without uploading, with the cause of the last addition that lost any.
+class SetAsideTracker {
+    constructor(local, cloud) {
+        this.local = local;
+        this.cloud = cloud;
+        this.fields = new Set();
+        this.cause = null;
+        // A category reorder is a change worth keeping only when this device
+        // made it deliberately: a marked (fallback) save, or one Force pull
+        // replaces. Unmarked categories that only differ in order aren't.
+        this.countReorder = false;
+    }
+
+    add(fields, why) {
+        const reorderCounts = why === 'superseded' || why === 'forcePull';
+        const lost = fields.filter(field => entriesCloudLacks(this.local, this.cloud, field, { countReorder: reorderCounts }) > 0);
+        if (lost.length === 0) return;
+        lost.forEach(field => this.fields.add(field));
+        this.cause = why;
+        if (reorderCounts && lost.includes('categories')) this.countReorder = true;
+    }
+}
+
+// Force pull: honor it whatever the versions say. Pending local edits are
+// replaced too, but kept as a set-aside copy.
+function pullFromCloud(sources, { local, cloud }, pendingFields, setAside, settled) {
+    if (holdsData(cloud)) {
+        setAside.add(pendingFields, 'forcePull');
+        settled.push(...pendingFields);
+        return sources.fromCloud();
+    }
+    if (Object.keys(pick(cloud, SETTINGS_KEYS)).length > 0) {
+        // The cloud holds only settings: pull those, and leave this device's
+        // lists (and their markers) as they are — there are no cloud lists to
+        // replace them with.
+        const pendingSettings = pendingFields.filter(field => SETTINGS_KEYS.includes(field));
+        setAside.add(pendingSettings, 'forcePull');
+        settled.push(...pendingSettings);
+        return { source: 'cloud', data: encodeLists(local), syncItems: null, keepLocalLists: true };
+    }
+    throw new Error('The cloud has no links, categories or settings to pull.');
+}
+
+// An ordinary sync (no Force push/pull), for the fields without a marker.
+function resolveAutomatically(sources, { local, cloud, metadata }, { pendingFields, staleFields, clearedAt }, { forceStrategy, strategy }, setAside) {
+    // Marked fields don't take part.
+    const unmarked = { ...local };
+    for (const field of [...staleFields, ...pendingFields]) delete unmarked[field];
+
+    if (!metadata.local.version && holdsData(unmarked)) {
+        // This device's first sync. Its local data never came from the
+        // cloud — it predates sync, or is a save that fell back to local —
+        // so merge it in rather than lose it (with an empty cloud, a plain
+        // migration). Unless the cloud was cleared (a clear stamp): then
+        // its entries the cloud lacks are set aside instead of undoing the
+        // clear. An empty cloud with no metadata on a device with a
+        // deviceId (what the previous release's clear left) is treated the
+        // same way, though it can also be genuine local data: the Sync tab
+        // creates a deviceId, so the copy is kept and the user told.
+        const legacyClear = !hasEntries(cloud.links) && !metadata.remote.version && !!local.deviceId;
+        if (clearedAt !== null || legacyClear) {
+            debug('Cloud was cleared; setting this device\'s local entries aside');
+            setAside.add(['links', 'categories'], clearedAt !== null ? 'cleared' : 'ambiguous');
+            return sources.fromCloud();
+        }
+        debug('First sync on this device; merging local data into sync');
+        return sources.merged(unmarked, { preferRemote: true });
+    }
+    if (!forceStrategy && metadata.local.version === metadata.remote.version) {
+        debug('No version conflict; using sync storage data');
+        return sources.fromCloud();
+    }
+    // Versions differ (another device synced since this one did), or a
+    // merge was forced. The default 'remote' keeps the cloud; 'merge'
+    // (resurrects deleted links) and 'local' (reverts the cloud to this
+    // device's snapshot) apply only when chosen explicitly.
+    debug('Conflict detected, resolving with strategy:', strategy);
+    if (strategy === 'local') return sources.fromLocal();
+    if (strategy === 'merge') return sources.merged(unmarked);
+    return sources.fromCloud();
+}
+
+// result with this device's still-pending fields laid over it, in both what
+// the device keeps and what is uploaded.
+function withPendingEdits(result, local, pendingFields) {
+    const localLists = encodeLists(local);
+    const pendingItems = {
+        ...pick(localLists, pendingFields),
+        ...pick(local, SETTINGS_KEYS.filter(key => pendingFields.includes(key)))
+    };
+    return {
+        source: result.source === 'cloud' ? 'pending' : result.source,
+        data: { ...result.data, ...pick(localLists, pendingFields) },
+        syncItems: { ...(result.syncItems ?? {}), ...pendingItems }
+    };
+}
+
+// resolveSyncData's return value. Whatever is uploaded isn't lost, and lists
+// left in place aren't either, so neither is set aside.
+function finishResolution(result, settled, setAside, local, cloud) {
+    for (const field of Object.keys(result.syncItems ?? {})) setAside.fields.delete(field);
+    const keepLocalLists = result.keepLocalLists === true;
+    const isList = (field) => field === 'links' || field === 'categories';
+    if (keepLocalLists) ['links', 'categories'].forEach(field => setAside.fields.delete(field));
+    const fields = [...setAside.fields];
+    return {
+        source: result.source,
+        data: withoutJunkLinks(result.data),
+        syncItems: result.syncItems ? withoutJunkLinks(result.syncItems) : null,
+        settled: keepLocalLists ? settled.filter(field => !isList(field)) : settled,
+        keepLocalLists,
+        setAside: fields.length > 0
+            ? { fields, reason: describeSetAside(fields, setAside.cause, local, cloud, { countReorder: setAside.countReorder }) }
+            : null
+    };
+}
+
 export class SyncManager {
     constructor() {
         this.syncInProgress = false;
@@ -485,133 +657,9 @@ export class SyncManager {
         this.notifyListeners('syncStart', { time: Date.now() });
 
         try {
-            debug('Starting sync operation...');
-
-            // Validate Chrome storage availability
-            if (!chrome.storage || !chrome.storage.local || !chrome.storage.sync) {
-                throw new Error('Chrome storage API not available');
-            }
-
-            // Read both storages. Abort if either fails: without knowing what
-            // the cloud holds, any write could wipe it.
-            let inputs;
-            try {
-                inputs = await this.readSyncInputs();
-            } catch (readError) {
-                debugError('Failed to read storage for sync:', readError);
-                this.reportSyncError(readError, readError.area === 'local'
-                    ? {
-                        type: 'local_storage_error',
-                        message: 'Failed to read local storage data.',
-                        details: readError.message
-                    }
-                    : syncStorageErrorEvent(readError.message));
-                throw readError;
-            }
-            const { metadata } = inputs;
-
-            // Determine sync strategy (this device's saved choice)
-            const strategy = forceStrategy || await this.getConflictResolutionStrategy();
-            const resolution = this.resolveSyncData(inputs, { forceStrategy, strategy });
-            const resolvedData = resolution.data;
-
-            // Validate resolved data before saving with enhanced error handling
-            const validationResult = this.validateSyncData(resolvedData);
-            if (!validationResult.valid) {
-                const validationError = new Error(`Data validation failed: ${validationResult.errors.join(', ')}`);
-                debugError('Sync data validation failed:', {
-                    errors: validationResult.errors,
-                    data: resolvedData
-                });
-                this.reportSyncError(validationError, {
-                    type: 'validation_error',
-                    message: 'Sync data validation failed',
-                    details: validationResult.errors,
-                    recommendation: 'Please check your data and try again. If the problem persists, contact support.'
-                });
-                throw validationError;
-            }
-
-            // Nothing changes until the cloud has accepted this sync. Local
-            // entries the cloud lacks that are dropped without being uploaded are
-            // downloaded first (no backup, no replacement). Then the changed
-            // fields and the new version go to sync in ONE write, which Chrome
-            // applies all-or-nothing: a rejected write (quota, rate limit) leaves
-            // both areas as they were. Only then is this device's copy updated.
-            const parkedSetAside = resolution.setAside
-                ? await this.prepareSetAside(resolution.setAside, inputs, resolvedData)
-                : null;
-
-            // A Force pull from a cloud that holds only settings changes no
-            // lists and records no sync (no new version on either side): a
-            // never-synced device then still merges its lists on its next sync.
-            const now = Date.now();
-            const newMetadata = resolution.keepLocalLists
-                ? null
-                : { version: now, lastModified: now, deviceId: inputs.local.deviceId ?? newDeviceId() };
-            if (newMetadata || resolution.syncItems) {
-                const cloudResult = await this.writeCloud(resolution.syncItems, newMetadata);
-                if (!cloudResult.syncSaved) {
-                    // Already reported: fail, with nothing changed.
-                    throw Object.assign(new Error(cloudResult.error), { reported: true });
-                }
-            }
-
-            // From here on the cloud has this sync: record it locally first
-            // (the version on its own, then the kept lists), so a later local
-            // failure can't leave this device looking unsynced — a first sync
-            // would then merge again and bring back links deleted since.
-            // Pushed, superseded or set-aside fields stop being pending.
-            const markerKeys = PENDING_SYNC_FIELDS.map(pendingSyncKey);
-            await this.writeLocal(resolvedData, newMetadata, {
-                readMarkers: pick(inputs.local, markerKeys),
-                cloudRead: inputs.cloud,
-                pushed: resolution.syncItems ?? {},
-                keepLocalLists: resolution.keepLocalLists,
-                settle: [
-                    ...(resolution.keepLocalLists ? [] : ['links', 'categories']),
-                    ...resolution.settled,
-                    ...Object.keys(resolution.syncItems ?? {})
-                ]
-            });
-            // Then keep the set-aside copy on this device. It was already
-            // downloaded (and parked) before the cloud write, so a failure here
-            // is logged and doesn't fail the sync. With no set-aside this time,
-            // a copy parked by an earlier attempt is kept if that attempt got
-            // past the cloud write (afterCloud), else dropped.
-            let setAsideKept = false;
-            if (parkedSetAside) {
-                setAsideKept = await this.commitSetAside(parkedSetAside);
-            } else {
-                await this.settleParkedSetAside();
-            }
-
-            const syncedItemsCount = (parseStoredArray(resolvedData.links) ?? []).length;
-            const warning = resolution.setAside
-                ? `${resolution.setAside.reason} A copy was ${setAsideKept ? 'saved on this device and ' : ''}`
-                    + 'downloaded as a backup file (restore it with Import on the Manage page).'
-                : undefined;
-
-            this.notifyListeners('syncComplete', {
-                time: this.lastSyncTime,
-                itemsSynced: syncedItemsCount,
-                strategy: strategy,
-                metadata: metadata,
-                warning
-            });
-
-            debug(`Sync completed successfully. Synced ${syncedItemsCount} items.`);
-
-            const result = { success: true, time: this.lastSyncTime, itemsSynced: syncedItemsCount, warning };
-
-            // Process queued sync requests
-            while (this.syncQueue.length > 0) {
-                const resolve = this.syncQueue.shift();
-                resolve(result);
-            }
-
+            const result = await this.runSync(forceStrategy);
+            this.resolveQueuedSyncs(result);
             return result;
-
         } catch (error) {
             debugError('Sync failed:', error);
 
@@ -627,17 +675,156 @@ export class SyncManager {
                 });
             }
 
-            // Process queued sync requests with error
-            while (this.syncQueue.length > 0) {
-                const resolve = this.syncQueue.shift();
-                resolve({ success: false, error: error.message, timestamp: Date.now() });
-            }
-
-            return { success: false, error: error.message, timestamp: Date.now() };
+            const failure = { success: false, error: error.message, timestamp: Date.now() };
+            this.resolveQueuedSyncs(failure);
+            return failure;
         } finally {
             this.syncInProgress = false;
             debug('Sync operation completed');
         }
+    }
+
+    // Answer the sync requests that queued behind the one that just finished.
+    resolveQueuedSyncs(result) {
+        while (this.syncQueue.length > 0) {
+            const resolve = this.syncQueue.shift();
+            resolve(result);
+        }
+    }
+
+    // One sync: read both areas, decide, validate, write, then tell listeners.
+    // Throws on failure; an error with reported set was already reported.
+    async runSync(forceStrategy) {
+        debug('Starting sync operation...');
+
+        // Validate Chrome storage availability
+        if (!chrome.storage || !chrome.storage.local || !chrome.storage.sync) {
+            throw new Error('Chrome storage API not available');
+        }
+
+        const inputs = await this.readSyncInputsOrReport();
+        const { metadata } = inputs;
+
+        // Determine sync strategy (this device's saved choice)
+        const strategy = forceStrategy || await this.getConflictResolutionStrategy();
+        const resolution = this.resolveSyncData(inputs, { forceStrategy, strategy });
+        const resolvedData = resolution.data;
+
+        this.assertValidSyncData(resolvedData);
+        const setAsideKept = await this.commitResolution(resolution, inputs);
+
+        const syncedItemsCount = (parseStoredArray(resolvedData.links) ?? []).length;
+        const warning = resolution.setAside
+            ? `${resolution.setAside.reason} A copy was ${setAsideKept ? 'saved on this device and ' : ''}`
+                + 'downloaded as a backup file (restore it with Import on the Manage page).'
+            : undefined;
+
+        this.notifyListeners('syncComplete', {
+            time: this.lastSyncTime,
+            itemsSynced: syncedItemsCount,
+            strategy: strategy,
+            metadata: metadata,
+            warning
+        });
+
+        debug(`Sync completed successfully. Synced ${syncedItemsCount} items.`);
+
+        return { success: true, time: this.lastSyncTime, itemsSynced: syncedItemsCount, warning };
+    }
+
+    // Read both storages. Abort if either fails: without knowing what the
+    // cloud holds, any write could wipe it. The failure is reported here.
+    async readSyncInputsOrReport() {
+        try {
+            return await this.readSyncInputs();
+        } catch (readError) {
+            debugError('Failed to read storage for sync:', readError);
+            this.reportSyncError(readError, readError.area === 'local'
+                ? {
+                    type: 'local_storage_error',
+                    message: 'Failed to read local storage data.',
+                    details: readError.message
+                }
+                : syncStorageErrorEvent(readError.message));
+            throw readError;
+        }
+    }
+
+    // Validate resolved data before saving; a failure is reported and thrown.
+    assertValidSyncData(resolvedData) {
+        const validationResult = this.validateSyncData(resolvedData);
+        if (validationResult.valid) return;
+        const validationError = new Error(`Data validation failed: ${validationResult.errors.join(', ')}`);
+        debugError('Sync data validation failed:', {
+            errors: validationResult.errors,
+            data: resolvedData
+        });
+        this.reportSyncError(validationError, {
+            type: 'validation_error',
+            message: 'Sync data validation failed',
+            details: validationResult.errors,
+            recommendation: 'Please check your data and try again. If the problem persists, contact support.'
+        });
+        throw validationError;
+    }
+
+    // Write what resolveSyncData decided. Resolves to whether a set-aside copy
+    // was kept on this device.
+    async commitResolution(resolution, inputs) {
+        const resolvedData = resolution.data;
+
+        // Nothing changes until the cloud has accepted this sync. Local
+        // entries the cloud lacks that are dropped without being uploaded are
+        // downloaded first (no backup, no replacement). Then the changed
+        // fields and the new version go to sync in ONE write, which Chrome
+        // applies all-or-nothing: a rejected write (quota, rate limit) leaves
+        // both areas as they were. Only then is this device's copy updated.
+        const parkedSetAside = resolution.setAside
+            ? await this.prepareSetAside(resolution.setAside, inputs, resolvedData)
+            : null;
+
+        // A Force pull from a cloud that holds only settings changes no
+        // lists and records no sync (no new version on either side): a
+        // never-synced device then still merges its lists on its next sync.
+        const now = Date.now();
+        const newMetadata = resolution.keepLocalLists
+            ? null
+            : { version: now, lastModified: now, deviceId: inputs.local.deviceId ?? newDeviceId() };
+        if (newMetadata || resolution.syncItems) {
+            const cloudResult = await this.writeCloud(resolution.syncItems, newMetadata);
+            if (!cloudResult.syncSaved) {
+                // Already reported: fail, with nothing changed.
+                throw Object.assign(new Error(cloudResult.error), { reported: true });
+            }
+        }
+
+        // From here on the cloud has this sync: record it locally first
+        // (the version on its own, then the kept lists), so a later local
+        // failure can't leave this device looking unsynced — a first sync
+        // would then merge again and bring back links deleted since.
+        // Pushed, superseded or set-aside fields stop being pending.
+        const markerKeys = PENDING_SYNC_FIELDS.map(pendingSyncKey);
+        await this.writeLocal(resolvedData, newMetadata, {
+            readMarkers: pick(inputs.local, markerKeys),
+            cloudRead: inputs.cloud,
+            pushed: resolution.syncItems ?? {},
+            keepLocalLists: resolution.keepLocalLists,
+            settle: [
+                ...(resolution.keepLocalLists ? [] : ['links', 'categories']),
+                ...resolution.settled,
+                ...Object.keys(resolution.syncItems ?? {})
+            ]
+        });
+        // Then keep the set-aside copy on this device. It was already
+        // downloaded (and parked) before the cloud write, so a failure here
+        // is logged and doesn't fail the sync. With no set-aside this time,
+        // a copy parked by an earlier attempt is kept if that attempt got
+        // past the cloud write (afterCloud), else dropped.
+        if (parkedSetAside) {
+            return this.commitSetAside(parkedSetAside);
+        }
+        await this.settleParkedSetAside();
+        return false;
     }
 
     // Read everything a sync decision needs in one read per area: this device's
@@ -687,150 +874,62 @@ export class SyncManager {
     //   setAside  { fields, reason } for local entries the cloud lacks that are
     //             dropped without being uploaded; syncData keeps and downloads
     //             a copy and tells the user (null otherwise)
-    resolveSyncData({ local, cloud, metadata }, { forceStrategy = null, strategy = this.conflictResolutionStrategy } = {}) {
-        const fromCloud = () => ({
-            source: 'cloud',
-            data: { links: cloud.links ?? '[]', categories: cloud.categories ?? '["Default"]' },
-            syncItems: null
-        });
+    resolveSyncData(inputs, { forceStrategy = null, strategy = this.conflictResolutionStrategy } = {}) {
+        const { local, cloud } = inputs;
+        const sources = this.syncSources(inputs);
+        const clearedAt = cloud[SYNC_CLEARED_AT_KEY] ?? null;
+        const { pendingFields, staleFields } = classifyMarkers(local, cloud);
+
+        const setAside = new SetAsideTracker(local, cloud);
+        setAside.add(staleFields, 'superseded');
+
+        let result;
+        const settled = [...staleFields];
+        if (forceStrategy === 'remote') {
+            result = pullFromCloud(sources, inputs, pendingFields, setAside, settled);
+        } else if (forceStrategy === 'local') {
+            // Explicit push: honor it whatever the versions say.
+            if (!holdsData(local) && Object.keys(pick(local, sources.markedSettings)).length === 0) {
+                throw new Error('This device has no local copy to push.');
+            }
+            result = sources.fromLocal();
+        } else {
+            result = resolveAutomatically(sources, inputs, { pendingFields, staleFields, clearedAt }, { forceStrategy, strategy }, setAside);
+            // Then this device's own newer edits win for their fields (an empty
+            // list too).
+            if (pendingFields.length > 0) {
+                result = withPendingEdits(result, local, pendingFields);
+                settled.push(...pendingFields);
+            }
+        }
+
+        return finishResolution(result, settled, setAside, local, cloud);
+    }
+
+    // The three outcomes a sync can choose from: keep the cloud's lists, push
+    // this device's copy, or merge the two.
+    syncSources({ local, cloud, metadata }) {
         // This device's local copy: its lists plus the settings it holds that
         // are still marked pending. An unmarked local setting is stale (its
         // save reached sync later, or an older build wrote it) and would revert
         // a newer choice on every device.
         const markedSettings = SETTINGS_KEYS.filter(key => local[pendingSyncKey(key)] !== undefined);
-        const fromLocal = () => ({
-            source: 'local',
-            data: encodeLists(local),
-            syncItems: { ...encodeLists(local), ...pick(local, markedSettings) }
-        });
-        const merged = (localSide, options) => {
-            const data = this.mergeData(localSide, cloud, metadata, options);
-            return { source: 'merged', data, syncItems: data };
-        };
-
-        // Pending while the cloud still holds the value it had when the save
-        // fell back and hasn't been cleared since (same clear stamp).
-        const clearedAt = cloud[SYNC_CLEARED_AT_KEY] ?? null;
-        const pendingFields = [];
-        const staleFields = [];
-        for (const field of PENDING_SYNC_FIELDS) {
-            const marker = local[pendingSyncKey(field)];
-            if (!marker) continue;
-            (markerStillPending(marker, cloud, field) ? pendingFields : staleFields).push(field);
-        }
-
-        const setAside = new Set();
-        let cause = null;
-        // A category reorder is a change worth keeping only when this device
-        // made it deliberately: a marked (fallback) save, or one Force pull
-        // replaces. Unmarked categories that only differ in order aren't.
-        let countReorder = false;
-        const setAsideWhatCloudLacks = (fields, why) => {
-            const reorderCounts = why === 'superseded' || why === 'forcePull';
-            const lost = fields.filter(field => entriesCloudLacks(local, cloud, field, { countReorder: reorderCounts }) > 0);
-            if (lost.length === 0) return;
-            lost.forEach(field => setAside.add(field));
-            cause = why;
-            if (reorderCounts && lost.includes('categories')) countReorder = true;
-        };
-        setAsideWhatCloudLacks(staleFields, 'superseded');
-
-        let result;
-        const settled = [...staleFields];
-        if (forceStrategy === 'remote') {
-            // Explicit pull: honor it whatever the versions say. Pending local
-            // edits are replaced too, but kept as a set-aside copy.
-            if (holdsData(cloud)) {
-                result = fromCloud();
-                setAsideWhatCloudLacks(pendingFields, 'forcePull');
-                settled.push(...pendingFields);
-            } else if (Object.keys(pick(cloud, SETTINGS_KEYS)).length > 0) {
-                // The cloud holds only settings: pull those, and leave this
-                // device's lists (and their markers) as they are — there are no
-                // cloud lists to replace them with.
-                const pendingSettings = pendingFields.filter(field => SETTINGS_KEYS.includes(field));
-                result = { source: 'cloud', data: encodeLists(local), syncItems: null, keepLocalLists: true };
-                setAsideWhatCloudLacks(pendingSettings, 'forcePull');
-                settled.push(...pendingSettings);
-            } else {
-                throw new Error('The cloud has no links, categories or settings to pull.');
-            }
-        } else if (forceStrategy === 'local') {
-            // Explicit push: honor it whatever the versions say.
-            if (!holdsData(local) && Object.keys(pick(local, markedSettings)).length === 0) {
-                throw new Error('This device has no local copy to push.');
-            }
-            result = fromLocal();
-        } else {
-            // The other fields first; marked fields don't take part.
-            const unmarked = { ...local };
-            for (const field of [...staleFields, ...pendingFields]) delete unmarked[field];
-
-            if (!metadata.local.version && holdsData(unmarked)) {
-                // This device's first sync. Its local data never came from the
-                // cloud — it predates sync, or is a save that fell back to local —
-                // so merge it in rather than lose it (with an empty cloud, a plain
-                // migration). Unless the cloud was cleared (a clear stamp): then
-                // its entries the cloud lacks are set aside instead of undoing the
-                // clear. An empty cloud with no metadata on a device with a
-                // deviceId (what the previous release's clear left) is treated the
-                // same way, though it can also be genuine local data: the Sync tab
-                // creates a deviceId, so the copy is kept and the user told.
-                const legacyClear = !hasEntries(cloud.links) && !metadata.remote.version && !!local.deviceId;
-                if (clearedAt !== null || legacyClear) {
-                    debug('Cloud was cleared; setting this device\'s local entries aside');
-                    result = fromCloud();
-                    setAsideWhatCloudLacks(['links', 'categories'], clearedAt !== null ? 'cleared' : 'ambiguous');
-                } else {
-                    debug('First sync on this device; merging local data into sync');
-                    result = merged(unmarked, { preferRemote: true });
-                }
-            } else if (!forceStrategy && metadata.local.version === metadata.remote.version) {
-                debug('No version conflict; using sync storage data');
-                result = fromCloud();
-            } else {
-                // Versions differ (another device synced since this one did), or a
-                // merge was forced. The default 'remote' keeps the cloud; 'merge'
-                // (resurrects deleted links) and 'local' (reverts the cloud to this
-                // device's snapshot) apply only when chosen explicitly.
-                debug('Conflict detected, resolving with strategy:', strategy);
-                if (strategy === 'local') result = fromLocal();
-                else if (strategy === 'merge') result = merged(unmarked);
-                else result = fromCloud();
-            }
-
-            // Then this device's own newer edits win for their fields (an empty
-            // list too).
-            if (pendingFields.length > 0) {
-                const localLists = encodeLists(local);
-                const pendingItems = {
-                    ...pick(localLists, pendingFields),
-                    ...pick(local, SETTINGS_KEYS.filter(key => pendingFields.includes(key)))
-                };
-                result = {
-                    source: result.source === 'cloud' ? 'pending' : result.source,
-                    data: { ...result.data, ...pick(localLists, pendingFields) },
-                    syncItems: { ...(result.syncItems ?? {}), ...pendingItems }
-                };
-                settled.push(...pendingFields);
-            }
-        }
-
-        // Whatever is uploaded isn't lost, and lists left in place aren't either.
-        for (const field of Object.keys(result.syncItems ?? {})) setAside.delete(field);
-        const keepLocalLists = result.keepLocalLists === true;
-        const isList = (field) => field === 'links' || field === 'categories';
-        if (keepLocalLists) ['links', 'categories'].forEach(field => setAside.delete(field));
-        const fields = [...setAside];
         return {
-            source: result.source,
-            data: withoutJunkLinks(result.data),
-            syncItems: result.syncItems ? withoutJunkLinks(result.syncItems) : null,
-            settled: keepLocalLists ? settled.filter(field => !isList(field)) : settled,
-            keepLocalLists,
-            setAside: fields.length > 0
-                ? { fields, reason: describeSetAside(fields, cause, local, cloud, { countReorder }) }
-                : null
+            markedSettings,
+            fromCloud: () => ({
+                source: 'cloud',
+                data: { links: cloud.links ?? '[]', categories: cloud.categories ?? '["Default"]' },
+                syncItems: null
+            }),
+            fromLocal: () => ({
+                source: 'local',
+                data: encodeLists(local),
+                syncItems: { ...encodeLists(local), ...pick(local, markedSettings) }
+            }),
+            merged: (localSide, options) => {
+                const data = this.mergeData(localSide, cloud, metadata, options);
+                return { source: 'merged', data, syncItems: data };
+            }
         };
     }
 
@@ -1126,84 +1225,10 @@ export class SyncManager {
             return { valid: false, errors };
         }
 
-        // Validate links property with comprehensive checks
-        if (data.links !== undefined) {
-            if (data.links === null) {
-                // Null is acceptable for links
-                debug('Links property is null, which is acceptable');
-            } else if (typeof data.links !== 'string') {
-                errors.push(`Links must be a JSON string, got ${typeof data.links}`);
-            } else {
-                // Try to parse JSON to validate format
-                try {
-                    const links = JSON.parse(data.links);
-                    if (!Array.isArray(links)) {
-                        errors.push('Links must be a valid JSON array');
-                    } else {
-                        // Validate each link in the array
-                        for (let i = 0; i < links.length; i++) {
-                            const link = links[i];
-                            if (!link || typeof link !== 'object') {
-                                errors.push(`Link at index ${i} must be an object`);
-                                continue;
-                            }
-                            
-                            // Validate required properties
-                            if (!link.name || typeof link.name !== 'string') {
-                                errors.push(`Link at index ${i} must have a valid name string`);
-                            }
-                            if (!link.url || typeof link.url !== 'string') {
-                                errors.push(`Link at index ${i} must have a valid URL string`);
-                            }
-                            if (!link.category || typeof link.category !== 'string') {
-                                errors.push(`Link at index ${i} must have a valid category string`);
-                            }
-                            
-                            // Validate URL format
-                            try {
-                                new URL(link.url);
-                            } catch {
-                                errors.push(`Link at index ${i} has an invalid URL format: ${link.url}`);
-                            }
-                        }
-                    }
-                } catch (e) {
-                    errors.push(`Links must be valid JSON: ${e.message}`);
-                }
-            }
-        }
-
-        // Validate categories property with comprehensive checks
-        if (data.categories !== undefined) {
-            if (data.categories === null) {
-                // Null is acceptable for categories
-                debug('Categories property is null, which is acceptable');
-            } else if (typeof data.categories !== 'string') {
-                errors.push(`Categories must be a JSON string, got ${typeof data.categories}`);
-            } else {
-                // Try to parse JSON to validate format
-                try {
-                    const categories = JSON.parse(data.categories);
-                    if (!Array.isArray(categories)) {
-                        errors.push('Categories must be a valid JSON array');
-                    } else {
-                        // Validate each category in the array
-                        for (let i = 0; i < categories.length; i++) {
-                            const category = categories[i];
-                            if (typeof category !== 'string') {
-                                errors.push(`Category at index ${i} must be a string`);
-                            } else if (category.length === 0) {
-                                errors.push(`Category at index ${i} cannot be empty`);
-                            } else if (category.length > 50) {
-                                errors.push(`Category at index ${i} exceeds maximum length of 50 characters`);
-                            }
-                        }
-                    }
-                } catch (e) {
-                    errors.push(`Categories must be valid JSON: ${e.message}`);
-                }
-            }
-        }
+        errors.push(
+            ...jsonArrayFieldErrors(data.links, 'Links', linkEntryErrors),
+            ...jsonArrayFieldErrors(data.categories, 'Categories', categoryEntryErrors)
+        );
 
         // Additional content structure validation
         const validProperties = ['links', 'categories'];
