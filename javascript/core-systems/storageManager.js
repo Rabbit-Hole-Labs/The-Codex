@@ -242,7 +242,16 @@ export async function loadLinks() {
     }
 }
 
-export async function saveLinks(links) {
+/**
+ * Save the links to sync. When the sync write fails the links are kept on
+ * this device with a pending-sync marker, unless `fallback` is false (a
+ * background save that can simply try again): it then returns false and
+ * leaves local storage alone.
+ * @param {Object[]} links
+ * @param {{ fallback?: boolean }} [options]
+ * @returns {Promise<boolean>} whether the links were saved
+ */
+export async function saveLinks(links, { fallback = true } = {}) {
     try {
         // Validate links is an array before saving
         if (!Array.isArray(links)) {
@@ -290,6 +299,10 @@ export async function saveLinks(links) {
             await syncSet({ links: linksString });
             await clearPendingSync(['links'], { mirror: { links: linksString } });
         } catch (syncError) {
+            if (!fallback) {
+                debugWarn('Sync storage failed; not saved', { errorMessage: syncError.message });
+                return false;
+            }
             debugWarn('Sync storage failed, falling back to local storage', {
                 errorMessage: syncError.message,
                 errorStack: syncError.stack

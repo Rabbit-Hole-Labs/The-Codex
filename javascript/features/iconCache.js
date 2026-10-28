@@ -16,6 +16,20 @@ import {
 export { validateIconValue };
 export { refreshCachedIcon } from './iconSources.js';
 
+// Told of each new selfh.st match for a link without a picked icon (the new
+// tab saves them to the link, see autoIconSync.js). A listener rather than an
+// import: storageManager imports this module.
+const noMatchListener = () => {};
+let selfhstMatchListener = noMatchListener;
+
+/**
+ * Set (or clear, with null) the function told of each new selfh.st match.
+ * @param {((link: Object, url: string) => void)|null} listener
+ */
+export function setSelfhstMatchListener(listener) {
+    selfhstMatchListener = listener ?? noMatchListener;
+}
+
 // Icon cache storage
 let iconCache = new Map();
 let cacheStats = {
@@ -122,6 +136,7 @@ export async function loadIconWithCache(link, options = {}) {
             const match = await loadSelfhstIcon(link, compliantOptions.timeout);
             if (match) {
                 rememberIconSource(link, match.url);
+                selfhstMatchListener(link, match.url);
                 await cacheIcon(cacheKey, match.src, ICON_SOURCES.SELFHST);
                 return match.src;
             }
