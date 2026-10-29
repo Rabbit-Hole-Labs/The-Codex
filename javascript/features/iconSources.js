@@ -86,6 +86,92 @@ async function flushIconSources() {
 }
 
 /**
+ * Split off the links this page already resolved: their icon goes straight
+ * into `result`; the rest are returned for the device lookup.
+ * @param {Object[]} links
+ * @param {(link: Object) => (string|null)} inMemory
+ * @param {Map} result - filled in place
+ * @returns {Object[]} links with no in-memory icon
+ */
+function takeInMemoryIcons(links, inMemory, result) {
+    const misses = [];
+    for (const link of links ?? []) {
+        if (!link) continue;
+        const src = inMemory(link);
+        // Anything but a data: URI (e.g. a favicon this page resolved) can
+        // still fail to load on a re-render.
+        if (src) result.set(link, { src, fresh: true, storedUrl: null, network: !/^data:/i.test(src) });
+        else misses.push(link);
+    }
+    return misses;
+}
+
+/**
+ * A picked icon: a valid data: URI paints as is; anything else is looked up
+ * in the byte store.
+ * @param {Object} link
+ * @param {string} custom - the trimmed link.icon (not '' or 'default')
+ * @param {Map} result - filled in place
+ * @param {Map} fromStore - link -> { url, fresh }, filled in place
+ */
+function placeCustomIcon(link, custom, result, fromStore) {
+    if (/^data:/i.test(custom)) {
+        if (validateDataUrl(custom)) result.set(link, { src: custom, fresh: true, storedUrl: null, network: false });
+    } else {
+        fromStore.set(link, { url: custom, fresh: true });
+    }
+}
+
+/**
+ * An automatic match remembered on this device: initials are regenerated,
+ * Google favicons load from the network (HTTP cache), selfh.st matches are
+ * looked up in the byte store. Stale ones still paint (fresh = false).
+ * @param {Object} link
+ * @param {{src: string, at?: number}} remembered
+ * @param {number} now
+ * @param {(link: Object) => (string|null)} initialsFor
+ * @param {Map} result - filled in place
+ * @param {Map} fromStore - link -> { url, fresh }, filled in place
+ */
+function placeRememberedIcon(link, remembered, now, initialsFor, result, fromStore) {
+    const initials = remembered.src === GENERATED_SOURCE;
+    const fresh = now - (remembered.at ?? 0) < (initials ? GENERATED_FRESH_FOR : SOURCE_FRESH_FOR);
+    if (initials) {
+        const generated = initialsFor(link);
+        if (generated) result.set(link, { src: generated, fresh, storedUrl: null, network: false });
+    } else if (remembered.src.startsWith(GOOGLE_FAVICON_PREFIX)) {
+        result.set(link, { src: remembered.src, fresh, storedUrl: null, network: true });
+    } else {
+        fromStore.set(link, { url: remembered.src, fresh });
+    }
+}
+
+/**
+ * Sort each link the page hasn't resolved by where its icon can come from:
+ * its picked icon, else what this device remembered matching (if anything).
+ * @param {Object[]} misses
+ * @param {Object|null} sources - the stored iconSourcesV1 map
+ * @param {(link: Object) => (string|null)} initialsFor
+ * @param {Map} result - filled in place
+ * @returns {Map<Object, {url: string, fresh: boolean}>} links to look up in the byte store
+ */
+function placeDeviceIcons(misses, sources, initialsFor, result) {
+    const now = Date.now();
+    const fromStore = new Map(); // link -> { url, fresh }
+    for (const link of misses) {
+        const custom = String(link.icon ?? '').trim();
+        if (custom && custom !== 'default') {
+            placeCustomIcon(link, custom, result, fromStore);
+            continue;
+        }
+        const remembered = sources?.[iconCacheKey(link)];
+        if (typeof remembered?.src !== 'string') continue;
+        placeRememberedIcon(link, remembered, now, initialsFor, result, fromStore);
+    }
+    return fromStore;
+}
+
+/**
  * The icons this device can show in the new tab's first paint, without the
  * network: custom icons and remembered selfh.st matches whose bytes are
  * stored, remembered Google favicons (served from the browser's HTTP cache)
@@ -103,15 +189,7 @@ async function flushIconSources() {
  */
 export async function resolveCachedIcons(links, { inMemory, initialsFor }) {
     const result = new Map();
-    const misses = [];
-    for (const link of links ?? []) {
-        if (!link) continue;
-        const src = inMemory(link);
-        // Anything but a data: URI (e.g. a favicon this page resolved) can
-        // still fail to load on a re-render.
-        if (src) result.set(link, { src, fresh: true, storedUrl: null, network: !/^data:/i.test(src) });
-        else misses.push(link);
-    }
+    const misses = takeInMemoryIcons(links, inMemory, result);
     if (misses.length === 0) return result;
 
     let sources = {};
@@ -120,31 +198,7 @@ export async function resolveCachedIcons(links, { inMemory, initialsFor }) {
     } catch {
         // Nothing remembered: custom icons can still come from the byte store.
     }
-    const now = Date.now();
-    const fromStore = new Map(); // link -> { url, fresh }
-    for (const link of misses) {
-        const custom = String(link.icon ?? '').trim();
-        if (custom && custom !== 'default') {
-            if (/^data:/i.test(custom)) {
-                if (validateDataUrl(custom)) result.set(link, { src: custom, fresh: true, storedUrl: null, network: false });
-            } else {
-                fromStore.set(link, { url: custom, fresh: true });
-            }
-            continue;
-        }
-        const remembered = sources?.[iconCacheKey(link)];
-        if (typeof remembered?.src !== 'string') continue;
-        const freshFor = remembered.src === GENERATED_SOURCE ? GENERATED_FRESH_FOR : SOURCE_FRESH_FOR;
-        const fresh = now - (remembered.at ?? 0) < freshFor;
-        if (remembered.src === GENERATED_SOURCE) {
-            const generated = initialsFor(link);
-            if (generated) result.set(link, { src: generated, fresh, storedUrl: null, network: false });
-        } else if (remembered.src.startsWith(GOOGLE_FAVICON_PREFIX)) {
-            result.set(link, { src: remembered.src, fresh, storedUrl: null, network: true });
-        } else {
-            fromStore.set(link, { url: remembered.src, fresh });
-        }
-    }
+    const fromStore = placeDeviceIcons(misses, sources, initialsFor, result);
 
     // readStoredIcons only reads the pinned icon hosts, as loadCustomIcon allows.
     const stored = await readStoredIcons([...fromStore.values()].map(entry => entry.url));

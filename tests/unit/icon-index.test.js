@@ -57,6 +57,18 @@ describe('parseIndexPayload', () => {
         expect(slugs.sort()).toEqual(['nightlight', 'plex', 'plex-dark', 'plex-light']);
     });
 
+    it('parses {icons: [...]} payloads, lowercase variant fields and webp path strings', () => {
+        const payload = { icons: [
+            { slug: 'Sonarr', light: 'true', dark: '0' },
+            { reference: 'radarr', Dark: ' 1 ' },
+            '/webp/Jellyfin.webp',
+            null,
+            42
+        ] };
+        expect(parseIndexPayload(payload).sort())
+            .toEqual(['jellyfin', 'radarr', 'radarr-dark', 'sonarr', 'sonarr-light']);
+    });
+
     it('returns empty for unknown shapes without throwing', () => {
         expect(parseIndexPayload(null)).toEqual([]);
         expect(parseIndexPayload({ nope: true })).toEqual([]);
