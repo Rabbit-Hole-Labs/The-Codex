@@ -6,7 +6,7 @@ import { initErrorCapture } from '../features/errorCapture.js';
 import { loadLinks, saveLinks, saveSettings } from '../core-systems/storageManager.js';
 import { debounce } from '../features/utils.js';
 import { getState, addStateChangeListener, safeUpdateState } from '../core-systems/stateManager.js';
-import { getPerformanceMetrics, resetPerformanceMetrics } from '../features/domOptimizer.js';
+import { getPerformanceMetrics, resetPerformanceMetrics, groupBy } from '../features/domOptimizer.js';
 import { createCategorySection, renderNoResults } from '../core-systems/tileRenderer.js';
 import { handleError, safeAsync, registerErrorHandler } from '../features/errorHandler.js';
 import { loadIconWithCache, getCacheStats, resolveCachedIcons, refreshCachedIcon, generateInitials, setSelfhstMatchListener } from '../features/iconCache.js';
@@ -1019,14 +1019,6 @@ function applyView() {
     });
 }
 
-
-// Utility function to group links by category
-function groupBy(array, key) {
-    return array.reduce((result, currentValue) => {
-        (result[currentValue[key]] = result[currentValue[key]] || []).push(currentValue);
-        return result;
-    }, Object.create(null)); // no prototype: a category named 'constructor' or '__proto__' is just a key
-}
 
 function updateSearchSuggestions() {
     if (!searchSuggestions) return;

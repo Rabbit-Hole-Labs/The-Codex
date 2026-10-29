@@ -290,6 +290,44 @@ function updateCategorySection(section, category, links, state) {
 }
 
 /**
+ * Shows the tile's icon or its placeholder for the link's icon URL.
+ * A URL with an icon element shows the icon (setting src only when it
+ * changed); otherwise the placeholder, if any, is shown instead.
+ * @param {HTMLElement|null} iconElement - The tile's .tile-icon
+ * @param {HTMLElement|null} placeholderElement - The tile's .tile-placeholder
+ * @param {string|null} iconUrl - The link's icon URL
+ */
+function updateTileIcon(iconElement, placeholderElement, iconUrl) {
+    if (iconUrl && iconElement) {
+        if (iconElement.src !== iconUrl) {
+            iconElement.src = sanitizeHTML(iconUrl);
+        }
+        iconElement.style.display = 'block';
+        if (placeholderElement) placeholderElement.style.display = 'none';
+    } else if (placeholderElement) {
+        placeholderElement.style.display = 'flex';
+        if (iconElement) iconElement.style.display = 'none';
+    }
+}
+
+/**
+ * Updates a tile's name and icon inside its .tile-content
+ * @param {HTMLElement} content - The tile's .tile-content
+ * @param {Object} link - Link data
+ */
+function updateTileContent(content, link) {
+    const nameElement = content.querySelector('h3');
+    if (nameElement) {
+        nameElement.textContent = sanitizeHTML(link.name);
+    }
+
+    // Update icon if changed
+    const iconElement = content.querySelector('.tile-icon');
+    const placeholderElement = content.querySelector('.tile-placeholder');
+    updateTileIcon(iconElement, placeholderElement, getIconUrl(link));
+}
+
+/**
  * Updates a single link tile
  * @param {HTMLElement} tile - The tile element
  * @param {Object} link - Link data
@@ -306,26 +344,7 @@ function updateLinkTile(tile, link, index, category, state) {
     // Update tile content
     const content = tile.querySelector('.tile-content');
     if (content) {
-        const nameElement = content.querySelector('h3');
-        if (nameElement) {
-            nameElement.textContent = sanitizeHTML(link.name);
-        }
-
-        // Update icon if changed
-        const iconElement = content.querySelector('.tile-icon');
-        const placeholderElement = content.querySelector('.tile-placeholder');
-        const iconUrl = getIconUrl(link);
-
-        if (iconUrl && iconElement) {
-            if (iconElement.src !== iconUrl) {
-                iconElement.src = sanitizeHTML(iconUrl);
-            }
-            iconElement.style.display = 'block';
-            if (placeholderElement) placeholderElement.style.display = 'none';
-        } else if (placeholderElement) {
-            placeholderElement.style.display = 'flex';
-            if (iconElement) iconElement.style.display = 'none';
-        }
+        updateTileContent(content, link);
     }
 
     // Update tile size class
@@ -407,12 +426,12 @@ function updateCategorySections(container, state) {
 }
 
 /**
- * Groups links by category
+ * Groups links by category (also used by the new tab page's full render)
  * @param {Array} array - Array of links
  * @param {string} key - Property to group by
  * @returns {Object} - Grouped links
  */
-function groupBy(array, key) {
+export function groupBy(array, key) {
     return array.reduce((result, currentValue) => {
         (result[currentValue[key]] = result[currentValue[key]] || []).push(currentValue);
         return result;
