@@ -191,75 +191,22 @@ export function updateState(updates, options = {}) {
         // Create a copy of current state for rollback
         const rollbackState = createStateSnapshot();
 
-        // Validate the updates if requested
-        if (validate) {
-            const validation = validateStateChanges(updates);
-            if (!validation.valid) {
-                const error = `State validation failed: ${validation.errors.join(', ')}`;
+        const schemaError = validate ? schemaValidationError(updates) : null;
+        if (schemaError) return rejectUpdate(schemaError, rollbackState, rollbackOnError);
 
-                // Notify validation listeners
-                stateValidationListeners.forEach(listener => {
-                    listener({ valid: false, errors: validation.errors, updates });
-                });
-
-                if (rollbackOnError) {
-                    return {
-                        success: false,
-                        error: error,
-                        rollbackState: rollbackState
-                    };
-                } else {
-                    throw new Error(error);
-                }
-            }
-        }
-
-        // Track history if requested
-        if (trackHistory) {
-            addToHistory(rollbackState);
-        }
+        if (trackHistory) addToHistory(rollbackState);
 
         // Apply updates immutably
         const newState = { ...currentState, ...updates };
 
-        // Validate individual link data if links were updated
-        if (updates.links && validate) {
-            const linkValidation = validateAllLinks(newState.links);
-            if (!linkValidation.valid) {
-                const error = `Link validation failed: ${linkValidation.errors.join(', ')}`;
+        // Validate individual link data if links were updated (history is
+        // already recorded when this rejects)
+        const linkError = updates.links && validate ? linkValidationError(newState.links) : null;
+        if (linkError) return rejectUpdate(linkError, rollbackState, rollbackOnError);
 
-                if (rollbackOnError) {
-                    return {
-                        success: false,
-                        error: error,
-                        rollbackState: rollbackState
-                    };
-                } else {
-                    throw new Error(error);
-                }
-            }
-        }
-
-        // Update the current state
         currentState = newState;
-
-        // Notify state change listeners
-        stateChangeListeners.forEach(listener => {
-            listener({
-                previousState: rollbackState,
-                newState: currentState,
-                changes: updates,
-                timestamp: Date.now()
-            });
-        });
-
-        // Auto-persist persistent fields to chrome.storage (T-027)
-        if (!options.skipPersistence) {
-            const hasPersistentChanges = Object.keys(updates).some(k => PERSISTENT_FIELDS.includes(k));
-            if (hasPersistentChanges) {
-                persistToStorage(updates);
-            }
-        }
+        notifyStateChange(rollbackState, updates);
+        if (!options.skipPersistence) persistIfAnyPersistentField(updates);
 
         return {
             success: true,
@@ -274,6 +221,53 @@ export function updateState(updates, options = {}) {
             error: error.message,
             rollbackState: rollbackOnError ? createStateSnapshot() : null
         };
+    }
+}
+
+// Schema-checks the updates; on failure notifies the validation listeners and
+// returns the error message, else null.
+function schemaValidationError(updates) {
+    const validation = validateStateChanges(updates);
+    if (validation.valid) return null;
+    stateValidationListeners.forEach(listener => {
+        listener({ valid: false, errors: validation.errors, updates });
+    });
+    return `State validation failed: ${validation.errors.join(', ')}`;
+}
+
+// The link-validation error message for the new links, or null when all pass.
+function linkValidationError(links) {
+    const linkValidation = validateAllLinks(links);
+    return linkValidation.valid ? null : `Link validation failed: ${linkValidation.errors.join(', ')}`;
+}
+
+// A rejected update: the failure result, or — without rollbackOnError — a
+// throw for updateState's catch to report.
+function rejectUpdate(error, rollbackState, rollbackOnError) {
+    if (!rollbackOnError) throw new Error(error);
+    return {
+        success: false,
+        error: error,
+        rollbackState: rollbackState
+    };
+}
+
+function notifyStateChange(previousState, updates) {
+    stateChangeListeners.forEach(listener => {
+        listener({
+            previousState: previousState,
+            newState: currentState,
+            changes: updates,
+            timestamp: Date.now()
+        });
+    });
+}
+
+// Auto-persist persistent fields to chrome.storage (T-027)
+function persistIfAnyPersistentField(updates) {
+    const hasPersistentChanges = Object.keys(updates).some(k => PERSISTENT_FIELDS.includes(k));
+    if (hasPersistentChanges) {
+        persistToStorage(updates);
     }
 }
 
@@ -564,26 +558,54 @@ export function addStorageAppliedListener(listener) {
  * @returns {Object} the updates applied
  */
 export function applyStorageValues(values, { source = 'sync' } = {}) {
+    const { updates, claimed } = splitStorageValues(values);
+    applyClaimedValues(claimed, updates, source);
+
+    if (Object.keys(updates).length > 0) {
+        updateState(updates, { validate: false, skipPersistence: true });
+        notifyStorageApplied(updates, source);
+    }
+    return updates;
+}
+
+// Sorts stored values into raw state updates and, per claiming handler,
+// the claimed fields' values as stored (handler -> { key: stored value }).
+function splitStorageValues(values) {
     const updates = {};
-    const claimed = new Map(); // handler -> { key: stored value }
+    const claimed = new Map();
     for (const [key, value] of Object.entries(values)) {
         if (claimedFields.has(key)) {
             const apply = claimedFields.get(key);
             if (apply) claimed.set(apply, { ...claimed.get(apply), [key]: value });
-        } else if (value === undefined) {
-            if (Object.prototype.hasOwnProperty.call(REMOVED_FIELD_RESETS, key)) {
-                updates[key] = REMOVED_FIELD_RESETS[key]();
-            }
-        } else if (PERSISTENT_FIELDS.includes(key)) {
-            // Array fields (links, categories) may be stored as JSON strings.
-            if (JSON_ENCODED_FIELDS.includes(key) && typeof value === 'string') {
-                try { updates[key] = JSON.parse(value); } catch { /* skip corrupt */ }
-            } else {
-                updates[key] = value;
-            }
+        } else {
+            addStoredValue(updates, key, value);
         }
     }
+    return { updates, claimed };
+}
 
+// Adds one unclaimed stored value to the updates: a removed list resets, a
+// non-persistent key is ignored, a JSON-encoded list is parsed (skipped when
+// corrupt), anything else is taken as is.
+function addStoredValue(updates, key, value) {
+    if (value === undefined) {
+        if (Object.prototype.hasOwnProperty.call(REMOVED_FIELD_RESETS, key)) {
+            updates[key] = REMOVED_FIELD_RESETS[key]();
+        }
+        return;
+    }
+    if (!PERSISTENT_FIELDS.includes(key)) return;
+    // Array fields (links, categories) may be stored as JSON strings.
+    if (!JSON_ENCODED_FIELDS.includes(key) || typeof value !== 'string') {
+        updates[key] = value;
+        return;
+    }
+    try { updates[key] = JSON.parse(value); } catch { /* skip corrupt */ }
+}
+
+// Hands each handler its claimed values; the cleaned changes it returns are
+// merged into the updates (over any unclaimed value for the same field).
+function applyClaimedValues(claimed, updates, source) {
     claimed.forEach((claimedValues, apply) => {
         try {
             const changes = apply(claimedValues, source);
@@ -592,18 +614,16 @@ export function applyStorageValues(values, { source = 'sync' } = {}) {
             console.error('Claimed storage handler failed:', error);
         }
     });
+}
 
-    if (Object.keys(updates).length > 0) {
-        updateState(updates, { validate: false, skipPersistence: true });
-        storageAppliedListeners.forEach(listener => {
-            try {
-                listener(updates, source);
-            } catch (error) {
-                console.error('Storage-applied listener failed:', error);
-            }
-        });
-    }
-    return updates;
+function notifyStorageApplied(updates, source) {
+    storageAppliedListeners.forEach(listener => {
+        try {
+            listener(updates, source);
+        } catch (error) {
+            console.error('Storage-applied listener failed:', error);
+        }
+    });
 }
 
 /**

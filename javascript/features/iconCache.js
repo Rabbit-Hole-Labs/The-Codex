@@ -85,24 +85,10 @@ export async function loadIconWithCache(link, options = {}) {
         return null;
     }
 
-    const {
-        preferCustom = true,
-        allowSelfhst = true,
-        allowFavicon = true,
-        allowGenerated = true,
-        timeout = CACHE_CONFIG.timeout,
-        respectCSP = true
-    } = options;
-
+    const { preferCustom, sources } = resolveLoadOptions(options);
     cacheStats.totalRequests++;
 
-    // Get CSP-compliant options if respectCSP is enabled
-    const compliantOptions = respectCSP ? getCSPCompliantOptions(options) : {
-        allowSelfhst, allowFavicon, allowGenerated, timeout
-    };
-
     try {
-        // Generate cache key
         const cacheKey = generateCacheKey(link);
 
         // Check cache first
@@ -115,52 +101,10 @@ export async function loadIconWithCache(link, options = {}) {
 
         cacheStats.misses++;
 
-        // Try to load icon from various sources
-        let iconUrl = null;
-
-        // 1. Try custom icon if available (data: URI or selfh.st/jsDelivr URL).
-        //    'default' (what saves store when there is none) means resolve automatically.
-        const customIcon = String(link.icon ?? '').trim();
-        if (preferCustom && customIcon && customIcon !== 'default') {
-            iconUrl = await loadCustomIcon(link.icon, compliantOptions.timeout);
-            if (iconUrl) {
-                await cacheIcon(cacheKey, iconUrl, ICON_SOURCES.CUSTOM);
-                return iconUrl;
-            }
-        }
-
-        // 2. Match against the selfh.st/icons library (self-hosted app logos).
-        //    This is the primary source and works for internal/homelab apps
-        //    without ever contacting the internal host.
-        if (compliantOptions.allowSelfhst !== false) {
-            const match = await loadSelfhstIcon(link, compliantOptions.timeout);
-            if (match) {
-                rememberIconSource(link, match.url);
-                selfhstMatchListener(link, match.url);
-                await cacheIcon(cacheKey, match.src, ICON_SOURCES.SELFHST);
-                return match.src;
-            }
-        }
-
-        // 3. Fall back to the Google favicon proxy for public sites with no
-        //    selfh.st match. One known host; no per-site fetch, no wildcard.
-        if (compliantOptions.allowFavicon) {
-            iconUrl = await loadGoogleFaviconIcon(link.url, compliantOptions.timeout);
-            if (iconUrl) {
-                rememberIconSource(link, iconUrl);
-                await cacheIcon(cacheKey, iconUrl, ICON_SOURCES.GOOGLE);
-                return iconUrl;
-            }
-        }
-
-        // 4. Generate a text-initials fallback icon
-        if (compliantOptions.allowGenerated) {
-            iconUrl = generateFallbackIcon(link);
-            if (iconUrl) {
-                rememberIconSource(link, GENERATED_SOURCE);
-                await cacheIcon(cacheKey, iconUrl, ICON_SOURCES.GENERATED);
-                return iconUrl;
-            }
+        const found = await findIcon(link, preferCustom, sources);
+        if (found) {
+            await cacheIcon(cacheKey, found.src, found.source);
+            return found.src;
         }
 
         // If all attempts failed, return null
@@ -173,6 +117,93 @@ export async function loadIconWithCache(link, options = {}) {
         console.error(`Error loading icon for ${link?.name || 'unknown'}:`, error);
         return null;
     }
+}
+
+/**
+ * Splits loadIconWithCache's options into preferCustom and the per-source
+ * switches and timeout (CSP-compliant ones when respectCSP is on).
+ * @param {Object} options - Loading options
+ * @returns {{preferCustom: boolean, sources: Object}}
+ */
+function resolveLoadOptions(options) {
+    const {
+        preferCustom = true,
+        allowSelfhst = true,
+        allowFavicon = true,
+        allowGenerated = true,
+        timeout = CACHE_CONFIG.timeout,
+        respectCSP = true
+    } = options;
+
+    const sources = respectCSP ? getCSPCompliantOptions(options) : {
+        allowSelfhst, allowFavicon, allowGenerated, timeout
+    };
+    return { preferCustom, sources };
+}
+
+/**
+ * Whether the link carries a picked icon. 'default' (what saves store when
+ * there is none) means resolve automatically.
+ * @param {Object} link - Link object
+ * @returns {boolean}
+ */
+function hasCustomIcon(link) {
+    const customIcon = String(link.icon ?? '').trim();
+    return Boolean(customIcon) && customIcon !== 'default';
+}
+
+/**
+ * Tries each icon source in priority order; the first that yields an icon
+ * wins. Automatic matches are remembered (and selfh.st ones announced)
+ * before the caller caches them.
+ * @param {Object} link - Link object
+ * @param {boolean} preferCustom - Try the link's picked icon first
+ * @param {Object} sources - Source switches and timeout from resolveLoadOptions
+ * @returns {Promise<{src: string, source: string}|null>}
+ */
+async function findIcon(link, preferCustom, sources) {
+    // 1. Custom icon if available (data: URI or selfh.st/jsDelivr URL).
+    if (preferCustom && hasCustomIcon(link)) {
+        const src = await loadCustomIcon(link.icon, sources.timeout);
+        if (src) return { src, source: ICON_SOURCES.CUSTOM };
+    }
+
+    // 2. Match against the selfh.st/icons library (self-hosted app logos).
+    //    This is the primary source and works for internal/homelab apps
+    //    without ever contacting the internal host.
+    if (sources.allowSelfhst !== false) {
+        const match = await loadSelfhstIcon(link, sources.timeout);
+        if (match) {
+            rememberIconSource(link, match.url);
+            selfhstMatchListener(link, match.url);
+            return { src: match.src, source: ICON_SOURCES.SELFHST };
+        }
+    }
+
+    // 3. Fall back to the Google favicon proxy for public sites with no
+    //    selfh.st match. One known host; no per-site fetch, no wildcard.
+    if (sources.allowFavicon) {
+        const src = await loadGoogleFaviconIcon(link.url, sources.timeout);
+        if (src) {
+            rememberIconSource(link, src);
+            return { src, source: ICON_SOURCES.GOOGLE };
+        }
+    }
+
+    // 4. Generate a text-initials fallback icon
+    return sources.allowGenerated ? generatedIcon(link) : null;
+}
+
+/**
+ * Text-initials icon for a link, remembered as generated.
+ * @param {Object} link - Link object
+ * @returns {{src: string, source: string}|null}
+ */
+function generatedIcon(link) {
+    const src = generateFallbackIcon(link);
+    if (!src) return null;
+    rememberIconSource(link, GENERATED_SOURCE);
+    return { src, source: ICON_SOURCES.GENERATED };
 }
 
 /**

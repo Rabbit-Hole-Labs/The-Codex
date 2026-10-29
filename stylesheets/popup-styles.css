@@ -30,12 +30,7 @@
   --info-color: #06b6d4;
   --info-hover: #0891b2;
   
-  /* Gradient System */
-  --gradient-primary: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
-  --gradient-accent: linear-gradient(135deg, var(--accent-color), var(--warning-color));
-  --gradient-danger: linear-gradient(135deg, var(--error-color), #f97316);
-  --gradient-success: linear-gradient(135deg, var(--success-color), var(--info-color));
-  --gradient-surface: linear-gradient(135deg, var(--surface-color), var(--surface-elevated));
+  /* Gradient System (the shared gradients are declared below for :root and body.light) */
   --gradient-background: radial-gradient(ellipse at top, rgba(59, 130, 246, 0.05) 0%, transparent 70%), radial-gradient(ellipse at bottom right, rgba(16, 185, 129, 0.05) 0%, transparent 70%);
   
   /* Typography */
@@ -104,12 +99,20 @@ body.light {
   --info-hover: #0e7490;
   
   /* Light Theme Gradients */
+  --gradient-background: radial-gradient(ellipse at top, rgba(37, 99, 235, 0.03) 0%, transparent 70%), radial-gradient(ellipse at bottom right, rgba(5, 150, 105, 0.03) 0%, transparent 70%);
+}
+
+/* Gradients built from the theme colors. Declared on body.light as well as
+   :root because a custom property's var() references resolve on the element
+   that declares it: body.light must recompute them from its own light colors
+   instead of inheriting the dark ones resolved at :root. */
+:root,
+body.light {
   --gradient-primary: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
   --gradient-accent: linear-gradient(135deg, var(--accent-color), var(--warning-color));
   --gradient-danger: linear-gradient(135deg, var(--error-color), #f97316);
   --gradient-success: linear-gradient(135deg, var(--success-color), var(--info-color));
   --gradient-surface: linear-gradient(135deg, var(--surface-color), var(--surface-elevated));
-  --gradient-background: radial-gradient(ellipse at top, rgba(37, 99, 235, 0.03) 0%, transparent 70%), radial-gradient(ellipse at bottom right, rgba(5, 150, 105, 0.03) 0%, transparent 70%);
 }
 
 /* Additional Theme Variants - Higher Specificity */

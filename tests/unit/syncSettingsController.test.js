@@ -136,4 +136,91 @@ describe('SyncSettingsController', () => {
             expect(controller.elements.syncStrategySelect).toBeTruthy();
         });
     });
+
+    describe('updateSyncStatus rendering', () => {
+        let syncManager;
+
+        function statusElements() {
+            const make = () => document.createElement('span');
+            return {
+                currentStatus: make(),
+                lastSyncTime: make(),
+                localVersion: make(),
+                remoteVersion: make()
+            };
+        }
+
+        async function render(status, elements = statusElements()) {
+            ({ syncManager } = await import('../../javascript/core-systems/syncManager.js'));
+            jest.spyOn(syncManager, 'getSyncStatus').mockResolvedValue(status);
+            const controller = new SyncSettingsController();
+            controller.elements = elements;
+            const calls = [];
+            jest.spyOn(controller, 'updateStorageDisplay').mockImplementation(s => calls.push(['storage', s]));
+            jest.spyOn(controller, 'updateDiagnostics').mockImplementation(async () => { calls.push(['diagnostics']); });
+            jest.spyOn(controller, 'formatTime').mockImplementation(t => `fmt:${t}`);
+            await controller.updateSyncStatus();
+            return { controller, elements, calls };
+        }
+
+        afterEach(() => jest.restoreAllMocks());
+
+        test('never-synced profile shows "Not synced yet" in orange', async () => {
+            const status = { lastSyncTime: 0, localVersion: 0, remoteVersion: 0, hasData: false, isInSync: true };
+            const { elements, calls } = await render(status);
+            expect(elements.currentStatus.textContent).toBe('Not synced yet');
+            expect(elements.currentStatus.style.color).toBe('rgb(255, 152, 0)');
+            expect(elements.lastSyncTime.textContent).toBe('Never');
+            expect(elements.localVersion.textContent).toBe('-');
+            expect(elements.remoteVersion.textContent).toBe('-');
+            expect(calls).toEqual([['storage', status], ['diagnostics']]);
+        });
+
+        test('profile with only hasData counts as synced', async () => {
+            const { elements } = await render({ hasData: true, isInSync: true });
+            expect(elements.currentStatus.textContent).toBe('In Sync');
+            expect(elements.currentStatus.style.color).toBe('rgb(76, 175, 80)');
+        });
+
+        test.each([
+            ['lastSyncTime', { lastSyncTime: 5 }],
+            ['localVersion', { localVersion: 5 }],
+            ['remoteVersion', { remoteVersion: 5 }]
+        ])('a recorded %s alone is not "Not synced yet"', async (_name, partial) => {
+            const { elements } = await render({ ...partial, isInSync: false });
+            expect(elements.currentStatus.textContent).toBe('Out of Sync');
+            expect(elements.currentStatus.style.color).toBe('rgb(255, 152, 0)');
+        });
+
+        test('synced status renders formatted times and versions', async () => {
+            const status = { lastSyncTime: 1700000000000, localVersion: 1700000001000, remoteVersion: 1700000002000, isInSync: true };
+            const { elements } = await render(status);
+            expect(elements.currentStatus.textContent).toBe('In Sync');
+            expect(elements.lastSyncTime.textContent).toBe('fmt:1700000000000');
+            expect(elements.localVersion.textContent).toBe(new Date(1700000001000).toLocaleString());
+            expect(elements.remoteVersion.textContent).toBe(new Date(1700000002000).toLocaleString());
+        });
+
+        test('missing elements are skipped without error', async () => {
+            const status = { lastSyncTime: 1, isInSync: true };
+            const { controller, calls } = await render(status, {});
+            expect(calls).toEqual([['storage', status], ['diagnostics']]);
+            expect(controller.syncLog).toEqual([]);
+        });
+
+        test('a failing status read is logged and nothing renders', async () => {
+            ({ syncManager } = await import('../../javascript/core-systems/syncManager.js'));
+            jest.spyOn(syncManager, 'getSyncStatus').mockRejectedValue(new Error('boom'));
+            const errSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+            const controller = new SyncSettingsController();
+            const elements = statusElements();
+            controller.elements = elements;
+            const storage = jest.spyOn(controller, 'updateStorageDisplay');
+            await controller.updateSyncStatus();
+            expect(elements.currentStatus.textContent).toBe('');
+            expect(storage).not.toHaveBeenCalled();
+            expect(errSpy).toHaveBeenCalledWith('Failed to update sync status:', expect.any(Error));
+            expect(controller.syncLog.map(e => [e.type, e.message])).toEqual([['error', 'Failed to update status: boom']]);
+        });
+    });
 });

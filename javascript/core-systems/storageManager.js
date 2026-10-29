@@ -398,55 +398,82 @@ export async function clearStorage() {
 }
 
 // Category management functions
+
+/**
+ * Read the stored categories record: sync first, local when sync has none.
+ * @returns {Promise<Object|undefined>} The raw `get` result.
+ */
+async function readStoredCategories() {
+    let data = await chrome.storage.sync.get(['categories']);
+    if (!data || !data.categories) {
+        data = await chrome.storage.local.get(['categories']);
+    }
+    return data;
+}
+
+/**
+ * Parse categories stored as a JSON string; anything but an array is
+ * corruption and yields ['Default'].
+ * @param {string} raw
+ * @returns {string[]}
+ */
+function parseCategoriesString(raw) {
+    try {
+        const parsedCategories = JSON.parse(raw);
+        if (Array.isArray(parsedCategories)) {
+            return parsedCategories;
+        }
+        debugWarn('Storage corruption detected: parsed categories data is not an array', {
+            dataType: typeof parsedCategories,
+            dataValue: parsedCategories
+        });
+    } catch (parseError) {
+        debugError('Storage corruption detected: failed to parse categories JSON', {
+            errorMessage: parseError.message,
+            errorStack: parseError.stack,
+            rawData: raw.substring(0, 100) + (raw.length > 100 ? '...' : '')
+        });
+    }
+    return ['Default'];
+}
+
+/**
+ * Interpret a stored categories value (JSON string or array); a missing value
+ * or any other shape yields ['Default'], corrupt shapes with a warning.
+ * @param {*} value
+ * @returns {string[]}
+ */
+function interpretStoredCategories(value) {
+    if (!value) {
+        return ['Default'];
+    }
+    if (typeof value === 'object' && !Array.isArray(value)) {
+        debugWarn('Storage corruption detected: categories data is an object instead of string or array', {
+            dataType: typeof value,
+            dataKeys: Object.keys(value)
+        });
+        return ['Default'];
+    }
+    if (typeof value === 'string') {
+        return parseCategoriesString(value);
+    }
+    if (Array.isArray(value)) {
+        return value;
+    }
+    debugWarn('Storage corruption detected: categories data is of unexpected type', {
+        dataType: typeof value,
+        dataValue: value
+    });
+    return ['Default'];
+}
+
 export async function loadCategories() {
     try {
-        let data = await chrome.storage.sync.get(['categories']);
-        if (!data || !data.categories) {
-            data = await chrome.storage.local.get(['categories']);
-        }
+        const data = await readStoredCategories();
 
-        let categories = ['Default'];
+        let categories;
         try {
-            if (data.categories) {
-                // Check if categories is already an object (corrupted) before trying to parse
-                if (typeof data.categories === 'object' && !Array.isArray(data.categories)) {
-                    debugWarn('Storage corruption detected: categories data is an object instead of string or array', {
-                        dataType: typeof data.categories,
-                        dataKeys: Object.keys(data.categories)
-                    });
-                    categories = ['Default'];
-                } else if (typeof data.categories === 'string') {
-                    // Only try to parse if it's a string
-                    try {
-                        const parsedCategories = JSON.parse(data.categories);
-                        if (Array.isArray(parsedCategories)) {
-                            categories = parsedCategories;
-                        } else {
-                            debugWarn('Storage corruption detected: parsed categories data is not an array', {
-                                dataType: typeof parsedCategories,
-                                dataValue: parsedCategories
-                            });
-                            categories = ['Default'];
-                        }
-                    } catch (parseError) {
-                        debugError('Storage corruption detected: failed to parse categories JSON', {
-                            errorMessage: parseError.message,
-                            errorStack: parseError.stack,
-                            rawData: data.categories.substring(0, 100) + (data.categories.length > 100 ? '...' : '')
-                        });
-                        categories = ['Default'];
-                    }
-                } else if (Array.isArray(data.categories)) {
-                    // If it's already an array, use it directly
-                    categories = data.categories;
-                } else {
-                    debugWarn('Storage corruption detected: categories data is of unexpected type', {
-                        dataType: typeof data.categories,
-                        dataValue: data.categories
-                    });
-                    categories = ['Default'];
-                }
-            }
+            categories = interpretStoredCategories(data.categories);
         } catch (validationError) {
             debugError('Storage validation error: unexpected error during categories validation', {
                 errorMessage: validationError.message,
