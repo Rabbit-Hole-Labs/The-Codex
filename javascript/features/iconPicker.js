@@ -98,6 +98,8 @@ let currentTarget = 'siteIcon';
 let getContext = () => ({ name: '', url: '' });
 let searchGeneration = 0;
 let customGeneration = 0;
+// The custom URL whose image last loaded; the only value Use may choose.
+let verifiedCustomUrl = null;
 let searchDebounceTimer = null;
 let customDebounceTimer = null;
 
@@ -173,6 +175,10 @@ export function init(options = {}) {
     if (customUrl) {
         customUrl.addEventListener('input', () => {
             clearTimeout(customDebounceTimer);
+            // The old value's verification no longer applies: disable Use now
+            // (not after the debounce) and drop any check still in flight.
+            invalidateCustomUrl();
+            setCustomNote(DEFAULT_CUSTOM_NOTE);
             customDebounceTimer = setTimeout(verifyCustomUrl, SEARCH_DEBOUNCE);
         });
     }
@@ -182,8 +188,11 @@ export function init(options = {}) {
             const value = els().customUrl?.value.trim();
             const check = validateIconValue(value);
             // The button is only enabled after validation + a successful image
-            // load, but re-check here so a stale enabled state can't save junk.
-            if (check.valid && check.value !== 'default') choose(check.value);
+            // load, but re-check here so a stale enabled state can't save junk:
+            // the value must still pass the policy AND be the one that loaded.
+            if (check.valid && check.value !== 'default' && check.value === verifiedCustomUrl) {
+                choose(check.value);
+            }
         });
     }
 
@@ -226,17 +235,27 @@ function close() {
     if (!modal) return;
     modal.classList.add('hidden');
     modal.style.display = 'none';
+    // Typing debounced just before closing must not search or probe later.
+    clearTimeout(searchDebounceTimer);
+    clearTimeout(customDebounceTimer);
     searchGeneration++;
-    customGeneration++;
     resetCustomSection();
 }
 
-function resetCustomSection() {
-    const { customUrl, customPreview, useCustomBtn } = els();
-    if (customUrl) customUrl.value = '';
+/** Forgets the verified custom URL: Use disabled, preview hidden, pending check dropped. */
+function invalidateCustomUrl() {
+    const { customPreview, useCustomBtn } = els();
+    customGeneration++;
+    verifiedCustomUrl = null;
     if (useCustomBtn) useCustomBtn.disabled = true;
+    if (customPreview) customPreview.hidden = true;
+}
+
+function resetCustomSection() {
+    const { customUrl, customPreview } = els();
+    if (customUrl) customUrl.value = '';
+    invalidateCustomUrl();
     if (customPreview) {
-        customPreview.hidden = true;
         const img = customPreview.querySelector('img');
         if (img) img.removeAttribute('src');
     }
@@ -362,9 +381,8 @@ async function verifyCustomUrl() {
     const { customUrl, customPreview, useCustomBtn } = els();
     if (!customUrl || !useCustomBtn) return;
 
-    const generation = ++customGeneration;
-    useCustomBtn.disabled = true;
-    if (customPreview) customPreview.hidden = true;
+    invalidateCustomUrl();
+    const generation = customGeneration;
 
     const raw = customUrl.value.trim();
     if (!raw) {
@@ -392,6 +410,7 @@ async function verifyCustomUrl() {
             if (img) img.src = loaded;
             customPreview.hidden = false;
         }
+        verifiedCustomUrl = check.value;
         useCustomBtn.disabled = false;
         setCustomNote('Image verified — click Use.');
     } else {

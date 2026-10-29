@@ -731,6 +731,81 @@ describe('custom URL', () => {
         expect($('siteIcon').value).toBe('');
         expect(modalOpen()).toBe(true);
     });
+
+    test('typing a new URL disables Use at once, before the debounced re-verify', async () => {
+        const url = 'https://cdn.selfh.st/icons/webp/ok.webp';
+        loads(url);
+        await paste(url);
+        expect(useBtn().disabled).toBe(false);
+
+        typeInto($('customIconUrl'), 'https://cdn.selfh.st/icons/webp/never-probed.webp');
+        expect(useBtn().disabled).toBe(true);
+        expect($('customIconPreview').hidden).toBe(true);
+        expect(note().textContent).toBe(DEFAULT_NOTE); // no longer "Image verified"
+        expect(note().classList.contains('error')).toBe(false);
+    });
+
+    test('Use only chooses the URL whose image loaded, never another allowed one', async () => {
+        const url = 'https://cdn.selfh.st/icons/webp/ok.webp';
+        loads(url);
+        await paste(url);
+
+        // Same host rules, but this image was never loaded.
+        $('customIconUrl').value = 'https://cdn.selfh.st/icons/webp/never-probed.webp';
+        useBtn().click();
+
+        expect($('siteIcon').value).toBe('');
+        expect(modalOpen()).toBe(true);
+        expect(probedUrls()).toEqual([url]);
+    });
+
+    test('a check still running for the old URL does not enable Use for a newly typed one', async () => {
+        const first = 'https://cdn.selfh.st/icons/webp/first.webp';
+        const second = 'https://cdn.selfh.st/icons/webp/never-probed.webp';
+        const slow = loadsLater(first);
+        await paste(first);
+
+        typeInto($('customIconUrl'), second); // its debounce has not run yet
+        slow(first);
+        await flush();
+
+        expect(useBtn().disabled).toBe(true);
+        expect($('customIconPreview').hidden).toBe(true);
+        useBtn().click();
+        expect($('siteIcon').value).toBe('');
+    });
+});
+
+describe('closing cancels pending typing', () => {
+    beforeEach(async () => {
+        initPicker();
+        await openFrom('siteIcon');
+        probeLog.length = 0;
+    });
+
+    test('a search typed less than 350 ms before closing never runs', async () => {
+        loads(selfhst('plex'));
+        typeInto($('iconSearchInput'), 'plex');
+        $('iconHelperClose').click();
+        await advance(DEBOUNCE_MS);
+
+        expect(probeLog).toEqual([]);
+        expect(resultSlugs()).toEqual([]);
+    });
+
+    test('a custom URL typed less than 350 ms before closing is never checked', async () => {
+        const url = 'https://cdn.selfh.st/icons/webp/late.webp';
+        loads(url);
+        typeInto($('customIconUrl'), url);
+        $('iconHelperClose').click();
+        // Closing empties the field; put a URL back (no input event) so only
+        // the cancelled timer, not the empty field, can stop the check.
+        $('customIconUrl').value = url;
+        await advance(DEBOUNCE_MS);
+
+        expect(probeLog).toEqual([]);
+        expect($('useCustomIconBtn').disabled).toBe(true);
+    });
 });
 
 describe('None, Escape and backdrop', () => {
