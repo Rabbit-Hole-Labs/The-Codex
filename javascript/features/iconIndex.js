@@ -43,6 +43,91 @@ export function normalizeForMatch(value) {
     return toIconSlug(value).replace(/-/g, '');
 }
 
+// A webp file in the repo listing — the one format counted per icon.
+const WEBP_FILE = /(?:^|\/)webp\/([^/]+)\.webp$/i;
+
+// Directory Light/Dark field values meaning "no variant" / "variant exists"
+// (anything else is the variant's own reference).
+const VARIANT_OFF = new Set(['', 'no', 'false', '0']);
+const VARIANT_ON = new Set(['yes', 'true', '1']);
+
+/**
+ * Picks the entry list out of a parsed index payload.
+ * @param {*} payload - Parsed JSON from an index source
+ * @returns {Array|null} - Entries, or null for an unknown shape
+ */
+function payloadEntries(payload) {
+    if (Array.isArray(payload)) return payload;
+    // jsDelivr data API: {files: [{name: "/webp/plex.webp", ...}, ...]}
+    if (payload && Array.isArray(payload.files)) return payload.files;
+    if (payload && Array.isArray(payload.icons)) return payload.icons;
+    return null;
+}
+
+/**
+ * Slug of a webp file path ("/webp/plex.webp" → "plex").
+ * @param {string} path
+ * @returns {string|null} - null when the path is not a webp icon file
+ */
+function webpSlug(path) {
+    const file = path.match(WEBP_FILE);
+    return file ? file[1] : null;
+}
+
+/**
+ * Directory-style entries describe recolors as FIELDS on the icon entry
+ * (e.g. Light: "Yes" or Light: "github-light"), not as separate entries —
+ * surface them as their own slugs so the picker can offer them.
+ * @param {Object} entry - Directory entry
+ * @param {string} base - The entry's own slug
+ * @param {string} field - Field name ('Light' / 'Dark'; lowercase also read)
+ * @param {string} suffix - Slug suffix for a "yes" flag
+ * @returns {string|null} - Variant slug, or null when the field is absent/off
+ */
+function variantFieldSlug(entry, base, field, suffix) {
+    const value = entry[field] ?? entry[field.toLowerCase()];
+    if (value == null) return null;
+    const text = String(value).trim().toLowerCase();
+    if (VARIANT_OFF.has(text)) return null;
+    if (VARIANT_ON.has(text)) return `${base}-${suffix}`;
+    return toIconSlug(text); // field carries the variant's own reference
+}
+
+/**
+ * Slugs of a directory entry: its own reference plus Light/Dark variants.
+ * @param {Object} entry - Directory entry (Name/Reference/slug fields)
+ * @returns {Array<string|null>} - Candidate slugs, in insertion order
+ */
+function directoryEntrySlugs(entry) {
+    const raw = entry.Reference || entry.reference || entry.slug ||
+        entry.Name || entry.name;
+    const slug = raw ? toIconSlug(String(raw)) : null;
+    if (!slug) return [];
+    return [
+        slug,
+        variantFieldSlug(entry, slug, 'Light', 'light'),
+        variantFieldSlug(entry, slug, 'Dark', 'dark')
+    ];
+}
+
+/**
+ * Candidate slugs for one index entry of any shape (plain string, file
+ * listing object, or directory object). Candidates are filtered by the caller.
+ * @param {*} entry
+ * @returns {Array<string|null>}
+ */
+function entrySlugs(entry) {
+    if (typeof entry === 'string') {
+        return [webpSlug(entry) ?? toIconSlug(entry)];
+    }
+    if (!entry || typeof entry !== 'object') return [];
+    if (typeof entry.name === 'string' && /\.\w+$/.test(entry.name)) {
+        // File listing entry — only count each icon once (webp set).
+        return [webpSlug(entry.name)];
+    }
+    return directoryEntrySlugs(entry);
+}
+
 /**
  * Extracts icon slugs from any of the known index payload shapes.
  * Exported for tests.
@@ -50,56 +135,13 @@ export function normalizeForMatch(value) {
  * @returns {string[]} - De-duplicated slugs (may be empty on unknown shape)
  */
 export function parseIndexPayload(payload) {
-    let entries = null;
-    if (Array.isArray(payload)) {
-        entries = payload;
-    } else if (payload && Array.isArray(payload.files)) {
-        // jsDelivr data API: {files: [{name: "/webp/plex.webp", ...}, ...]}
-        entries = payload.files;
-    } else if (payload && Array.isArray(payload.icons)) {
-        entries = payload.icons;
-    }
+    const entries = payloadEntries(payload);
     if (!entries) return [];
 
     const slugs = new Set();
-    const add = (slug) => {
-        if (slug && slug.length >= 2) slugs.add(slug.toLowerCase());
-    };
-
-    // Directory-style entries describe recolors as FIELDS on the icon entry
-    // (e.g. Light: "Yes" or Light: "github-light"), not as separate entries —
-    // surface them as their own slugs so the picker can offer them.
-    const addVariantField = (entry, base, field, suffix) => {
-        const value = entry[field] ?? entry[field.toLowerCase()];
-        if (value == null) return;
-        const text = String(value).trim().toLowerCase();
-        if (!text || text === 'no' || text === 'false' || text === '0') return;
-        if (text === 'yes' || text === 'true' || text === '1') {
-            add(`${base}-${suffix}`);
-        } else {
-            add(toIconSlug(text)); // field carries the variant's own reference
-        }
-    };
-
     for (const entry of entries) {
-        if (typeof entry === 'string') {
-            const file = entry.match(/(?:^|\/)webp\/([^/]+)\.webp$/i);
-            add(file ? file[1] : toIconSlug(entry));
-        } else if (entry && typeof entry === 'object') {
-            if (typeof entry.name === 'string' && /\.\w+$/.test(entry.name)) {
-                // File listing entry — only count each icon once (webp set).
-                const file = entry.name.match(/(?:^|\/)webp\/([^/]+)\.webp$/i);
-                add(file ? file[1] : null);
-            } else {
-                const raw = entry.Reference || entry.reference || entry.slug ||
-                    entry.Name || entry.name;
-                const slug = raw ? toIconSlug(String(raw)) : null;
-                if (slug) {
-                    add(slug);
-                    addVariantField(entry, slug, 'Light', 'light');
-                    addVariantField(entry, slug, 'Dark', 'dark');
-                }
-            }
+        for (const slug of entrySlugs(entry)) {
+            if (slug && slug.length >= 2) slugs.add(slug.toLowerCase());
         }
     }
 
