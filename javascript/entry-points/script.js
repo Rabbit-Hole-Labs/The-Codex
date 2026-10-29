@@ -188,6 +188,144 @@ function cleanStoredData(links, categories) {
     };
 }
 
+const VALID_TILE_SIZES = ['compact', 'small', 'medium', 'large', 'square', 'wide', 'tall', 'giant', 'default'];
+const MEANINGLESS_STRINGS = ['[object Object]', '[object Null]', '[object Undefined]'];
+
+// Remove control characters, cap the length and trim.
+function stripControlChars(text, maxLength) {
+    return text
+        // eslint-disable-next-line no-control-regex -- strip C0/DEL from user text
+        .replace(/[\x00-\x1F\x7F]/g, '')
+        .substring(0, maxLength)
+        .trim();
+}
+
+function isParsableUrl(value) {
+    try {
+        new URL(value);
+        return true;
+    } catch {
+        return false;
+    }
+}
+
+// A string salvaged from an object-valued field: the first non-empty string
+// under one of keys, else a meaningful toString(); null when there is none.
+function stringFromObject(obj, keys, onToStringError) {
+    for (const key of keys) {
+        if (obj[key] && typeof obj[key] === 'string') return obj[key];
+    }
+    if (typeof obj.toString !== 'function') return null;
+    try {
+        const stringified = obj.toString();
+        if (stringified && typeof stringified === 'string' && !MEANINGLESS_STRINGS.includes(stringified.trim())) {
+            return stringified;
+        }
+    } catch (e) {
+        onToStringError(e);
+    }
+    return null;
+}
+
+// A usable name: the stored one, else the URL's hostname, else 'Unnamed Link'.
+function cleanLinkName(link, index) {
+    let name = link.name;
+    if (!name || typeof name !== 'string') {
+        let hostname = '';
+        if (link.url && typeof link.url === 'string') {
+            try {
+                hostname = new URL(link.url).hostname;
+            } catch {
+                // fall through to the default
+            }
+        }
+        name = hostname || 'Unnamed Link';
+        console.warn(`Fixed missing/invalid name for link at index ${index}, set to: ${name}`);
+    }
+    name = stripControlChars(name, 100);
+    if (!name) {
+        name = 'Unnamed Link';
+        console.warn(`Sanitized name was empty for link at index ${index}, set to: ${name}`);
+    }
+    return name;
+}
+
+function cleanLinkCategory(category, index) {
+    if (!category || typeof category !== 'string') {
+        category = 'Default';
+        console.warn(`Fixed missing/invalid category for link at index ${index}, set to: ${category}`);
+    }
+    category = stripControlChars(category, 50);
+    if (!category) {
+        category = 'Default';
+        console.warn(`Sanitized category was empty for link at index ${index}, set to: ${category}`);
+    }
+    return category;
+}
+
+// A parsable icon URL, or null (validation expects null rather than a missing key).
+function cleanLinkIcon(icon, index) {
+    if (icon === undefined || icon === null) return null;
+    let candidate = null;
+    if (typeof icon === 'string') {
+        candidate = icon;
+    } else if (typeof icon === 'object') {
+        debug(`Found icon as object at index ${index}:`, icon);
+        candidate = stringFromObject(icon, ['url', 'src', 'value', 'data'],
+            e => console.warn(`Failed to convert icon object to string at index ${index}:`, e));
+    }
+    if (candidate && isParsableUrl(candidate)) return candidate;
+    debug(`Removed invalid icon for link at index ${index}`);
+    return null;
+}
+
+// A known tile size, or null (validation expects null rather than a missing key).
+function cleanLinkSize(size, index) {
+    if (size === undefined || size === null) return null;
+    let candidate = null;
+    if (typeof size === 'string') {
+        candidate = size;
+    } else if (typeof size === 'object') {
+        debug(`Found size as object at index ${index}:`, size);
+        candidate = stringFromObject(size, ['value', 'name', 'type'],
+            e => debug(`Failed to convert size object to string at index ${index}:`, e));
+    }
+    if (candidate && VALID_TILE_SIZES.includes(candidate)) return candidate;
+    debug(`Removed invalid size for link at index ${index}`);
+    return null;
+}
+
+// A repaired copy of one stored link, or null when it can't be salvaged
+// (not an object, or no parsable URL).
+function cleanStoredLink(link, index) {
+    if (!link || typeof link !== 'object') {
+        console.warn(`Skipping invalid link at index ${index}: not an object`, link);
+        return null;
+    }
+
+    const cleanLink = { ...link };
+    cleanLink.name = cleanLinkName(cleanLink, index);
+
+    if (!cleanLink.url || typeof cleanLink.url !== 'string') {
+        console.warn(`Skipping link at index ${index}: missing or invalid URL`, cleanLink);
+        return null;
+    }
+    if (!isParsableUrl(cleanLink.url)) {
+        console.warn(`Skipping link at index ${index}: invalid URL format`, cleanLink.url);
+        return null;
+    }
+
+    cleanLink.category = cleanLinkCategory(cleanLink.category, index);
+    cleanLink.icon = cleanLinkIcon(cleanLink.icon, index);
+    cleanLink.size = cleanLinkSize(cleanLink.size, index);
+
+    if (!cleanLink.id) {
+        cleanLink.id = `link_${Date.now()}_${index}`;
+        debug(`Added missing ID for link at index ${index}: ${cleanLink.id}`);
+    }
+    return cleanLink;
+}
+
 /**
  * Salvage what can be repaired in each stored link (on a copy) and quarantine
  * the rest. See cleanStoredData.
@@ -202,233 +340,7 @@ function cleanStoredLinks(stored) {
             debug(`Processing ${loadedState.links.length} links for cleanup and validation`);
             
             loadedState.links = loadedState.links
-                .map((link, index) => {
-                    // Skip if link is null, undefined, or not an object
-                    if (!link || typeof link !== 'object') {
-                        console.warn(`Skipping invalid link at index ${index}: not an object`, link);
-                        return null;
-                    }
-                    
-                    // Create a clean copy of the link object
-                    const cleanLink = { ...link };
-                    
-                    // Ensure required properties exist
-                    if (!cleanLink.name || typeof cleanLink.name !== 'string') {
-                        // Try to salvage the link with a default name
-                        if (cleanLink.url && typeof cleanLink.url === 'string') {
-                            try {
-                                const urlObj = new URL(cleanLink.url);
-                                cleanLink.name = urlObj.hostname || 'Unnamed Link';
-                            } catch {
-                                cleanLink.name = 'Unnamed Link';
-                            }
-                        } else {
-                            cleanLink.name = 'Unnamed Link';
-                        }
-                        console.warn(`Fixed missing/invalid name for link at index ${index}, set to: ${cleanLink.name}`);
-                    }
-                    
-                    // Sanitize name to meet validation requirements
-                    if (typeof cleanLink.name === 'string') {
-                        // Remove control characters and limit length
-                        cleanLink.name = cleanLink.name
-                            // eslint-disable-next-line no-control-regex -- strip C0/DEL from user text
-                            .replace(/[\x00-\x1F\x7F]/g, '')
-                            .substring(0, 100)
-                            .trim();
-                        
-                        // If name is empty after sanitization, provide a default
-                        if (!cleanLink.name) {
-                            cleanLink.name = 'Unnamed Link';
-                            console.warn(`Sanitized name was empty for link at index ${index}, set to: ${cleanLink.name}`);
-                        }
-                    }
-                    
-                    // Ensure URL exists and is valid
-                    if (!cleanLink.url || typeof cleanLink.url !== 'string') {
-                        console.warn(`Skipping link at index ${index}: missing or invalid URL`, cleanLink);
-                        return null;
-                    }
-                    
-                    // Validate and sanitize URL
-                    try {
-                        new URL(cleanLink.url);
-                    } catch {
-                        console.warn(`Skipping link at index ${index}: invalid URL format`, cleanLink.url);
-                        return null;
-                    }
-                    
-                    // Ensure category exists
-                    if (!cleanLink.category || typeof cleanLink.category !== 'string') {
-                        cleanLink.category = 'Default';
-                        console.warn(`Fixed missing/invalid category for link at index ${index}, set to: ${cleanLink.category}`);
-                    }
-                    
-                    // Sanitize category
-                    if (typeof cleanLink.category === 'string') {
-                        cleanLink.category = cleanLink.category
-                            // eslint-disable-next-line no-control-regex -- strip C0/DEL from user text
-                            .replace(/[\x00-\x1F\x7F]/g, '')
-                            .substring(0, 50)
-                            .trim();
-                        
-                        if (!cleanLink.category) {
-                            cleanLink.category = 'Default';
-                            console.warn(`Sanitized category was empty for link at index ${index}, set to: ${cleanLink.category}`);
-                        }
-                    }
-                    
-                    // Handle icon property - ensure proper default values for validation
-                    if (cleanLink.icon === undefined || cleanLink.icon === null) {
-                        // For validation consistency, explicitly set to null rather than deleting
-                        cleanLink.icon = null;
-                    } else if (typeof cleanLink.icon === 'string') {
-                        // Validate icon URL if present
-                        try {
-                            new URL(cleanLink.icon);
-                        } catch {
-                            // Set to null for invalid icon URL rather than deleting
-                            cleanLink.icon = null;
-                            debug(`Removed invalid icon URL for link at index ${index}`, cleanLink.icon);
-                        }
-                    } else if (typeof cleanLink.icon === 'object') {
-                        // Handle object values for icon property with enhanced object handling
-                        debug(`Found icon as object at index ${index}:`, cleanLink.icon);
-                        
-                        // Try to extract URL from common object structures with enhanced handling
-                        let extractedIcon = null;
-                        
-                        // Check for common object structures
-                        if (cleanLink.icon.url && typeof cleanLink.icon.url === 'string') {
-                            extractedIcon = cleanLink.icon.url;
-                        } else if (cleanLink.icon.src && typeof cleanLink.icon.src === 'string') {
-                            extractedIcon = cleanLink.icon.src;
-                        } else if (cleanLink.icon.value && typeof cleanLink.icon.value === 'string') {
-                            extractedIcon = cleanLink.icon.value;
-                        } else if (cleanLink.icon.data && typeof cleanLink.icon.data === 'string') {
-                            // Handle data URLs
-                            extractedIcon = cleanLink.icon.data;
-                        } else if (typeof cleanLink.icon.toString === 'function') {
-                            // Try to convert to string with enhanced error handling
-                            try {
-                                const stringified = cleanLink.icon.toString();
-                                // More robust check for meaningful string representation
-                                if (stringified && typeof stringified === 'string' &&
-                                    stringified.trim() !== '[object Object]' &&
-                                    stringified.trim() !== '[object Null]' &&
-                                    stringified.trim() !== '[object Undefined]') {
-                                    extractedIcon = stringified;
-                                }
-                            } catch (e) {
-                                console.warn(`Failed to convert icon object to string at index ${index}:`, e);
-                            }
-                        } else if (Object.keys(cleanLink.icon).length > 0) {
-                            // Try JSON serialization for complex objects as last resort
-                            try {
-                                const jsonStr = JSON.stringify(cleanLink.icon);
-                                if (jsonStr && jsonStr.length > 0) {
-                                    debug(`Serialized icon object to JSON at index ${index}:`, jsonStr);
-                                }
-                            } catch (e) {
-                                console.warn(`Failed to serialize icon object to JSON at index ${index}:`, e);
-                            }
-                        }
-                        
-                        // Validate extracted icon URL
-                        if (extractedIcon) {
-                            try {
-                                new URL(extractedIcon);
-                                cleanLink.icon = extractedIcon;
-                                debug(`Successfully extracted icon URL from object at index ${index}:`, extractedIcon);
-                            } catch {
-                                cleanLink.icon = null;
-                                debug(`Extracted icon URL is invalid at index ${index}:`, extractedIcon);
-                            }
-                        } else {
-                            // For validation consistency, explicitly set to null rather than deleting
-                            cleanLink.icon = null;
-                            debug(`Could not extract valid icon URL from object at index ${index}`, cleanLink.icon);
-                        }
-                    } else {
-                        // Set to null for non-string, non-object icon property rather than deleting
-                        cleanLink.icon = null;
-                        debug(`Removed invalid icon type (${typeof cleanLink.icon}) for link at index ${index}`, cleanLink.icon);
-                    }
-                    
-                    // Handle size property - ensure proper default values for validation
-                    const validSizes = ['compact', 'small', 'medium', 'large', 'square', 'wide', 'tall', 'giant', 'default'];
-                    if (cleanLink.size === undefined || cleanLink.size === null) {
-                        // For validation consistency, explicitly set to null rather than deleting
-                        cleanLink.size = null;
-                    } else if (typeof cleanLink.size === 'string') {
-                        if (!validSizes.includes(cleanLink.size)) {
-                            // Set to null for invalid size value rather than deleting
-                            cleanLink.size = null;
-                            debug(`Removed invalid size for link at index ${index}`, cleanLink.size);
-                        }
-                    } else if (typeof cleanLink.size === 'object') {
-                        // Handle object values for size property with enhanced object handling
-                        debug(`Found size as object at index ${index}:`, cleanLink.size);
-                        
-                        // Try to extract value from common object structures with enhanced handling
-                        let extractedSize = null;
-                        
-                        // Check for common object structures
-                        if (cleanLink.size.value && typeof cleanLink.size.value === 'string') {
-                            extractedSize = cleanLink.size.value;
-                        } else if (cleanLink.size.name && typeof cleanLink.size.name === 'string') {
-                            extractedSize = cleanLink.size.name;
-                        } else if (cleanLink.size.type && typeof cleanLink.size.type === 'string') {
-                            extractedSize = cleanLink.size.type;
-                        } else if (typeof cleanLink.size.toString === 'function') {
-                            // Try to convert to string with enhanced error handling
-                            try {
-                                const stringified = cleanLink.size.toString();
-                                // More robust check for meaningful string representation
-                                if (stringified && typeof stringified === 'string' &&
-                                    stringified.trim() !== '[object Object]' &&
-                                    stringified.trim() !== '[object Null]' &&
-                                    stringified.trim() !== '[object Undefined]') {
-                                    extractedSize = stringified;
-                                }
-                            } catch (e) {
-                                debug(`Failed to convert size object to string at index ${index}:`, e);
-                            }
-                        } else if (Object.keys(cleanLink.size).length > 0) {
-                            // Try JSON serialization for complex objects as last resort
-                            try {
-                                const jsonStr = JSON.stringify(cleanLink.size);
-                                if (jsonStr && jsonStr.length > 0) {
-                                    debug(`Serialized size object to JSON at index ${index}:`, jsonStr);
-                                }
-                            } catch (e) {
-                                debug(`Failed to serialize size object to JSON at index ${index}:`, e);
-                            }
-                        }
-                        
-                        // Validate extracted size value
-                        if (extractedSize && validSizes.includes(extractedSize)) {
-                            cleanLink.size = extractedSize;
-                            debug(`Successfully extracted size value from object at index ${index}:`, extractedSize);
-                        } else {
-                            // For validation consistency, explicitly set to null rather than deleting
-                            cleanLink.size = null;
-                            debug(`Could not extract valid size from object at index ${index}`, cleanLink.size);
-                        }
-                    } else {
-                        // Set to null for non-string, non-object size property rather than deleting
-                        cleanLink.size = null;
-                        debug(`Removed invalid size type (${typeof cleanLink.size}) for link at index ${index}`, cleanLink.size);
-                    }
-                    
-                    // Add ID if missing
-                    if (!cleanLink.id) {
-                        cleanLink.id = `link_${Date.now()}_${index}`;
-                        debug(`Added missing ID for link at index ${index}: ${cleanLink.id}`);
-                    }
-                    
-                    return cleanLink;
-                })
+                .map(cleanStoredLink)
                 .filter(link => link !== null); // Remove null links that couldn't be salvaged
             
             debug(`After cleanup: ${loadedState.links.length} valid links remaining`);

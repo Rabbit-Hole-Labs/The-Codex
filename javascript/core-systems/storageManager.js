@@ -91,6 +91,20 @@ async function clearPendingSync(fields, { localCopies = false, mirror = {} } = {
     }
 }
 
+// A stored links/categories value as an array (see parseStoredArray), or
+// null when it is absent or corrupted; corruption is logged.
+function storedArray(value, label) {
+    if (!value) return null;
+    const parsed = parseStoredArray(value);
+    if (!parsed) {
+        debugWarn(`STORAGE_MANAGER: Storage corruption detected: ${label} data is not an array or a JSON array string`, {
+            dataType: typeof value,
+            sampleData: typeof value === 'string' ? value.substring(0, 100) : undefined
+        });
+    }
+    return parsed;
+}
+
 export async function loadLinks() {
     try {
         debug('STORAGE_MANAGER: Starting to load links from storage');
@@ -112,98 +126,15 @@ export async function loadLinks() {
             });
         }
 
-        // Validate data.links before parsing to handle corruption
-        let links = [];
-        try {
-            if (data.links) {
-                debug('STORAGE_MANAGER: Processing links data', {
-                    dataType: typeof data.links,
-                    isArray: Array.isArray(data.links)
-                });
-                
-                // Check if links is already an object (corrupted) before trying to parse
-                if (typeof data.links === 'object' && !Array.isArray(data.links)) {
-                    debugWarn('STORAGE_MANAGER: Storage corruption detected: links data is an object instead of string or array', {
-                        dataType: typeof data.links,
-                        dataKeys: Object.keys(data.links),
-                        sampleData: JSON.stringify(data.links).substring(0, 200)
-                    });
-                    links = [];
-                } else if (typeof data.links === 'string') {
-                    // Only try to parse if it's a string
-                    try {
-                        debug('STORAGE_MANAGER: Attempting to parse links string');
-                        const parsedLinks = JSON.parse(data.links);
-                        if (Array.isArray(parsedLinks)) {
-                            links = parsedLinks;
-                            debug('STORAGE_MANAGER: Successfully parsed links array', {
-                                linksCount: links.length
-                            });
-                        } else {
-                            debugWarn('STORAGE_MANAGER: Storage corruption detected: parsed links data is not an array', {
-                                dataType: typeof parsedLinks,
-                                dataValue: typeof parsedLinks === 'object' ? JSON.stringify(parsedLinks).substring(0, 200) : parsedLinks
-                            });
-                            links = [];
-                        }
-                    } catch (parseError) {
-                        debugError('STORAGE_MANAGER: Storage corruption detected: failed to parse links JSON', {
-                            errorMessage: parseError.message,
-                            errorStack: parseError.stack,
-                            rawData: data.links.substring(0, 100) + (data.links.length > 100 ? '...' : '')
-                        });
-                        links = [];
-                    }
-                } else if (Array.isArray(data.links)) {
-                    // If it's already an array, use it directly
-                    links = data.links;
-                    debug('STORAGE_MANAGER: Links data is already an array', {
-                        linksCount: links.length
-                    });
-                } else {
-                    debugWarn('STORAGE_MANAGER: Storage corruption detected: links data is of unexpected type', {
-                        dataType: typeof data.links,
-                        dataValue: typeof data.links === 'object' ? JSON.stringify(data.links).substring(0, 200) : data.links
-                    });
-                    links = [];
-                }
-            } else {
-                debug('STORAGE_MANAGER: No links data found in storage');
-            }
-        } catch (validationError) {
-            debugError('STORAGE_MANAGER: Storage validation error: unexpected error during links validation', {
-                errorMessage: validationError.message,
-                errorStack: validationError.stack
-            });
-            links = [];
-        }
+        // A corrupted value (an object, a non-array JSON string, unparseable
+        // JSON) reads as empty: links [], categories ['Default'].
+        const links = storedArray(data.links, 'links') ?? [];
+        debug('STORAGE_MANAGER: Links ready', { linksCount: links.length });
 
-        // Parse categories with similar corruption handling
-        let categories = ['Default'];
-        try {
-            if (data.categories) {
-                if (typeof data.categories === 'object' && !Array.isArray(data.categories)) {
-                    debugWarn('STORAGE_MANAGER: Categories corruption - is object instead of array');
-                    categories = ['Default'];
-                } else if (typeof data.categories === 'string') {
-                    try {
-                        const parsedCategories = JSON.parse(data.categories);
-                        categories = Array.isArray(parsedCategories) ? parsedCategories : ['Default'];
-                    } catch {
-                        debugWarn('STORAGE_MANAGER: Failed to parse categories JSON');
-                        categories = ['Default'];
-                    }
-                } else if (Array.isArray(data.categories)) {
-                    categories = data.categories;
-                }
-            }
-            // Ensure Default category exists
-            if (!categories.includes('Default')) {
-                categories.unshift('Default');
-            }
-        } catch (catError) {
-            debugError('STORAGE_MANAGER: Categories validation error', catError);
-            categories = ['Default'];
+        const categories = storedArray(data.categories, 'categories') ?? ['Default'];
+        // Ensure Default category exists
+        if (!categories.includes('Default')) {
+            categories.unshift('Default');
         }
 
         // Ensure every link has a stable id. The manage page resolves a rendered

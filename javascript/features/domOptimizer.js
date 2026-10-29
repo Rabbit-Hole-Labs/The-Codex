@@ -24,6 +24,26 @@ let performanceMetrics = {
     lastRenderTimestamp: 0
 };
 
+// Fill diff.linksAdded/linksRemoved/linksModified, matching links by url.
+function diffLinksByUrl(oldLinks, newLinks, diff) {
+    const oldLinkMap = new Map(oldLinks.map(link => [link.url, link]));
+    const newLinkMap = new Map(newLinks.map(link => [link.url, link]));
+
+    for (const link of newLinks) {
+        const oldLink = oldLinkMap.get(link.url);
+        if (!oldLink) {
+            diff.linksAdded.push(link);
+        } else if (JSON.stringify(oldLink) !== JSON.stringify(link)) {
+            diff.linksModified.push(link);
+        }
+    }
+    for (const link of oldLinks) {
+        if (!newLinkMap.has(link.url)) {
+            diff.linksRemoved.push(link);
+        }
+    }
+}
+
 /**
  * Calculates the difference between two states for incremental updates
  * @param {Object} oldState - Previous state
@@ -83,35 +103,8 @@ function calculateStateDiff(oldState, newState) {
 
     // Check for specific link changes
     if (!diff.linksChanged) {
-        const oldLinkMap = new Map(oldLinks.map(link => [link.url, link]));
-        const newLinkMap = new Map(newLinks.map(link => [link.url, link]));
-
-        // Find added links
-        newState.links.forEach(link => {
-            if (!oldLinkMap.has(link.url)) {
-                diff.linksAdded.push(link);
-            }
-        });
-
-        // Find removed links
-        oldState.links.forEach(link => {
-            if (!newLinkMap.has(link.url)) {
-                diff.linksRemoved.push(link);
-            }
-        });
-
-        // Find modified links
-        newState.links.forEach(link => {
-            const oldLink = oldLinkMap.get(link.url);
-            if (oldLink && JSON.stringify(oldLink) !== JSON.stringify(link)) {
-                diff.linksModified.push(link);
-            }
-        });
-
-        // If any specific changes found, mark as changed
-        if (diff.linksAdded.length > 0 || diff.linksRemoved.length > 0 || diff.linksModified.length > 0) {
-            diff.linksChanged = true;
-        }
+        diffLinksByUrl(oldLinks, newLinks, diff);
+        diff.linksChanged = diff.linksAdded.length > 0 || diff.linksRemoved.length > 0 || diff.linksModified.length > 0;
     }
 
     // Check categories

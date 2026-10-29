@@ -200,6 +200,119 @@ function isSuspiciousUrl(url) {
     return suspiciousPatterns.some(pattern => pattern.test(url));
 }
 
+const allowsString = fieldSchema =>
+    fieldSchema.type === 'string' || (Array.isArray(fieldSchema.type) && fieldSchema.type.includes('string'));
+
+const preview = value => value.substring(0, 50) + (value.length > 50 ? '...' : '');
+
+// validateSchema's checks for a present (non-null) value, in order. Each
+// returns nothing when the value passes, or the first failure as
+// { error, warning, details, level? }: error is recorded after "<path>: ",
+// warning is logged after "VALIDATION ERROR: " at console[level || 'warn'].
+const FIELD_CHECKS = [
+    function checkType(value, fieldSchema, path) {
+        if (!fieldSchema.type) return;
+        if (fieldSchema.type === 'array' && Array.isArray(value)) return;
+        const expectedTypes = Array.isArray(fieldSchema.type) ? fieldSchema.type : [fieldSchema.type];
+        const actualType = typeof value;
+        if (expectedTypes.includes(actualType)) return;
+        return {
+            error: `Expected ${expectedTypes.join(' or ')}, got ${actualType}`,
+            warning: `Type mismatch for ${path}`,
+            details: { expected: expectedTypes, actual: actualType, value: value }
+        };
+    },
+
+    function checkRequired(value, fieldSchema, path) {
+        if (!fieldSchema.required || value !== '') return;
+        return {
+            error: 'Field is required but was empty string',
+            warning: `Required field missing ${path}`,
+            details: { value: value }
+        };
+    },
+
+    function checkLength(value, fieldSchema, path) {
+        if (!allowsString(fieldSchema)) return;
+        if (fieldSchema.minLength && value.length < fieldSchema.minLength) {
+            return {
+                error: `Minimum length is ${fieldSchema.minLength}, got ${value.length} characters`,
+                warning: `String too short for ${path}`,
+                details: { minLength: fieldSchema.minLength, actualLength: value.length, value: preview(value) }
+            };
+        }
+        if (fieldSchema.maxLength && value.length > fieldSchema.maxLength) {
+            return {
+                error: `Maximum length is ${fieldSchema.maxLength}, got ${value.length} characters`,
+                warning: `String too long for ${path}`,
+                details: { maxLength: fieldSchema.maxLength, actualLength: value.length, value: preview(value) }
+            };
+        }
+    },
+
+    function checkPattern(value, fieldSchema, path) {
+        if (!allowsString(fieldSchema) || !fieldSchema.pattern || !value) return;
+        let regex;
+        try {
+            regex = new RegExp(fieldSchema.pattern);
+        } catch (e) {
+            return {
+                error: `Invalid pattern in schema: ${e.message}`,
+                warning: `Invalid regex pattern for ${path}`,
+                details: { pattern: fieldSchema.pattern, error: e.message },
+                level: 'error'
+            };
+        }
+        if (regex.test(value)) return;
+        return {
+            error: `Value does not match required pattern. Expected pattern: ${fieldSchema.pattern}`,
+            warning: `Pattern mismatch for ${path}`,
+            details: { pattern: fieldSchema.pattern, value: preview(value) }
+        };
+    },
+
+    function checkRange(value, fieldSchema, path) {
+        if (fieldSchema.type !== 'number' || typeof value !== 'number') return;
+        if (fieldSchema.min !== undefined && value < fieldSchema.min) {
+            return {
+                error: `Minimum value is ${fieldSchema.min}, got ${value}`,
+                warning: `Number too small for ${path}`,
+                details: { minValue: fieldSchema.min, actualValue: value }
+            };
+        }
+        if (fieldSchema.max !== undefined && value > fieldSchema.max) {
+            return {
+                error: `Maximum value is ${fieldSchema.max}, got ${value}`,
+                warning: `Number too large for ${path}`,
+                details: { maxValue: fieldSchema.max, actualValue: value }
+            };
+        }
+    },
+
+    function checkEnum(value, fieldSchema, path) {
+        if (!fieldSchema.enum || fieldSchema.enum.includes(value)) return;
+        return {
+            // Custom message format for the size field (tests expect it)
+            error: path === 'size'
+                ? `Invalid size value: ${value}`
+                : `Value must be one of: ${fieldSchema.enum.join(', ')}, got ${value}`,
+            warning: `Invalid enum value for ${path}`,
+            details: { validValues: fieldSchema.enum, actualValue: value }
+        };
+    },
+
+    function checkCustom(value, fieldSchema, path) {
+        if (!fieldSchema.validate || typeof fieldSchema.validate !== 'function') return;
+        const customResult = fieldSchema.validate(value);
+        if (customResult === true) return;
+        return {
+            error: typeof customResult === 'string' ? customResult : `Custom validation failed for ${path}`,
+            warning: `Custom validation failed for ${path}`,
+            details: { value: value, result: customResult }
+        };
+    }
+];
+
 /**
  * Schema validation for user inputs
  * Validates data structure and content against predefined schemas
@@ -232,138 +345,11 @@ export function validateSchema(data, schema) {
             return true;
         }
 
-        // Type validation with enhanced error reporting
-        if (fieldSchema.type) {
-            const expectedTypes = Array.isArray(fieldSchema.type) ? fieldSchema.type : [fieldSchema.type];
-            const actualType = typeof value;
-            
-            // Special handling for null values - must come before other type checks
-            if (value === null) {
-                if (expectedTypes.includes('null')) {
-                    console.log(`VALIDATION: Null value accepted for ${currentPath}`);
-                    return true; // Skip other validations for null
-                } else {
-                    errors.push(`${currentPath}: Expected ${expectedTypes.join(' or ')}, got null`);
-                    console.warn(`VALIDATION ERROR: Null not allowed for ${currentPath}`);
-                    return false;
-                }
-            }
-            
-            // Special handling for arrays
-            if (fieldSchema.type === 'array' && Array.isArray(value)) {
-                // Valid array
-            } else if (!expectedTypes.includes(actualType)) {
-                errors.push(`${currentPath}: Expected ${expectedTypes.join(' or ')}, got ${actualType}`);
-                console.warn(`VALIDATION ERROR: Type mismatch for ${currentPath}`, {
-                    expected: expectedTypes,
-                    actual: actualType,
-                    value: value
-                });
-                return false;
-            }
-        }
-
-        // Required validation with detailed error reporting
-        if (fieldSchema.required && (value === undefined || value === null || value === '')) {
-            errors.push(`${currentPath}: Field is required but was ${value === undefined ? 'undefined' : value === null ? 'null' : 'empty string'}`);
-            console.warn(`VALIDATION ERROR: Required field missing ${currentPath}`, {
-                value: value
-            });
-            return false;
-        }
-
-        // Length validation for strings with enhanced error reporting
-        if (fieldSchema.type === 'string' || (Array.isArray(fieldSchema.type) && fieldSchema.type.includes('string'))) {
-            if (fieldSchema.minLength && value.length < fieldSchema.minLength) {
-                errors.push(`${currentPath}: Minimum length is ${fieldSchema.minLength}, got ${value.length} characters`);
-                console.warn(`VALIDATION ERROR: String too short for ${currentPath}`, {
-                    minLength: fieldSchema.minLength,
-                    actualLength: value.length,
-                    value: value.substring(0, 50) + (value.length > 50 ? '...' : '')
-                });
-                return false;
-            }
-            if (fieldSchema.maxLength && value.length > fieldSchema.maxLength) {
-                errors.push(`${currentPath}: Maximum length is ${fieldSchema.maxLength}, got ${value.length} characters`);
-                console.warn(`VALIDATION ERROR: String too long for ${currentPath}`, {
-                    maxLength: fieldSchema.maxLength,
-                    actualLength: value.length,
-                    value: value.substring(0, 50) + (value.length > 50 ? '...' : '')
-                });
-                return false;
-            }
-        }
-
-        // Pattern validation for strings with enhanced error reporting
-        if ((fieldSchema.type === 'string' || (Array.isArray(fieldSchema.type) && fieldSchema.type.includes('string'))) && fieldSchema.pattern && value) {
-            try {
-                const regex = new RegExp(fieldSchema.pattern);
-                if (!regex.test(value)) {
-                    errors.push(`${currentPath}: Value does not match required pattern. Expected pattern: ${fieldSchema.pattern}`);
-                    console.warn(`VALIDATION ERROR: Pattern mismatch for ${currentPath}`, {
-                        pattern: fieldSchema.pattern,
-                        value: value.substring(0, 50) + (value.length > 50 ? '...' : '')
-                    });
-                    return false;
-                }
-            } catch (e) {
-                errors.push(`${currentPath}: Invalid pattern in schema: ${e.message}`);
-                console.error(`VALIDATION ERROR: Invalid regex pattern for ${currentPath}`, {
-                    pattern: fieldSchema.pattern,
-                    error: e.message
-                });
-                return false;
-            }
-        }
-
-        // Range validation for numbers with enhanced error reporting
-        if (fieldSchema.type === 'number' && typeof value === 'number') {
-            if (fieldSchema.min !== undefined && value < fieldSchema.min) {
-                errors.push(`${currentPath}: Minimum value is ${fieldSchema.min}, got ${value}`);
-                console.warn(`VALIDATION ERROR: Number too small for ${currentPath}`, {
-                    minValue: fieldSchema.min,
-                    actualValue: value
-                });
-                return false;
-            }
-            if (fieldSchema.max !== undefined && value > fieldSchema.max) {
-                errors.push(`${currentPath}: Maximum value is ${fieldSchema.max}, got ${value}`);
-                console.warn(`VALIDATION ERROR: Number too large for ${currentPath}`, {
-                    maxValue: fieldSchema.max,
-                    actualValue: value
-                });
-                return false;
-            }
-        }
-
-        // Enum validation with enhanced error reporting
-        if (value === null) {
-            // Null handling is done in type validation, skip enum check
-            console.log(`VALIDATION: Skipping enum check for null value ${currentPath}`);
-        } else if (fieldSchema.enum && !fieldSchema.enum.includes(value)) {
-            // Use custom error message format for size field to match test expectations
-            if (currentPath === 'size') {
-                errors.push(`${currentPath}: Invalid size value: ${value}`);
-            } else {
-                errors.push(`${currentPath}: Value must be one of: ${fieldSchema.enum.join(', ')}, got ${value}`);
-            }
-            console.warn(`VALIDATION ERROR: Invalid enum value for ${currentPath}`, {
-                validValues: fieldSchema.enum,
-                actualValue: value
-            });
-            return false;
-        }
-
-        // Custom validation function with enhanced error reporting
-        if (fieldSchema.validate && typeof fieldSchema.validate === 'function') {
-            const customResult = fieldSchema.validate(value);
-            if (customResult !== true) {
-                const errorMessage = typeof customResult === 'string' ? customResult : `Custom validation failed for ${currentPath}`;
-                errors.push(`${currentPath}: ${errorMessage}`);
-                console.warn(`VALIDATION ERROR: Custom validation failed for ${currentPath}`, {
-                    value: value,
-                    result: customResult
-                });
+        for (const check of FIELD_CHECKS) {
+            const failure = check(value, fieldSchema, currentPath);
+            if (failure) {
+                errors.push(`${currentPath}: ${failure.error}`);
+                console[failure.level || 'warn'](`VALIDATION ERROR: ${failure.warning}`, failure.details);
                 return false;
             }
         }
