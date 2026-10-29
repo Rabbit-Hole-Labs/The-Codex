@@ -633,90 +633,121 @@ export async function exportLinks(state) {
     }
 }
 
+/**
+ * Read a user-picked file as text.
+ * @param {Blob} file
+ * @returns {Promise<string>}
+ */
+function readFileAsText(file) {
+    const reader = new FileReader();
+    return new Promise((resolve, reject) => {
+        reader.onload = (e) => resolve(e.target.result);
+        reader.onerror = (e) => reject(e);
+        reader.readAsText(file);
+    });
+}
+
+/**
+ * The link list of a parsed import file: either its "links" array property or
+ * the file itself when it is a root-level array. Throws on anything else.
+ * @param {*} data - parsed JSON
+ * @returns {Array}
+ */
+function importedLinkList(data) {
+    // Check if data.links exists and is an array
+    if (data.links && Array.isArray(data.links)) {
+        return data.links;
+    }
+    // Check if data itself is an array (root-level links)
+    if (Array.isArray(data)) {
+        return data;
+    }
+    // Invalid format
+    throw new Error('Invalid file format: Expected either a "links" array property or root-level array of link objects');
+}
+
+/**
+ * Check one imported link's shape: an object with string name/url/category
+ * and a URL that parses. Throws with the link's index on the first problem.
+ * @param {*} link
+ * @param {number} i - index in the imported list, for the error message
+ */
+function assertImportedLinkShape(link, i) {
+    if (!link || typeof link !== 'object') {
+        throw new Error(`Invalid link at index ${i}: Link must be an object`);
+    }
+
+    // Check required properties
+    for (const field of ['name', 'url', 'category']) {
+        if (!link[field] || typeof link[field] !== 'string') {
+            throw new Error(`Invalid link at index ${i}: Link must have a "${field}" property (string)`);
+        }
+    }
+
+    // Validate URL format
+    try {
+        new URL(link.url);
+    } catch {
+        throw new Error(`Invalid link at index ${i}: Link has an invalid URL format`);
+    }
+}
+
+/**
+ * Sanitize an already shape-checked imported link in place. An imported file
+ * is an untrusted boundary (security review #54): new URL() accepts
+ * javascript:/data: schemes, so re-validate the URL and strip any markup from
+ * the display fields.
+ * @param {Object} link - mutated
+ * @param {number} i - index in the imported list, for the error message
+ */
+function sanitizeImportedLink(link, i) {
+    const safeUrl = validateAndSanitizeUrl(link.url);
+    if (safeUrl === '#') {
+        throw new Error(`Invalid link at index ${i}: URL uses an unsupported or unsafe scheme`);
+    }
+    link.url = safeUrl;
+    link.name = sanitizeUserInput(link.name, { maxLength: 100 });
+    link.category = sanitizeUserInput(link.category, { maxLength: 50 });
+    if (link.icon != null && link.icon !== 'default') {
+        // Imported icons must pass the same source rules as the forms
+        // (selfh.st/jsDelivr https or data: image). Coerce failures to
+        // 'default' (automatic icon) instead of failing the whole
+        // import — old exports commonly carry dead favicon URLs.
+        const iconCheck = validateIconValue(link.icon);
+        link.icon = iconCheck.valid ? iconCheck.value : 'default';
+    }
+}
+
+/**
+ * The sanitized category list of an import file, falling back to
+ * ['Default'] when it has none (or none survive sanitizing).
+ * @param {*} data - parsed JSON
+ * @returns {string[]}
+ */
+function importedCategories(data) {
+    const categories = (Array.isArray(data.categories) ? data.categories : ['Default'])
+        .map(category => sanitizeUserInput(String(category), { maxLength: 50 }))
+        .filter(category => category.length > 0);
+    return categories.length === 0 ? ['Default'] : categories;
+}
+
 // Import links from JSON file
 export async function importLinks(state, file) {
     try {
-        const reader = new FileReader();
-        const fileContent = await new Promise((resolve, reject) => {
-            reader.onload = (e) => resolve(e.target.result);
-            reader.onerror = (e) => reject(e);
-            reader.readAsText(file);
-        });
-
+        const fileContent = await readFileAsText(file);
         const data = JSON.parse(fileContent);
-        
-        // Validate imported data - more flexible approach
-        let linksToImport = [];
-        
-        // Check if data.links exists and is an array
-        if (data.links && Array.isArray(data.links)) {
-            linksToImport = data.links;
-        }
-        // Check if data itself is an array (root-level links)
-        else if (Array.isArray(data)) {
-            linksToImport = data;
-        }
-        // Invalid format
-        else {
-            throw new Error('Invalid file format: Expected either a "links" array property or root-level array of link objects');
-        }
 
-        // Validate each link object
-        for (let i = 0; i < linksToImport.length; i++) {
-            const link = linksToImport[i];
-            if (!link || typeof link !== 'object') {
-                throw new Error(`Invalid link at index ${i}: Link must be an object`);
-            }
-            
-            // Check required properties
-            if (!link.name || typeof link.name !== 'string') {
-                throw new Error(`Invalid link at index ${i}: Link must have a "name" property (string)`);
-            }
-            
-            if (!link.url || typeof link.url !== 'string') {
-                throw new Error(`Invalid link at index ${i}: Link must have a "url" property (string)`);
-            }
-            
-            if (!link.category || typeof link.category !== 'string') {
-                throw new Error(`Invalid link at index ${i}: Link must have a "category" property (string)`);
-            }
-            
-            // Validate URL format
-            try {
-                new URL(link.url);
-            } catch {
-                throw new Error(`Invalid link at index ${i}: Link has an invalid URL format`);
-            }
+        const linksToImport = importedLinkList(data);
 
-            // Sanitize untrusted fields before storing. An imported file is an
-            // untrusted boundary (security review #54): new URL() above accepts
-            // javascript:/data: schemes, so re-validate the URL and strip any
-            // markup from the display fields.
-            const safeUrl = validateAndSanitizeUrl(link.url);
-            if (safeUrl === '#') {
-                throw new Error(`Invalid link at index ${i}: URL uses an unsupported or unsafe scheme`);
-            }
-            link.url = safeUrl;
-            link.name = sanitizeUserInput(link.name, { maxLength: 100 });
-            link.category = sanitizeUserInput(link.category, { maxLength: 50 });
-            if (link.icon != null && link.icon !== 'default') {
-                // Imported icons must pass the same source rules as the forms
-                // (selfh.st/jsDelivr https or data: image). Coerce failures to
-                // 'default' (automatic icon) instead of failing the whole
-                // import — old exports commonly carry dead favicon URLs.
-                const iconCheck = validateIconValue(link.icon);
-                link.icon = iconCheck.valid ? iconCheck.value : 'default';
-            }
-        }
+        // Validate and sanitize each link object
+        linksToImport.forEach((link, i) => {
+            assertImportedLinkShape(link, i);
+            sanitizeImportedLink(link, i);
+        });
 
         // Update state with imported data
         state.links = linksToImport;
-        state.categories = (Array.isArray(data.categories) ? data.categories : ['Default'])
-            .map(category => sanitizeUserInput(String(category), { maxLength: 50 }))
-            .filter(category => category.length > 0);
-        if (state.categories.length === 0) {
-            state.categories = ['Default'];
-        }
+        state.categories = importedCategories(data);
         state.theme = data.theme || 'dark';
         state.view = data.view || 'grid';
         state.colorTheme = data.colorTheme || 'default';
