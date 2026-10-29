@@ -4,6 +4,46 @@ import { dataVerification } from './dataVerification.js';
 import { getCapturedErrors, clearCapturedErrors, formatCapturedErrors } from './errorCapture.js';
 import { downloadJsonFile } from './utils.js';
 
+/**
+ * Set an element's text when the element exists.
+ * @param {HTMLElement|null|undefined} element
+ * @param {string} text
+ */
+function setText(element, text) {
+    if (element) element.textContent = text;
+}
+
+/**
+ * Render a sync version timestamp, or '-' when none is recorded.
+ * @param {number|undefined} version
+ * @returns {string}
+ */
+function formatVersion(version) {
+    return version ? new Date(version).toLocaleString() : '-';
+}
+
+/**
+ * Render the overall sync state. Consistent with the header pill: a profile
+ * that has data in chrome.storage.sync (or has ever recorded a sync) is
+ * synced, even before versioned metadata exists. Only a truly empty,
+ * never-synced profile shows "Not synced yet" rather than a green "In Sync"
+ * (matches the newtab indicator's neverSynced treatment).
+ * @param {HTMLElement|null|undefined} element
+ * @param {object} status - syncManager.getSyncStatus() result
+ */
+function renderSyncState(element, status) {
+    if (!element) return;
+    const neverSynced = !status.lastSyncTime && !status.localVersion
+        && !status.remoteVersion && !status.hasData;
+    if (neverSynced) {
+        element.textContent = 'Not synced yet';
+        element.style.color = '#ff9800';
+        return;
+    }
+    element.textContent = status.isInSync ? 'In Sync' : 'Out of Sync';
+    element.style.color = status.isInSync ? '#4caf50' : '#ff9800';
+}
+
 export class SyncSettingsController {
     constructor() {
         this.elements = {};
@@ -176,42 +216,12 @@ export class SyncSettingsController {
         try {
             const status = await syncManager.getSyncStatus();
 
-            // Update status info. A version of 0/falsy on both sides means no
-            // sync has ever been recorded — don't render that as a green
-            // "In Sync" (matches the newtab indicator's neverSynced treatment).
-            if (this.elements.currentStatus) {
-                // Consistent with the header pill: a profile that has data in
-                // chrome.storage.sync (or has ever recorded a sync) is synced,
-                // even before versioned metadata exists. Only a truly empty,
-                // never-synced profile shows "Not synced yet".
-                const neverSynced = !status.lastSyncTime && !status.localVersion
-                    && !status.remoteVersion && !status.hasData;
-                if (neverSynced) {
-                    this.elements.currentStatus.textContent = 'Not synced yet';
-                    this.elements.currentStatus.style.color = '#ff9800';
-                } else {
-                    this.elements.currentStatus.textContent = status.isInSync ? 'In Sync' : 'Out of Sync';
-                    this.elements.currentStatus.style.color = status.isInSync ? '#4caf50' : '#ff9800';
-                }
-            }
-
-            if (this.elements.lastSyncTime) {
-                this.elements.lastSyncTime.textContent = status.lastSyncTime
-                    ? this.formatTime(status.lastSyncTime)
-                    : 'Never';
-            }
-
-            if (this.elements.localVersion) {
-                this.elements.localVersion.textContent = status.localVersion
-                    ? new Date(status.localVersion).toLocaleString()
-                    : '-';
-            }
-
-            if (this.elements.remoteVersion) {
-                this.elements.remoteVersion.textContent = status.remoteVersion
-                    ? new Date(status.remoteVersion).toLocaleString()
-                    : '-';
-            }
+            renderSyncState(this.elements.currentStatus, status);
+            setText(this.elements.lastSyncTime, status.lastSyncTime
+                ? this.formatTime(status.lastSyncTime)
+                : 'Never');
+            setText(this.elements.localVersion, formatVersion(status.localVersion));
+            setText(this.elements.remoteVersion, formatVersion(status.remoteVersion));
 
             // Update storage info
             this.updateStorageDisplay(status);
