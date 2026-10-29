@@ -9,7 +9,8 @@ import { getState, addStateChangeListener, safeUpdateState } from '../core-syste
 import { getPerformanceMetrics, resetPerformanceMetrics } from '../features/domOptimizer.js';
 import { createCategorySection, renderNoResults } from '../core-systems/tileRenderer.js';
 import { handleError, safeAsync, registerErrorHandler } from '../features/errorHandler.js';
-import { loadIconWithCache, getCacheStats, resolveCachedIcons, refreshCachedIcon, generateInitials } from '../features/iconCache.js';
+import { loadIconWithCache, getCacheStats, resolveCachedIcons, refreshCachedIcon, generateInitials, setSelfhstMatchListener } from '../features/iconCache.js';
+import { queueAutoIcon, hasAutomaticIcon } from '../features/autoIconSync.js';
 import { syncStatusIndicator } from '../features/syncStatusIndicator.js';
 import '../features/consoleCommands.js';
 import { debug } from '../core-systems/debug.js';
@@ -549,6 +550,10 @@ function sanitizeLoadedCategories(stored) {
 const CACHED_ICON_WAIT_MS = 300;
 // Icons resolved at once after the first paint (network politeness).
 const ICON_LOAD_CONCURRENCY = 6;
+
+// A logo matched by name is saved to its link, so every device shows it
+// without matching again (autoIconSync.js).
+setSelfhstMatchListener(queueAutoIcon);
 
 // Bumped by every render. A render waits for the stored-icon lookup, so it
 // checks this afterwards and gives way to a newer one: an older view must
@@ -1293,6 +1298,16 @@ function watchNetworkIcon(link, iconElement) {
 }
 
 /**
+ * A logo the first paint took from this device's remembered matches (made
+ * before matches were saved to the link): save it to the link now.
+ * @param {Object} link
+ * @param {{storedUrl: string|null}|undefined} cached - from resolveCachedIcons
+ */
+function saveRememberedMatch(link, cached) {
+    if (cached?.storedUrl && hasAutomaticIcon(link)) queueAutoIcon(link, cached.storedUrl);
+}
+
+/**
  * Resolve one tile's icon (see loadIconsWithCaching).
  * @param {Object} link
  * @param {HTMLImageElement} iconElement
@@ -1300,6 +1315,7 @@ function watchNetworkIcon(link, iconElement) {
  */
 async function loadTileIcon(link, iconElement, cached) {
     try {
+        saveRememberedMatch(link, cached);
         if (cached?.fresh) {
             if (cached.network) watchNetworkIcon(link, iconElement);
             else await refreshCachedIcon(cached);

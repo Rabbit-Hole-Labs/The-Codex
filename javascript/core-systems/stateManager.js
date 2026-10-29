@@ -6,6 +6,7 @@
 import { validateLink } from '../features/securityUtils.js';
 import { SETTING_ENUMS, MAX_CATEGORY_LENGTH, SYNC_RESOLVED_AT_KEY, STORED_SETTING_DEFAULTS } from './storageFormat.js';
 import { syncGet, syncSet, readSyncLinks, isLinkStorageKey, LINKS_KEY } from './syncStorage.js';
+import { withLinksWriteLock } from './storageLock.js';
 
 // State validation schemas
 const stateSchemas = {
@@ -702,7 +703,7 @@ async function persistToStorage(updates) {
 
     try {
         isWritingToStorage = true;
-        await syncSet(toStore);
+        await withLinksWriteLock(() => syncSet(toStore));
     } catch (error) {
         console.error('Failed to persist state to storage:', error);
     } finally {

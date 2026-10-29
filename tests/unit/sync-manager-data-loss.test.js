@@ -94,8 +94,8 @@ describe('Regression: SyncManager must not revert cloud data', () => {
 
         const edited = [...original, link(3)];
         expect(await saveLinks(edited)).toBe(true);
-        // The edit reached sync only; local still holds the snapshot.
-        expect(stored(fake, 'local', 'links')).toEqual(original);
+        // The edit reached sync, and this device's local copy follows it.
+        expect(stored(fake, 'local', 'links')).toEqual(edited);
 
         const second = await syncManager.syncData();
         expect(second.success).toBe(true);
@@ -131,15 +131,19 @@ describe('Regression: SyncManager must not revert cloud data', () => {
         expect(stored(fake, 'local', 'links')).toEqual(cloudEdit);
     });
 
-    test('Force push with equal versions uploads this device\'s local copy', async () => {
-        const original = [link(1)];
+    test('Force push with equal versions uploads this device\'s latest save, not its last-sync snapshot', async () => {
+        const original = [link(1), link(2), link(3)];
         fake.seed('sync', { links: JSON.stringify(original), categories: JSON.stringify(['Default']) });
         await syncManager.syncData();
-        await saveLinks([link(1), link(2)]);
+        const afterDelete = [link(1), link(3)];
+        await saveLinks(afterDelete);
+        // Another device saves after that (no manual sync, so equal versions).
+        fake.seed('sync', encodeLinksForSync(JSON.stringify([...afterDelete, link(4)])).items);
 
         const result = await syncManager.forcePushToRemote();
         expect(result.success).toBe(true);
-        expect(stored(fake, 'sync', 'links')).toEqual(original);
+        // This device's own deletion stays deleted.
+        expect(stored(fake, 'sync', 'links')).toEqual(afterDelete);
     });
 
     test('C: first run with empty sync and populated local still migrates local to sync', async () => {
@@ -1929,14 +1933,16 @@ describe('Regression: pages, locks and the sync\'s local phase', () => {
         const g = gate('local', 'get', (k) => keysOf(k).length === 1 && keysOf(k)[0] === 'pendingSyncSince.links', 'before');
         const saveA = A.sm.saveLinks([link(1), link(2)]);
         await g.reached;
-        // C's save is rate-limited and falls back meanwhile.
+        // C's save is rate-limited and falls back. The links-write lock makes
+        // it wait for A's save to finish, so A can't drop C's marker.
         const stop = failSaveWrites();
         const saveC = Cp.sm.saveLinks([link(1), link(2), link(3)]);
         await settle(3);
-        stop();
+        expect(markers()['pendingSyncSince.links']).toBeUndefined(); // C still waiting
         g.release();
         await saveA;
         await saveC;
+        stop();
 
         expect(markers()['pendingSyncSince.links']).toBeDefined();
         await A.mgr.syncData();

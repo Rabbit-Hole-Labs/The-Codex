@@ -5,7 +5,7 @@ import * as CategoryManager from '../core-systems/categoryManager.js';
 import * as UIManager from '../core-systems/uiManager.js';
 import * as StorageManager from '../core-systems/storageManager.js';
 import { getState, safeUpdateState, addStorageAppliedListener } from '../core-systems/stateManager.js';
-import { escapeHtml } from '../features/utils.js';
+import { escapeHtml, debounce } from '../features/utils.js';
 import { MAX_CATEGORY_LENGTH } from '../core-systems/storageFormat.js';
 import { syncStatusIndicator } from '../features/syncStatusIndicator.js';
 import { syncSettingsController } from '../features/syncSettingsController.js';
@@ -74,7 +74,8 @@ async function init() {
 
         // Event Listeners
         elements.linkForm.addEventListener('submit', handleLinkFormSubmit);
-        elements.filterCategory.addEventListener('change', () => UIManager.filterLinks(getState()));
+        elements.filterCategory.addEventListener('change', applyLinkFilters);
+        elements.linkSearch?.addEventListener('input', debounce(applyLinkFilters, 150));
         elements.selectAllCheckbox.addEventListener('change', UIManager.handleSelectAll);
         elements.bulkDeleteBtn.addEventListener('click', handleBulkDelete);
         elements.bulkMoveBtn.addEventListener('click', handleBulkMove);
@@ -726,14 +727,22 @@ export function handleSyncCleared() {
     refreshLinkList();
 }
 
+// A new search or category: show page 1 of the matching links. "Select all"
+// is dropped — it meant every link of the previous filter, and kept, a bulk
+// action would apply it to the new set unseen.
+function applyLinkFilters() {
+    UIManager.getElements().selectAllCheckbox.checked = false;
+    UIManager.filterLinks(getState());
+}
+
 // Re-derive the rendered list (filteredLinks) from state.links under the
 // current category filter and re-render it. With keepPage the current page is
 // kept (clamped), and nothing is re-rendered when the list didn't change, so a
 // routine Sync now doesn't jump back to page 1 or drop the selection.
 export function refreshLinkList({ keepPage = false } = {}) {
     const state = getState();
-    const category = document.getElementById('filterCategory')?.value ?? 'all';
-    const filteredLinks = category === 'all' ? [...state.links] : state.links.filter(link => link.category === category);
+    const filters = UIManager.currentFilters();
+    const filteredLinks = state.links.filter(link => UIManager.linkMatchesFilters(link, filters));
     const lastPage = Math.max(1, Math.ceil(filteredLinks.length / state.linksPerPage));
     const currentPage = keepPage ? Math.min(state.currentPage, lastPage) : 1;
     if (keepPage && currentPage === state.currentPage

@@ -293,6 +293,34 @@ describe('package-extension', () => {
         expect(validateManifest({ ...MANIFEST, name: 'N'.repeat(75) })).toEqual([]);
     });
 
+    test('manifest checks report each problem, in a fixed order', () => {
+        expect(validateManifest({ ...MANIFEST, name: ' ' })).toEqual(['name is required']);
+        expect(validateManifest({ ...MANIFEST, page_action: {} })).toEqual(['page_action is MV2-only; MV3 uses action']);
+        expect(validateManifest({ ...MANIFEST, declarative_net_request: { rule_resources: {} } }))
+            .toEqual(['declarative_net_request.rule_resources must be an array']);
+        const rulesets = [{ id: 'r', enabled: true, path: 'a.json' }, { id: 'r', enabled: false, path: 'b.json' }];
+        expect(validateManifest({ ...MANIFEST, declarative_net_request: { rule_resources: rulesets } }))
+            .toEqual(['declarative_net_request.rule_resources[1] repeats the ruleset id "r"']);
+        expect(validateManifest({ ...MANIFEST, content_scripts: [null] })).toEqual(['content_scripts[0] must be an object']);
+        expect(validateManifest({
+            ...MANIFEST, name: '', version: '1.02', description: 5, icons: [], page_action: {},
+            content_security_policy: { extension_pages: "script-src 'self' https://cdn.example.com", sandbox: 'script-src x' },
+            permissions: 'storage', content_scripts: [{ matches: ['bad'] }], web_accessible_resources: []
+        })).toEqual([
+            'name is required',
+            'version "1.02" must be 1-4 dot-separated integers 0-65535, no leading zeros, not all zero',
+            'description must be a string',
+            'icons must be an object',
+            'page_action is MV2-only; MV3 uses action',
+            'content_security_policy.sandbox must include the sandbox directive',
+            'permissions must be an array of strings',
+            'content_scripts[0] needs js or css',
+            'content_scripts[0].matches[0] "bad" isn\'t a match pattern (<scheme>://<host><path> or <all_urls>)',
+            "content_security_policy.extension_pages script-src allows https://cdn.example.com; MV3 only permits 'self', 'none', 'wasm-unsafe-eval' and localhost there",
+            'manifest key "web_accessible_resources" is not understood by the packager; add it to PATH_FIELDS or NON_PATH_KEYS in scripts/package-extension.js'
+        ]);
+    });
+
     test('hidden directories are not packaged and symlinks are refused', () => {
         writeFixture(root, fixtureFiles({ 'javascript/.idea/workspace.json': '{}', 'assets/.git/HEAD': 'ref' }));
         expect(collectFiles(root).some((name) => name.includes('/.'))).toBe(false);
@@ -627,6 +655,16 @@ describe('package-extension', () => {
         expect(message).toContain('popup.html loads https://evil.example/x.png, which the manifest CSP blocks (img-src)');
         expect(message).toContain('popup.html references assets/missing.png');
         expect(message).not.toContain('nope.png'); // an HTML <title> is still RCDATA
+    });
+
+    test('link rel=icon is an image load; rel=prefetch falls under default-src', () => {
+        const message = buildError({
+            'manifest.json': JSON.stringify({ ...MANIFEST, content_security_policy: { extension_pages: "script-src 'self'; object-src 'none'; default-src 'self'; img-src 'self' https://cdn.example" } }),
+            'popup.html': '<link rel="icon" href="https://cdn.example/i.png"><link rel="prefetch" href="https://cdn.example/p.json">' +
+                '<script type="module" src="javascript/entry-points/popup.js"></script>'
+        });
+        expect(message).toContain('popup.html loads https://cdn.example/p.json, which the manifest CSP blocks (default-src)');
+        expect(message).not.toContain('i.png');
     });
 
     test('the manifest key must be a real public key', () => {

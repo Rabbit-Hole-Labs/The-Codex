@@ -6,8 +6,8 @@ import { sanitizeUserInput } from '../features/securityUtils.js';
 import { validateIconValue } from '../features/iconCache.js';
 import { debug, debugWarn, debugError } from './debug.js';
 import { pendingSyncKey, cloudValueFingerprint, SYNC_CLEARED_AT_KEY, coerceSettings, backfillLinkIds, SETTING_ENUMS, parseStoredArray } from './storageFormat.js';
-import { withPendingSyncLock } from './storageLock.js';
-import { syncGet, syncSet } from './syncStorage.js';
+import { withPendingSyncLock, withLinksWriteLock } from './storageLock.js';
+import { syncGet, syncSet, readSyncLinks } from './syncStorage.js';
 const { ERROR_TYPES, ERROR_SEVERITY } = errorHandler;
 
 // The cloud values a save is based on, read BEFORE its sync write: if that
@@ -56,8 +56,17 @@ async function writeFallback(values, fields, cloudBefore) {
 // finds the marker superseded and sets the edit aside instead of losing it.
 // For settings, a local copy left by a failed save is dropped with its marker
 // (or when unmarked: stale), so a later Force push can't upload it over this
-// newer value. Read, compare and remove happen under the pending-sync lock.
-async function clearPendingSync(fields, { localCopies = false } = {}) {
+// newer value. Lists instead pass `mirror` (field -> the value just saved to
+// sync): this device's local copy of each settled list becomes that value, so
+// it holds what the device shows rather than the snapshot of its last sync —
+// which a Force push or a merge would otherwise restore, bringing back links
+// deleted since. A field another page's marker still holds is left alone (its
+// local value is that page's unsynced edit), and so is a device that never
+// synced: its first Sync now merges local into the cloud, which would bring
+// back what other devices delete meanwhile. A sync that read the cloud before
+// this save can still write its older lists over the mirror; the next save
+// mirrors again. Read, compare and write happen under the pending-sync lock.
+async function clearPendingSync(fields, { localCopies = false, mirror = {} } = {}) {
     try {
         await withPendingSyncLock(async () => {
             const markers = await chrome.storage.local.get(fields.map(pendingSyncKey));
@@ -68,6 +77,13 @@ async function clearPendingSync(fields, { localCopies = false } = {}) {
             settled.forEach(field => knownMarkerIds.delete(field));
             if (settled.length > 0) {
                 await chrome.storage.local.remove([...settled.map(pendingSyncKey), ...(localCopies ? settled : [])]);
+            }
+            const toMirror = settled.filter(field => field in mirror);
+            if (toMirror.length > 0) {
+                const { syncMetadata } = await chrome.storage.local.get('syncMetadata');
+                if (syncMetadata?.version) {
+                    await chrome.storage.local.set(Object.fromEntries(toMirror.map(field => [field, mirror[field]])));
+                }
             }
         });
     } catch (error) {
@@ -157,7 +173,38 @@ export async function loadLinks() {
     }
 }
 
-export async function saveLinks(links) {
+/**
+ * Save the links to sync. When the sync write fails the links are kept on
+ * this device with a pending-sync marker, unless `fallback` is false (a
+ * background save that can simply try again): it then returns false and
+ * leaves local storage alone.
+ * @param {Object[]} links
+ * @param {{ fallback?: boolean }} [options]
+ * @returns {Promise<boolean>} whether the links were saved
+ */
+export function saveLinks(links, options) {
+    return withLinksWriteLock(() => writeLinks(links, options));
+}
+
+/**
+ * Change the synced links in one step: read them, let `transform` return the
+ * new list (or null for no change), and save it — with no other save from
+ * this browser in between. Never falls back to local storage.
+ * @param {(links: Object[]) => (Object[]|null|Promise<Object[]|null>)} transform
+ * @returns {Promise<boolean>} whether a changed list was saved
+ */
+export function updateSyncedLinks(transform) {
+    return withLinksWriteLock(async () => {
+        const { value, consistent } = await readSyncLinks();
+        const links = consistent ? parseStoredArray(value) : null;
+        if (!links) return false;
+        const updated = await transform(links);
+        return updated ? writeLinks(updated, { fallback: false }) : false;
+    });
+}
+
+// saveLinks without the links-write lock (its callers hold it).
+async function writeLinks(links, { fallback = true } = {}) {
     try {
         // Validate links is an array before saving
         if (!Array.isArray(links)) {
@@ -203,8 +250,12 @@ export async function saveLinks(links) {
         const cloudBefore = await cloudBeforeSave(['links']);
         try {
             await syncSet({ links: linksString });
-            await clearPendingSync(['links']);
+            await clearPendingSync(['links'], { mirror: { links: linksString } });
         } catch (syncError) {
+            if (!fallback) {
+                debugWarn('Sync storage failed; not saved', { errorMessage: syncError.message });
+                return false;
+            }
             debugWarn('Sync storage failed, falling back to local storage', {
                 errorMessage: syncError.message,
                 errorStack: syncError.stack
@@ -482,7 +533,7 @@ export async function saveCategories(categories) {
         const cloudBefore = await cloudBeforeSave(['categories']);
         try {
             await chrome.storage.sync.set({ categories: categoriesString });
-            await clearPendingSync(['categories']);
+            await clearPendingSync(['categories'], { mirror: { categories: categoriesString } });
         } catch (syncError) {
             debugWarn('Sync storage failed, falling back to local storage', {
                 errorMessage: syncError.message,
